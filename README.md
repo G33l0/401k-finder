@@ -84,7 +84,7 @@ This allows the system to distinguish between:
 
 Search by company and plan year:
 
-Company: Broulim's Supermarkets
+Company: G33l0's Supermarkets
 Year: 2025
 
 Historical datasets can be installed when needed instead of downloading every available year during initial setup.
