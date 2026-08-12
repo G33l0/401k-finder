@@ -1,5 +1,6 @@
 from app.database import get_connection
-from app.matching import exact_match, token_similarity, fuzzy_similarity
+from app.utils import normalize_company_name
+from app.matching import token_similarity
 import logging
 
 logger = logging.getLogger(__name__)
