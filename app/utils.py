@@ -1,18 +1,23 @@
 import re
 import urllib.parse
 import shutil
+import os
 
 def normalize_company_name(name):
-    # ... (unchanged) ...
+    """Robust normalization for company names."""
     if not name:
         return ""
+    # Remove common suffixes with variations
     suffixes = [r'\bLLC\b', r'\bL\.L\.C\.?\b', r'\bINC\b', r'\bINC\.\b', r'\bCORPORATION\b', r'\bCORP\b',
                 r'\bLTD\b', r'\bLIMITED\b', r'\bLP\b', r'\bL\.P\.?\b', r'\bLLP\b', r'\bL\.L\.P\.?\b', r'\bPLC\b']
     name = name.upper().strip()
+    # Remove punctuation except spaces
     name = re.sub(r'[^\w\s]', '', name)
     for suffix in suffixes:
         name = re.sub(suffix, '', name, flags=re.IGNORECASE)
-    return re.sub(r'\s+', ' ', name).strip()
+    # Collapse whitespace
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
 
 def normalize_provider_name(name):
     """Light normalization for provider name matching."""
@@ -48,3 +53,9 @@ def get_free_disk_space(path='.'):
         return stat.free
     except:
         return None
+
+def clear_screen():
+    """Clear the terminal screen using ANSI escape codes.
+    Works on Alpine Linux, iSH, Windows CMD (if ANSI supported), and most terminals."""
+    # ANSI escape sequence to clear screen and move cursor to top-left
+    print("\033[2J\033[H", end="")
