@@ -3,6 +3,7 @@ import re
 import urllib.request
 import shutil
 import tempfile
+import zipfile
 import logging
 from pathlib import Path
 from html.parser import HTMLParser
@@ -74,7 +75,36 @@ def fetch_dataset_catalog():
         return None
     parser = DOLDatasetParser()
     parser.feed(html)
-    return {year: files for year, files in parser.datasets.items() if files}
+    # If sizes missing, try HEAD for each file (cached)
+    catalog = {}
+    for year, files in parser.datasets.items():
+        enriched = []
+        for fname, url, size in files:
+            if size is None:
+                size = _get_cached_size(year, fname, url)
+            enriched.append((fname, url, size))
+        catalog[year] = enriched
+    return catalog
+
+def _get_cached_size(year, fname, url):
+    # Check metadata cache
+    from app.database import get_connection
+    conn = get_connection()
+    row = conn.execute("SELECT compressed_size FROM dataset_files WHERE dataset_year=? AND file_name=?",
+                       (year, fname)).fetchone()
+    if row and row['compressed_size']:
+        conn.close()
+        return row['compressed_size']
+    conn.close()
+    size = get_remote_file_size(url)
+    if size:
+        # cache it
+        conn = get_connection()
+        conn.execute("INSERT INTO dataset_files (dataset_year, file_name, file_type, compressed_size, source_url) VALUES (?,?,?,?,?)",
+                     (year, fname, 'unknown', size, url))
+        conn.commit()
+        conn.close()
+    return size
 
 def get_latest_year(catalog):
     if not catalog:
@@ -119,12 +149,9 @@ def calculate_package_sizes(catalog, year, package='standard'):
                 selected.append((fname, url, size, ftype))
         elif package == 'full':
             selected.append((fname, url, size, ftype))
-        elif package == 'custom':
-            # Will be handled separately
-            pass
     comp_total = sum(sz for _,_,sz,_ in selected if sz) if selected else 0
     extract_total = int(comp_total * expansion) if comp_total else 0
-    db_estimate = int(extract_total * 0.8)
+    db_estimate = int(extract_total * 0.8) if extract_total else 0
     return {
         'compressed': comp_total,
         'extracted': extract_total,
@@ -133,19 +160,13 @@ def calculate_package_sizes(catalog, year, package='standard'):
         'file_list': selected
     }
 
-def check_disk_space(required_bytes):
-    free = get_free_disk_space()
-    if free is None:
-        return None
-    return free >= required_bytes
-
 def download_and_process_package(year, package_type='essential'):
     config = load_config()
     catalog = fetch_dataset_catalog()
     if not catalog or year not in catalog:
         raise RuntimeError(f"Dataset year {year} not available.")
     sizes = calculate_package_sizes(catalog, year, package_type)
-    if not sizes:
+    if not sizes or not sizes['file_list']:
         raise RuntimeError("Selected package has no files.")
     safety_mb = config.get('storage_safety_margin_mb', 50) * 1024 * 1024
     required = sizes['temp_needed'] + sizes['database'] + safety_mb
@@ -176,7 +197,6 @@ def download_and_process_package(year, package_type='essential'):
     return True
 
 def process_extracted_files(directory, year, file_type):
-    import glob
     csv_files = list(Path(directory).glob('**/*.csv'))
     if not csv_files:
         logger.warning(f"No CSV found in {directory}")
@@ -224,7 +244,6 @@ def import_schedule_c_csv(filepath, year):
     plan_map = {(p['ein'], p['plan_number']): p['id'] for p in plans if p['ein'] and p['plan_number']}
     parse_schedule_c(filepath, plan_map)
 
-# Stub for legacy --update flag (will call advanced manager in CLI)
 def check_and_update_datasets():
     logger.info("Dataset update check triggered via CLI. Use interactive Dataset Manager for full control.")
     print("Use the interactive Dataset Manager to update datasets (option 5 in main menu).")
