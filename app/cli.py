@@ -28,7 +28,7 @@ from app.datasets import (
 )
 from app.exports import export_result
 from app.health import run_health_check
-from app.utils import human_readable_size, get_free_disk_space, clear_screen
+from app.utils import human_readable_size, get_free_disk_space
 from app.config import load_config
 
 console = Console()
@@ -48,7 +48,7 @@ def show_banner():
 def main_menu():
     """Interactive main menu loop."""
     while True:
-        clear_screen()          # <-- ADDED
+        console.clear()          # <-- use rich's clear
         show_banner()
         console.print("1. Find 401(k) Provider")
         console.print("2. Search Company / EIN")
@@ -62,32 +62,32 @@ def main_menu():
         console.print("0. Exit")
         choice = Prompt.ask("Enter choice", choices=[str(i) for i in range(10)])
         if choice == "1":
-            clear_screen()
+            console.clear()
             find_provider_flow()
         elif choice == "2":
-            clear_screen()
+            console.clear()
             company_ein_flow()
         elif choice == "3":
-            clear_screen()
+            console.clear()
             historical_flow()
         elif choice == "4":
-            clear_screen()
+            console.clear()
             provider_directory_flow()
         elif choice == "5":
-            clear_screen()
+            console.clear()
             dataset_manager_menu()
         elif choice == "6":
-            clear_screen()
+            console.clear()
             db_stats()
         elif choice == "7":
-            clear_screen()
+            console.clear()
             config_menu()
         elif choice == "8":
-            clear_screen()
+            console.clear()
             run_health_check()
             Prompt.ask("Press Enter to return to main menu")
         elif choice == "9":
-            clear_screen()
+            console.clear()
             export_menu()
         elif choice == "0":
             console.print("[bold]Goodbye![/]")
@@ -331,7 +331,6 @@ def install_dataset_interactive():
         return
     try:
         if package == "custom":
-            # Custom download: fetch each file individually.
             from app.downloader import download_file
             from app.validation import validate_zip_integrity
 
