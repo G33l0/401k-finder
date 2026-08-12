@@ -15,7 +15,6 @@ def download_file(url, dest_path, expected_size=None, timeout=None, retries=None
             logger.info(f"Downloading {url} (attempt {attempt+1})")
             req = urllib.request.Request(url, headers={'User-Agent': '401k-finder/1.0'})
             with urllib.request.urlopen(req, timeout=timeout) as response:
-                actual_size = response.headers.get('Content-Length')
                 with open(dest_path, 'wb') as f:
                     while True:
                         chunk = response.read(8192)
