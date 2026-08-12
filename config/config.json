@@ -19,7 +19,7 @@
     "confidence_medium": 70,
     "confidence_low": 50,
     "dol_index_url": "https://www.dol.gov/agencies/ebsa/about-ebsa/our-activities/public-disclosure/foia/form-5500-datasets",
-    "dol_user_agent": "401k-Finder/1.0 (compatible; +https://github.com/401k-finder)",
-    "storage_safety_margin_mb": 75,
+    "dol_user_agent": "401K-Provider-Finder/1.0 (+https://github.com/G33l0/401-finder)",
+    "storage_safety_margin_mb": 100,
     "csv_expansion_factor": 8.0
 }
