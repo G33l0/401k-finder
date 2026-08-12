@@ -1,117 +1,44 @@
+import logging
 import os
 import re
-import urllib.request
 import shutil
 import tempfile
 import zipfile
-import logging
 from pathlib import Path
-from html.parser import HTMLParser
+
 from app.config import load_config
-from app.downloader import download_file, get_remote_file_size
+from app.downloader import download_file
 from app.validation import validate_zip_integrity
 from app.utils import human_readable_size, get_free_disk_space
 from app.models import record_dataset_file
 from app.database import get_connection
+from app.dol_datasets import discover_datasets
 
 logger = logging.getLogger(__name__)
 
-class DOLDatasetParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.datasets = {}
-        self.current_year = None
-        self.capture = False
-        self.in_link = False
-        self.current_url = ''
-        self.current_filename = ''
-
-    def handle_starttag(self, tag, attrs):
-        if tag == 'a':
-            href = dict(attrs).get('href', '')
-            self.in_link = True
-            match = re.search(r'(\d{4})', href)
-            if match:
-                year = int(match.group(1))
-                if 1999 <= year <= 2099:
-                    self.current_year = year
-                    self.capture = True
-                    self.current_url = href if href.startswith('http') else 'https://www.dol.gov' + href
-                    self.current_filename = href.split('/')[-1]
-
-    def handle_data(self, data):
-        if self.capture and self.in_link:
-            size_match = re.search(r'\((\d+\.?\d*)\s*(MB|GB|KB)\)', data, re.IGNORECASE)
-            if size_match:
-                size = float(size_match.group(1))
-                unit = size_match.group(2).upper()
-                if unit == 'KB':
-                    size *= 1024
-                elif unit == 'MB':
-                    size *= 1024 * 1024
-                elif unit == 'GB':
-                    size *= 1024 * 1024 * 1024
-                else:
-                    size = None
-                if self.current_year not in self.datasets:
-                    self.datasets[self.current_year] = []
-                self.datasets[self.current_year].append((self.current_filename, self.current_url, size))
-                self.capture = False
-
-    def handle_endtag(self, tag):
-        if tag == 'a':
-            self.in_link = False
-            self.capture = False
 
 def fetch_dataset_catalog():
-    config = load_config()
-    url = config['dol_index_url']
-    logger.info(f"Fetching dataset catalog from {url}")
-    try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            html = resp.read().decode('utf-8')
-    except Exception as e:
-        logger.error(f"Could not fetch dataset page: {e}")
+    """Return catalog of years -> list of (filename, url, size) tuples."""
+    metadata = discover_datasets()
+    if not metadata or 'datasets' not in metadata:
         return None
-    parser = DOLDatasetParser()
-    parser.feed(html)
-    # If sizes missing, try HEAD for each file (cached)
     catalog = {}
-    for year, files in parser.datasets.items():
-        enriched = []
-        for fname, url, size in files:
-            if size is None:
-                size = _get_cached_size(year, fname, url)
-            enriched.append((fname, url, size))
-        catalog[year] = enriched
+    for year_str, files in metadata['datasets'].items():
+        year = int(year_str)
+        catalog[year] = []
+        for f in files:
+            catalog[year].append((f['name'], f['url'], f.get('compressed_size')))
     return catalog
 
-def _get_cached_size(year, fname, url):
-    # Check metadata cache
-    from app.database import get_connection
-    conn = get_connection()
-    row = conn.execute("SELECT compressed_size FROM dataset_files WHERE dataset_year=? AND file_name=?",
-                       (year, fname)).fetchone()
-    if row and row['compressed_size']:
-        conn.close()
-        return row['compressed_size']
-    conn.close()
-    size = get_remote_file_size(url)
-    if size:
-        # cache it
-        conn = get_connection()
-        conn.execute("INSERT INTO dataset_files (dataset_year, file_name, file_type, compressed_size, source_url) VALUES (?,?,?,?,?)",
-                     (year, fname, 'unknown', size, url))
-        conn.commit()
-        conn.close()
-    return size
 
 def get_latest_year(catalog):
     if not catalog:
         return None
     return max(catalog.keys())
 
+
 def classify_file_type(filename, year):
+    """Heuristically determine the dataset type from the filename."""
     lower = filename.lower()
     if 'sf' in lower and 'private' in lower:
         return 'main_form5500'
@@ -131,7 +58,9 @@ def classify_file_type(filename, year):
         return 'schedule_r'
     return 'other'
 
+
 def calculate_package_sizes(catalog, year, package='standard'):
+    """Return estimated sizes and file list for a package."""
     if year not in catalog:
         return None
     files = catalog[year]
@@ -149,7 +78,8 @@ def calculate_package_sizes(catalog, year, package='standard'):
                 selected.append((fname, url, size, ftype))
         elif package == 'full':
             selected.append((fname, url, size, ftype))
-    comp_total = sum(sz for _,_,sz,_ in selected if sz) if selected else 0
+        # 'custom' handled separately
+    comp_total = sum(sz for _, _, sz, _ in selected if sz) if selected else 0
     extract_total = int(comp_total * expansion) if comp_total else 0
     db_estimate = int(extract_total * 0.8) if extract_total else 0
     return {
@@ -160,7 +90,9 @@ def calculate_package_sizes(catalog, year, package='standard'):
         'file_list': selected
     }
 
+
 def download_and_process_package(year, package_type='essential'):
+    """Download, validate, and process a full package."""
     config = load_config()
     catalog = fetch_dataset_catalog()
     if not catalog or year not in catalog:
@@ -196,7 +128,9 @@ def download_and_process_package(year, package_type='essential'):
     conn.commit()
     return True
 
+
 def process_extracted_files(directory, year, file_type):
+    """Process CSV files extracted from a ZIP."""
     csv_files = list(Path(directory).glob('**/*.csv'))
     if not csv_files:
         logger.warning(f"No CSV found in {directory}")
@@ -208,7 +142,9 @@ def process_extracted_files(directory, year, file_type):
         elif 'sch_c' in fname or 'schedule_c' in fname:
             import_schedule_c_csv(str(csv_file), year)
 
+
 def import_form5500_csv(filepath, year):
+    """Import Form 5500 main data from a CSV file into the database."""
     from app.models import insert_company, insert_plan, get_company_by_ein
     from app.utils import normalize_company_name
     import csv
@@ -237,13 +173,17 @@ def import_form5500_csv(filepath, year):
         raise
     conn.commit()
 
+
 def import_schedule_c_csv(filepath, year):
+    """Import Schedule C data from a CSV file."""
     from app.schedule_c import parse_schedule_c
     conn = get_connection()
     plans = conn.execute("SELECT id, ein, plan_number FROM plans WHERE dataset_year=?", (year,)).fetchall()
     plan_map = {(p['ein'], p['plan_number']): p['id'] for p in plans if p['ein'] and p['plan_number']}
     parse_schedule_c(filepath, plan_map)
 
+
 def check_and_update_datasets():
+    """Legacy CLI trigger; now points to the interactive manager."""
     logger.info("Dataset update check triggered via CLI. Use interactive Dataset Manager for full control.")
     print("Use the interactive Dataset Manager to update datasets (option 5 in main menu).")
