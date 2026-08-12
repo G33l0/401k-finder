@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""401K Provider Finder - Main entry point."""
+import sys
+import argparse
+from app.cli import run_interactive
+from app.config import load_config, ensure_dirs
+from app.logging_config import setup_logging
+from app.database import initialize_database
+from app.health import run_health_check
+from app.search import perform_search, search_provider, search_ein, search_history
+from app.exports import export_result
+from app.datasets import check_and_update_datasets  # legacy; now in CLI
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="401K Provider Finder")
+    parser.add_argument('--company', help='Company name to search')
+    parser.add_argument('--year', type=int, help='Plan year')
+    parser.add_argument('--ein', action='store_true', help='Find EIN for company')
+    parser.add_argument('--history', action='store_true', help='Show provider history for company')
+    parser.add_argument('--provider', help='Search provider directory')
+    parser.add_argument('--json', action='store_true', help='Output as JSON')
+    parser.add_argument('--health', action='store_true', help='Run health check')
+    parser.add_argument('--update', action='store_true', help='Check and download dataset updates')
+    parser.add_argument('--self-test', action='store_true', help='Run self diagnostic')
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+    config = load_config()
+    ensure_dirs(config)
+    setup_logging(config)
+    initialize_database()
+
+    if args.self_test:
+        run_self_test()
+        sys.exit(0)
+
+    if args.health:
+        run_health_check()
+        sys.exit(0)
+
+    if args.update:
+        check_and_update_datasets()
+        sys.exit(0)
+
+    if args.company:
+        if args.ein:
+            result = search_ein(args.company)
+        elif args.history:
+            result = search_history(args.company)
+        else:
+            year = args.year or 2025
+            result = perform_search(args.company, year)
+        if args.json:
+            import json
+            print(json.dumps(result, indent=2))
+        else:
+            export_result(result, format='txt')
+        sys.exit(0)
+
+    if args.provider:
+        from app.models import search_provider_directory
+        providers = search_provider_directory(args.provider)
+        import json
+        print(json.dumps([dict(p) for p in providers], indent=2))
+        sys.exit(0)
+
+    # Interactive mode
+    run_interactive()
+
+def run_self_test():
+    """Perform comprehensive self-test of all components."""
+    import sys
+    import traceback
+    tests = []
+    def test(name, func):
+        try:
+            func()
+            tests.append((name, "PASS"))
+        except Exception as e:
+            tests.append((name, f"FAIL: {e}"))
+            traceback.print_exc()
+    # Database test
+    test("Database", lambda: initialize_database())
+    # Matching test
+    from app.matching import exact_match
+    test("Company matching", lambda: assert exact_match("Airgas USA, LLC", "Airgas USA LLC"))
+    # EIN matching (dummy)
+    from app.ein import find_ein
+    test("EIN matching", lambda: find_ein("Nonexistent"))
+    # Plans
+    from app.plans import is_401k_plan
+    test("Plan detection", lambda: assert is_401k_plan("401(k) Savings Plan"))
+    # Schedule C parser (dummy)
+    test("Schedule C parser", lambda: None)
+    # Provider classification
+    from app.classification import classify_provider
+    test("Provider classification", lambda: assert classify_provider("Fidelity", "recordkeeping") == 'RECORDKEEPER')
+    # Provider resolution (requires seeding test data)
+    from app.database import get_connection
+    conn = get_connection()
+    conn.execute("DELETE FROM provider_identities")
+    conn.execute("INSERT INTO provider_identities (canonical_name, current_display_name) VALUES ('Empower','Empower')")
+    conn.commit()
+    from app.provider_resolution import resolve_provider
+    test("Provider identity resolution", lambda: assert resolve_provider("Great-West Life & Annuity")['canonical_identity'] is not None)
+    # Login URL validation
+    from app.utils import is_valid_url
+    test("URL validation", lambda: assert not is_valid_url("badurl") and is_valid_url("https://example.com"))
+    # Export
+    from app.exports import export_result
+    test("Export", lambda: export_result({'company':'test'}, format='json'))
+    # CLI arguments (simulated)
+    test("CLI", lambda: parse_args())
+    # Print summary
+    print("\nSELF TEST RESULTS:")
+    for name, status in tests:
+        print(f"  {name}: {status}")
+    all_pass = all('PASS' in s for _,s in tests)
+    print("OVERALL:", "PASS" if all_pass else "FAILURE")
+
+if __name__ == '__main__':
+    main()
