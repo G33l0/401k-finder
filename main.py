@@ -2,7 +2,7 @@
 """401K Provider Finder - Main entry point."""
 import sys
 import argparse
-from app.cli import main_menu  # interactive entry point
+from app.cli import main_menu
 from app.config import load_config, ensure_dirs
 from app.logging_config import setup_logging
 from app.database import initialize_database
@@ -12,6 +12,7 @@ from app.exports import export_result
 from app.datasets import check_and_update_datasets
 
 def parse_args():
+    """Build and return the argument parser. (Does NOT parse sys.argv.)"""
     parser = argparse.ArgumentParser(description="401K Provider Finder")
     parser.add_argument('--company', help='Company name to search')
     parser.add_argument('--year', type=int, help='Plan year')
@@ -22,10 +23,11 @@ def parse_args():
     parser.add_argument('--health', action='store_true', help='Run health check')
     parser.add_argument('--update', action='store_true', help='Check and download dataset updates')
     parser.add_argument('--self-test', action='store_true', help='Run self diagnostic')
-    return parser.parse_args()
+    return parser
 
 def main():
-    args = parse_args()
+    parser = parse_args()
+    args = parser.parse_args()   # parses actual sys.argv
     config = load_config()
     ensure_dirs(config)
     setup_logging(config)
@@ -79,7 +81,6 @@ def run_self_test():
         except Exception as e:
             tests.append((name, f"FAIL: {e}"))
 
-    # Helper to assert condition without lambda: assert
     def check(condition, message="Assertion failed"):
         if not condition:
             raise AssertionError(message)
@@ -91,7 +92,7 @@ def run_self_test():
     from app.matching import exact_match
     test("Company matching", lambda: check(exact_match("Airgas USA, LLC", "Airgas USA LLC")))
 
-    # EIN matching (will succeed if database empty, just no crash)
+    # EIN matching (no crash)
     from app.ein import find_ein
     test("EIN matching", lambda: find_ein("Nonexistent"))
 
@@ -99,31 +100,33 @@ def run_self_test():
     from app.plans import is_401k_plan
     test("Plan detection", lambda: check(is_401k_plan("401(k) Savings Plan")))
 
-    # Schedule C parser (no crash)
-    test("Schedule C parser", lambda: None)  # Placeholder
+    # Schedule C parser (placeholder)
+    test("Schedule C parser", lambda: None)
 
     # Provider classification
     from app.classification import classify_provider
     test("Provider classification", lambda: check(classify_provider("Fidelity", "recordkeeping") == 'RECORDKEEPER'))
 
-    # Provider resolution (requires test data)
+    # Provider identity resolution (add alias to make test meaningful)
     from app.database import get_connection
     conn = get_connection()
     conn.execute("DELETE FROM provider_identities")
-    conn.execute("INSERT INTO provider_identities (canonical_name, current_display_name) VALUES ('Empower','Empower')")
+    conn.execute("INSERT INTO provider_identities (id, canonical_name, current_display_name) VALUES (99,'Empower','Empower')")
+    from app.models import add_provider_alias
+    add_provider_alias(99, "Great-West Life & Annuity", "HISTORICAL_NAME")
     conn.commit()
     from app.provider_resolution import resolve_provider
-    test("Provider identity resolution", lambda: check(resolve_provider("Great-West Life & Annuity")['canonical_identity'] is not None))
+    test("Provider identity resolution", lambda: check(resolve_provider("Great-West Life & Annuity")['canonical_identity'] == 'Empower'))
 
     # URL validation
     from app.utils import is_valid_url
     test("URL validation", lambda: check(not is_valid_url("badurl") and is_valid_url("https://example.com")))
 
-    # Export (creates file in exports/ directory)
+    # Export (creates file in exports/)
     from app.exports import export_result
     test("Export", lambda: export_result({'company': 'test'}, format='json'))
 
-    # CLI arguments (ensure parser can be created and parse sample)
+    # CLI: test that argument parser can be created and parse an empty list (no crash)
     test("CLI", lambda: parse_args().parse_args([]))
 
     # Print summary
