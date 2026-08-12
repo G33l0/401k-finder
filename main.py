@@ -2,14 +2,14 @@
 """401K Provider Finder - Main entry point."""
 import sys
 import argparse
-from app.cli import run_interactive
+from app.cli import main_menu  # interactive entry point
 from app.config import load_config, ensure_dirs
 from app.logging_config import setup_logging
 from app.database import initialize_database
 from app.health import run_health_check
 from app.search import perform_search, search_provider, search_ein, search_history
 from app.exports import export_result
-from app.datasets import check_and_update_datasets  # legacy; now in CLI
+from app.datasets import check_and_update_datasets
 
 def parse_args():
     parser = argparse.ArgumentParser(description="401K Provider Finder")
@@ -66,57 +66,71 @@ def main():
         sys.exit(0)
 
     # Interactive mode
-    run_interactive()
+    main_menu()
 
 def run_self_test():
     """Perform comprehensive self-test of all components."""
-    import sys
-    import traceback
     tests = []
+
     def test(name, func):
         try:
             func()
             tests.append((name, "PASS"))
         except Exception as e:
             tests.append((name, f"FAIL: {e}"))
-            traceback.print_exc()
+
+    # Helper to assert condition without lambda: assert
+    def check(condition, message="Assertion failed"):
+        if not condition:
+            raise AssertionError(message)
+
     # Database test
     test("Database", lambda: initialize_database())
+
     # Matching test
     from app.matching import exact_match
-    test("Company matching", lambda: assert exact_match("Airgas USA, LLC", "Airgas USA LLC"))
-    # EIN matching (dummy)
+    test("Company matching", lambda: check(exact_match("Airgas USA, LLC", "Airgas USA LLC")))
+
+    # EIN matching (will succeed if database empty, just no crash)
     from app.ein import find_ein
     test("EIN matching", lambda: find_ein("Nonexistent"))
+
     # Plans
     from app.plans import is_401k_plan
-    test("Plan detection", lambda: assert is_401k_plan("401(k) Savings Plan"))
-    # Schedule C parser (dummy)
-    test("Schedule C parser", lambda: None)
+    test("Plan detection", lambda: check(is_401k_plan("401(k) Savings Plan")))
+
+    # Schedule C parser (no crash)
+    test("Schedule C parser", lambda: None)  # Placeholder
+
     # Provider classification
     from app.classification import classify_provider
-    test("Provider classification", lambda: assert classify_provider("Fidelity", "recordkeeping") == 'RECORDKEEPER')
-    # Provider resolution (requires seeding test data)
+    test("Provider classification", lambda: check(classify_provider("Fidelity", "recordkeeping") == 'RECORDKEEPER'))
+
+    # Provider resolution (requires test data)
     from app.database import get_connection
     conn = get_connection()
     conn.execute("DELETE FROM provider_identities")
     conn.execute("INSERT INTO provider_identities (canonical_name, current_display_name) VALUES ('Empower','Empower')")
     conn.commit()
     from app.provider_resolution import resolve_provider
-    test("Provider identity resolution", lambda: assert resolve_provider("Great-West Life & Annuity")['canonical_identity'] is not None)
-    # Login URL validation
+    test("Provider identity resolution", lambda: check(resolve_provider("Great-West Life & Annuity")['canonical_identity'] is not None))
+
+    # URL validation
     from app.utils import is_valid_url
-    test("URL validation", lambda: assert not is_valid_url("badurl") and is_valid_url("https://example.com"))
-    # Export
+    test("URL validation", lambda: check(not is_valid_url("badurl") and is_valid_url("https://example.com")))
+
+    # Export (creates file in exports/ directory)
     from app.exports import export_result
-    test("Export", lambda: export_result({'company':'test'}, format='json'))
-    # CLI arguments (simulated)
-    test("CLI", lambda: parse_args())
+    test("Export", lambda: export_result({'company': 'test'}, format='json'))
+
+    # CLI arguments (ensure parser can be created and parse sample)
+    test("CLI", lambda: parse_args().parse_args([]))
+
     # Print summary
     print("\nSELF TEST RESULTS:")
     for name, status in tests:
         print(f"  {name}: {status}")
-    all_pass = all('PASS' in s for _,s in tests)
+    all_pass = all('PASS' in s for _, s in tests)
     print("OVERALL:", "PASS" if all_pass else "FAILURE")
 
 if __name__ == '__main__':
