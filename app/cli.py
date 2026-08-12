@@ -28,7 +28,7 @@ from app.datasets import (
 )
 from app.exports import export_result
 from app.health import run_health_check
-from app.utils import human_readable_size, get_free_disk_space
+from app.utils import human_readable_size, get_free_disk_space, clear_screen
 from app.config import load_config
 
 console = Console()
@@ -48,6 +48,7 @@ def show_banner():
 def main_menu():
     """Interactive main menu loop."""
     while True:
+        clear_screen()          # <-- ADDED
         show_banner()
         console.print("1. Find 401(k) Provider")
         console.print("2. Search Company / EIN")
@@ -61,22 +62,32 @@ def main_menu():
         console.print("0. Exit")
         choice = Prompt.ask("Enter choice", choices=[str(i) for i in range(10)])
         if choice == "1":
+            clear_screen()
             find_provider_flow()
         elif choice == "2":
+            clear_screen()
             company_ein_flow()
         elif choice == "3":
+            clear_screen()
             historical_flow()
         elif choice == "4":
+            clear_screen()
             provider_directory_flow()
         elif choice == "5":
+            clear_screen()
             dataset_manager_menu()
         elif choice == "6":
+            clear_screen()
             db_stats()
         elif choice == "7":
+            clear_screen()
             config_menu()
         elif choice == "8":
+            clear_screen()
             run_health_check()
+            Prompt.ask("Press Enter to return to main menu")
         elif choice == "9":
+            clear_screen()
             export_menu()
         elif choice == "0":
             console.print("[bold]Goodbye![/]")
@@ -96,6 +107,7 @@ def find_provider_flow():
         year_int = int(year)
     except ValueError:
         console.print("[red]Invalid year[/]")
+        Prompt.ask("Press Enter to continue")
         return
     result = perform_search(company, year_int)
     display_result(result)
@@ -136,6 +148,7 @@ def display_result(result):
     if Confirm.ask("Show evidence?", default=False):
         for ev in result.get("evidence", []):
             console.print(f"  - {ev}")
+    Prompt.ask("Press Enter to continue")
 
 
 def company_ein_flow():
@@ -148,12 +161,14 @@ def company_ein_flow():
             console.print(f"EIN: {c['ein']} (confidence: {c['confidence']}%)")
     else:
         console.print("[red]No EIN found.[/]")
+    Prompt.ask("Press Enter to continue")
 
 
 def historical_flow():
     console.print(
         "[yellow]Provider history timeline will be displayed when implemented fully.[/]"
     )
+    Prompt.ask("Press Enter to continue")
 
 
 def provider_directory_flow():
@@ -202,6 +217,7 @@ def provider_directory_flow():
         )
         add_provider_alias(identity["id"], alias, alias_type)
         console.print("[green]Alias added.[/]")
+    Prompt.ask("Press Enter to continue")
 
 
 def dataset_manager_menu():
@@ -219,6 +235,7 @@ def dataset_manager_menu():
             year = int(year_str)
         except ValueError:
             console.print("[red]Invalid year[/]")
+            Prompt.ask("Press Enter to continue")
             return
         package = Prompt.ask(
             "Package (essential/standard/full)",
@@ -248,12 +265,14 @@ def dataset_manager_menu():
         console.print("Validation not yet implemented.")
     elif choice == "5":
         console.print("Backup not yet implemented.")
+    Prompt.ask("Press Enter to continue")
 
 
 def install_dataset_interactive():
     catalog = fetch_dataset_catalog()
     if not catalog:
         console.print("[red]Could not fetch dataset catalog. Check network.[/]")
+        Prompt.ask("Press Enter to continue")
         return
     latest = get_latest_year(catalog)
     console.print(f"Latest available DOL dataset year: {latest}")
@@ -278,6 +297,7 @@ def install_dataset_interactive():
                 selected.append((fname, url, size, ftype))
         if not selected:
             console.print("[yellow]No files selected.[/]")
+            Prompt.ask("Press Enter to continue")
             return
         comp_total = sum(sz for _, _, sz, _ in selected if sz) or 0
         extract_total = int(comp_total * 8.0) if comp_total else 0
@@ -292,6 +312,7 @@ def install_dataset_interactive():
         sizes = calculate_package_sizes(catalog, latest, package)
     if not sizes:
         console.print("[red]No files available for selected package.[/]")
+        Prompt.ask("Press Enter to continue")
         return
     console.print("Download size estimate:")
     console.print(
@@ -332,6 +353,7 @@ def install_dataset_interactive():
         console.print("[green]Dataset installation complete![/]")
     except Exception as e:
         console.print(f"[red]Installation failed: {e}[/]")
+    Prompt.ask("Press Enter to continue")
 
 
 def db_stats():
@@ -344,17 +366,20 @@ def db_stats():
     console.print(f"Companies: {companies}")
     console.print(f"Plans: {plans}")
     console.print(f"Service Providers: {providers}")
+    Prompt.ask("Press Enter to continue")
 
 
 def config_menu():
     console.print(
         "Configuration editing not implemented in CLI. Edit config/config.json directly."
     )
+    Prompt.ask("Press Enter to continue")
 
 
 def export_menu():
     console.print("Export last result (if any) will be saved.")
     console.print("[yellow]No previous result in memory.[/]")
+    Prompt.ask("Press Enter to continue")
 
 
 # Alias for backward compatibility
