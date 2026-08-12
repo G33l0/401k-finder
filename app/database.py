@@ -1,228 +1,185 @@
+import sqlite3
 import os
-import re
-import urllib.request
-import shutil
-import tempfile
-import zipfile
-import logging
-from pathlib import Path
-from html.parser import HTMLParser
 from app.config import load_config
-from app.downloader import download_file, get_remote_file_size
-from app.validation import validate_zip_integrity
-from app.utils import human_readable_size, get_free_disk_space
-from app.models import record_dataset_file
-from app.database import get_connection
 
-logger = logging.getLogger(__name__)
+DB_PATH = None
 
-class DOLDatasetParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.datasets = {}
-        self.current_year = None
-        self.capture = False
-        self.in_link = False
-        self.current_url = ''
-        self.current_filename = ''
+def get_db_path():
+    global DB_PATH
+    if DB_PATH is None:
+        config = load_config()
+        DB_PATH = config['database_path']
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    return DB_PATH
 
-    def handle_starttag(self, tag, attrs):
-        if tag == 'a':
-            href = dict(attrs).get('href', '')
-            self.in_link = True
-            match = re.search(r'(\d{4})', href)
-            if match:
-                year = int(match.group(1))
-                if 1999 <= year <= 2099:
-                    self.current_year = year
-                    self.capture = True
-                    self.current_url = href if href.startswith('http') else 'https://www.dol.gov' + href
-                    self.current_filename = href.split('/')[-1]
+def get_connection():
+    conn = sqlite3.connect(get_db_path())
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
-    def handle_data(self, data):
-        if self.capture and self.in_link:
-            size_match = re.search(r'\((\d+\.?\d*)\s*(MB|GB|KB)\)', data, re.IGNORECASE)
-            if size_match:
-                size = float(size_match.group(1))
-                unit = size_match.group(2).upper()
-                if unit == 'KB':
-                    size *= 1024
-                elif unit == 'MB':
-                    size *= 1024 * 1024
-                elif unit == 'GB':
-                    size *= 1024 * 1024 * 1024
-                else:
-                    size = None
-                if self.current_year not in self.datasets:
-                    self.datasets[self.current_year] = []
-                self.datasets[self.current_year].append((self.current_filename, self.current_url, size))
-                self.capture = False
-
-    def handle_endtag(self, tag):
-        if tag == 'a':
-            self.in_link = False
-            self.capture = False
-
-def fetch_dataset_catalog():
-    config = load_config()
-    url = config['dol_index_url']
-    logger.info(f"Fetching dataset catalog from {url}")
-    try:
-        with urllib.request.urlopen(url, timeout=30) as resp:
-            html = resp.read().decode('utf-8')
-    except Exception as e:
-        logger.error(f"Could not fetch dataset page: {e}")
-        return None
-    parser = DOLDatasetParser()
-    parser.feed(html)
-    return {year: files for year, files in parser.datasets.items() if files}
-
-def get_latest_year(catalog):
-    if not catalog:
-        return None
-    return max(catalog.keys())
-
-def classify_file_type(filename, year):
-    lower = filename.lower()
-    if 'sf' in lower and 'private' in lower:
-        return 'main_form5500'
-    if 'sch-c' in lower or 'schedule_c' in lower:
-        return 'schedule_c'
-    if 'sch-a' in lower:
-        return 'schedule_a'
-    if 'sch-d' in lower:
-        return 'schedule_d'
-    if 'sch-g' in lower:
-        return 'schedule_g'
-    if 'sch-h' in lower:
-        return 'schedule_h'
-    if 'sch-i' in lower:
-        return 'schedule_i'
-    if 'sch-r' in lower:
-        return 'schedule_r'
-    return 'other'
-
-def calculate_package_sizes(catalog, year, package='standard'):
-    if year not in catalog:
-        return None
-    files = catalog[year]
-    config = load_config()
-    expansion = config.get('csv_expansion_factor', 8.0)
-    selected = []
-    for fname, url, size in files:
-        ftype = classify_file_type(fname, year)
-        if package == 'essential':
-            if ftype in ('main_form5500', 'schedule_c'):
-                selected.append((fname, url, size, ftype))
-        elif package == 'standard':
-            if ftype in ('main_form5500', 'schedule_c', 'schedule_a', 'schedule_d',
-                         'schedule_g', 'schedule_h', 'schedule_i', 'schedule_r'):
-                selected.append((fname, url, size, ftype))
-        elif package == 'full':
-            selected.append((fname, url, size, ftype))
-        elif package == 'custom':
-            pass
-    comp_total = sum(sz for _,_,sz,_ in selected if sz) if selected else 0
-    extract_total = int(comp_total * expansion) if comp_total else 0
-    db_estimate = int(extract_total * 0.8) if extract_total else 0
-    return {
-        'compressed': comp_total,
-        'extracted': extract_total,
-        'database': db_estimate,
-        'temp_needed': extract_total + comp_total,
-        'file_list': selected
-    }
-
-def check_disk_space(required_bytes):
-    free = get_free_disk_space()
-    if free is None:
-        return None
-    return free >= required_bytes
-
-def download_and_process_package(year, package_type='essential'):
-    config = load_config()
-    catalog = fetch_dataset_catalog()
-    if not catalog or year not in catalog:
-        raise RuntimeError(f"Dataset year {year} not available.")
-    sizes = calculate_package_sizes(catalog, year, package_type)
-    if not sizes or not sizes['file_list']:
-        raise RuntimeError("Selected package has no files.")
-    safety_mb = config.get('storage_safety_margin_mb', 50) * 1024 * 1024
-    required = sizes['temp_needed'] + sizes['database'] + safety_mb
-    free = get_free_disk_space()
-    if free is not None and free < required:
-        raise RuntimeError(f"Insufficient disk space. Required: {human_readable_size(required)}, Available: {human_readable_size(free)}")
-    raw_dir = Path(config['raw_dir']) / str(year)
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    for fname, url, size, ftype in sizes['file_list']:
-        dest = raw_dir / fname
-        try:
-            download_file(url, str(dest), expected_size=size)
-            if not validate_zip_integrity(dest):
-                raise ValueError("Corrupt ZIP")
-            with tempfile.TemporaryDirectory() as tmpdir:
-                with zipfile.ZipFile(dest, 'r') as zf:
-                    zf.extractall(tmpdir)
-                process_extracted_files(tmpdir, year, ftype)
-            record_dataset_file(year, fname, ftype, compressed_size=size, extracted_size=None, source_url=url)
-        except Exception as e:
-            logger.error(f"Failed to process {fname}: {e}")
-            if dest.exists():
-                dest.unlink()
-            raise
-    conn = get_connection()
-    conn.execute("INSERT OR REPLACE INTO dataset_versions (year, download_date, record_count) VALUES (?, datetime('now'), 0)", (year,))
-    conn.commit()
-    return True
-
-def process_extracted_files(directory, year, file_type):
-    csv_files = list(Path(directory).glob('**/*.csv'))
-    if not csv_files:
-        logger.warning(f"No CSV found in {directory}")
-        return
-    for csv_file in csv_files:
-        fname = csv_file.name.lower()
-        if 'f_5500' in fname or 'form_5500' in fname:
-            import_form5500_csv(str(csv_file), year)
-        elif 'sch_c' in fname or 'schedule_c' in fname:
-            import_schedule_c_csv(str(csv_file), year)
-
-def import_form5500_csv(filepath, year):
-    from app.models import insert_company, insert_plan, get_company_by_ein
-    from app.utils import normalize_company_name
-    import csv
+def initialize_database():
     conn = get_connection()
     cursor = conn.cursor()
+    # Existing tables (unchanged)
+    cursor.executescript("""
+    CREATE TABLE IF NOT EXISTS companies (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        normalized_name TEXT NOT NULL,
+        ein TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_companies_name ON companies(name);
+    CREATE INDEX IF NOT EXISTS idx_companies_normalized ON companies(normalized_name);
+    CREATE INDEX IF NOT EXISTS idx_companies_ein ON companies(ein);
+
+    CREATE TABLE IF NOT EXISTS plans (
+        id INTEGER PRIMARY KEY,
+        company_id INTEGER,
+        plan_name TEXT,
+        plan_number TEXT,
+        plan_type TEXT,
+        plan_year INTEGER,
+        ein TEXT,
+        filing_id TEXT UNIQUE,
+        dataset_year INTEGER,
+        FOREIGN KEY(company_id) REFERENCES companies(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_plans_company ON plans(company_id);
+    CREATE INDEX IF NOT EXISTS idx_plans_ein ON plans(ein);
+    CREATE INDEX IF NOT EXISTS idx_plans_year ON plans(plan_year);
+    CREATE INDEX IF NOT EXISTS idx_plans_filing ON plans(filing_id);
+
+    CREATE TABLE IF NOT EXISTS service_providers (
+        id INTEGER PRIMARY KEY,
+        plan_id INTEGER,
+        provider_name TEXT,             -- exact name from filing
+        provider_ein TEXT,
+        service_codes TEXT,
+        compensation REAL,
+        classification TEXT,
+        FOREIGN KEY(plan_id) REFERENCES plans(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_sp_plan ON service_providers(plan_id);
+
+    CREATE TABLE IF NOT EXISTS provider_directory (
+        id INTEGER PRIMARY KEY,
+        legal_name TEXT NOT NULL,
+        display_name TEXT,
+        domain TEXT,
+        homepage_url TEXT,
+        login_url TEXT,
+        phone TEXT,
+        provider_type TEXT,
+        recordkeeper BOOLEAN DEFAULT 0,
+        last_verified TEXT,
+        verification_source TEXT,
+        active BOOLEAN DEFAULT 1,
+        provider_identity_id INTEGER REFERENCES provider_identities(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_name ON provider_directory(legal_name);
+
+    -- NEW TABLES for provider identity & temporal resolution
+    CREATE TABLE IF NOT EXISTS provider_identities (
+        id INTEGER PRIMARY KEY,
+        canonical_name TEXT NOT NULL UNIQUE,
+        current_display_name TEXT,
+        current_legal_name TEXT,
+        current_domain TEXT,
+        provider_type TEXT,
+        status TEXT DEFAULT 'active',
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_aliases (
+        id INTEGER PRIMARY KEY,
+        provider_identity_id INTEGER NOT NULL,
+        alias_name TEXT NOT NULL,
+        alias_type TEXT NOT NULL CHECK(alias_type IN ('LEGAL_ENTITY','BRAND','TRADE_NAME',
+            'FORM_5500_NAME','FORM_5500_SCHEDULE_NAME','HISTORICAL_NAME','ACQUIRED_COMPANY',
+            'FORMER_NAME','PARENT_COMPANY','SUBSIDIARY','RECORDKEEPER_NAME','OTHER')),
+        effective_start TEXT,
+        effective_end TEXT,
+        confidence REAL DEFAULT 1.0,
+        source TEXT,
+        source_url TEXT,
+        FOREIGN KEY(provider_identity_id) REFERENCES provider_identities(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_aliases_identity ON provider_aliases(provider_identity_id);
+    CREATE INDEX IF NOT EXISTS idx_aliases_name ON provider_aliases(alias_name);
+
+    CREATE TABLE IF NOT EXISTS provider_name_history (
+        id INTEGER PRIMARY KEY,
+        provider_identity_id INTEGER NOT NULL,
+        historical_name TEXT NOT NULL,
+        valid_from TEXT,
+        valid_to TEXT,
+        source TEXT,
+        source_url TEXT,
+        confidence REAL DEFAULT 0.9,
+        notes TEXT,
+        FOREIGN KEY(provider_identity_id) REFERENCES provider_identities(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_name_history_identity ON provider_name_history(provider_identity_id);
+
+    CREATE TABLE IF NOT EXISTS provider_relationships (
+        id INTEGER PRIMARY KEY,
+        from_identity_id INTEGER NOT NULL,
+        to_identity_id INTEGER NOT NULL,
+        relationship_type TEXT NOT NULL CHECK(relationship_type IN ('acquisition','rebrand','merger',
+            'parent_subsidiary','same_entity','other')),
+        effective_date TEXT,
+        confidence REAL DEFAULT 0.9,
+        source TEXT,
+        source_url TEXT,
+        notes TEXT,
+        FOREIGN KEY(from_identity_id) REFERENCES provider_identities(id),
+        FOREIGN KEY(to_identity_id) REFERENCES provider_identities(id)
+    );
+
+    -- Track individual dataset files downloaded
+    CREATE TABLE IF NOT EXISTS dataset_files (
+        id INTEGER PRIMARY KEY,
+        dataset_year INTEGER NOT NULL,
+        file_name TEXT NOT NULL,
+        file_type TEXT,               -- 'main', 'schedule_c', etc.
+        compressed_size INTEGER,
+        extracted_size INTEGER,
+        checksum TEXT,
+        download_date TEXT,
+        source_url TEXT,
+        processed BOOLEAN DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS dataset_versions (
+        year INTEGER PRIMARY KEY,
+        download_date TEXT,
+        source_url TEXT,
+        file_size INTEGER,
+        checksum TEXT,
+        record_count INTEGER,
+        schema_version TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS search_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_name TEXT,
+        year INTEGER,
+        result_json TEXT,
+        searched_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    """)
+    # Add provider_identity_id column to provider_directory if missing
     try:
-        with open(filepath, 'r', encoding='utf-8-sig') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                sponsor_name = row.get('SPONSOR_DFE_NAME') or row.get('SPONS_DFE_NAME') or row.get('SPONSOR_NAME')
-                ein = row.get('SPONSOR_DFE_EIN') or row.get('SPONS_DFE_EIN') or row.get('SPONSOR_EIN')
-                plan_name = row.get('PLAN_NAME')
-                plan_number = row.get('PLAN_NUMBER') or row.get('PLAN_NUM')
-                ack_id = row.get('ACK_ID')
-                plan_type = row.get('PLAN_TYPE_CODE') or row.get('PLAN_CHAR_CODE')
-                if not (sponsor_name and ein and plan_name and ack_id):
-                    continue
-                norm = normalize_company_name(sponsor_name)
-                cursor.execute("INSERT OR IGNORE INTO companies (name, normalized_name, ein) VALUES (?,?,?)",
-                               (sponsor_name.strip(), norm, ein))
-                company = get_company_by_ein(ein)
-                if company:
-                    insert_plan(company['id'], plan_name.strip(), plan_number, plan_type, year, ein, ack_id, year)
-    except Exception as e:
-        logger.error(f"Form 5500 import error: {e}")
-        raise
+        conn.execute("ALTER TABLE provider_directory ADD COLUMN provider_identity_id INTEGER REFERENCES provider_identities(id)")
+    except sqlite3.OperationalError:
+        pass  # column already exists
     conn.commit()
-
-def import_schedule_c_csv(filepath, year):
-    from app.schedule_c import parse_schedule_c
-    conn = get_connection()
-    plans = conn.execute("SELECT id, ein, plan_number FROM plans WHERE dataset_year=?", (year,)).fetchall()
-    plan_map = {(p['ein'], p['plan_number']): p['id'] for p in plans if p['ein'] and p['plan_number']}
-    parse_schedule_c(filepath, plan_map)
-
-def check_and_update_datasets():
-    logger.info("Dataset update check triggered via CLI. Use interactive Dataset Manager for full control.")
-    print("Use the interactive Dataset Manager to update datasets (option 5 in main menu).")
+    conn.close()
