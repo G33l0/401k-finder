@@ -112,9 +112,12 @@ def run_self_test():
     conn = get_connection()
     conn.execute("DELETE FROM provider_identities")
     conn.execute("INSERT INTO provider_identities (id, canonical_name, current_display_name) VALUES (99,'Empower','Empower')")
+    conn.commit()
+    conn.close()          # <-- CLOSE HERE so the lock is released
+
     from app.models import add_provider_alias
     add_provider_alias(99, "Great-West Life & Annuity", "HISTORICAL_NAME")
-    conn.commit()
+
     from app.provider_resolution import resolve_provider
     test("Provider identity resolution", lambda: check(resolve_provider("Great-West Life & Annuity")['canonical_identity'] == 'Empower'))
 
