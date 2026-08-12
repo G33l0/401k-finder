@@ -1,75 +1,129 @@
+"""
+DOL Form 5500 Dataset Discovery Module.
+
+This module retrieves the official DOL dataset catalog page,
+parses the HTML to discover actual dataset download links,
+and returns a structured catalog. It never fabricates URLs.
+"""
 import json
 import logging
 import os
 import re
 import socket
 import time
-from pathlib import Path
 from html.parser import HTMLParser
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlparse
 from app.config import load_config
-from app.utils import human_readable_size
 
 logger = logging.getLogger(__name__)
+
 CACHE_FILE = "data/metadata/dol_datasets.json"
-DEFAULT_USER_AGENT = "401k-Finder/1.0 (compatible; +https://github.com/401k-finder)"
+DEFAULT_USER_AGENT = "401K-Provider-Finder/1.0 (+https://github.com/G33l0/401-finder)"
 
 
 class DOLDatasetHTMLParser(HTMLParser):
-    def __init__(self):
+    """Parses the DOL dataset page and extracts all dataset links."""
+
+    def __init__(self, base_url):
         super().__init__()
-        self.datasets = {}
+        self.base_url = base_url
+        self.links = []           # list of dicts: {year, name, url, description, file_type}
         self._current_year = None
-        self._capture = False
+        self._in_heading = False
         self._in_link = False
-        self._current_url = ''
-        self._current_filename = ''
+        self._current_href = None
+        self._link_text = []
 
     def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ('h1', 'h2', 'h3', 'h4', 'td'):
+            # Look for year in headings/table cells
+            text = ''
+            # Can't capture text easily here; use data later
+            pass
         if tag == 'a':
-            href = dict(attrs).get('href', '')
             self._in_link = True
-            match = re.search(r'(\d{4})', href)
-            if match:
-                year = int(match.group(1))
-                if 1999 <= year <= 2099:
-                    self._current_year = year
-                    self._capture = True
-                    if href.startswith('http'):
-                        self._current_url = href
-                    else:
-                        self._current_url = 'https://www.dol.gov' + href
-                    self._current_filename = href.split('/')[-1]
+            self._current_href = attrs.get('href', '')
+            self._link_text = []
 
     def handle_data(self, data):
-        if self._capture and self._in_link:
-            size_match = re.search(r'\((\d+\.?\d*)\s*(MB|GB|KB)\)', data, re.IGNORECASE)
-            if size_match:
-                size = float(size_match.group(1))
-                unit = size_match.group(2).upper()
-                if unit == 'KB':
-                    size *= 1024
-                elif unit == 'MB':
-                    size *= 1024 * 1024
-                elif unit == 'GB':
-                    size *= 1024 * 1024 * 1024
-                else:
-                    size = None
-                if self._current_year not in self.datasets:
-                    self.datasets[self._current_year] = []
-                self.datasets[self._current_year].append((self._current_filename, self._current_url, size))
-                self._capture = False
+        if self._in_link:
+            self._link_text.append(data.strip())
 
     def handle_endtag(self, tag):
-        if tag == 'a':
+        if tag == 'a' and self._in_link:
+            href = self._current_href
+            text = ' '.join(self._link_text).strip()
             self._in_link = False
-            self._capture = False
+            if not href:
+                return
+            # Only consider actual download links (zip, csv, or known DOL patterns)
+            lower_href = href.lower()
+            if not (lower_href.endswith('.zip') or lower_href.endswith('.csv') or 'dataset' in lower_href):
+                return
+            absolute_url = urljoin(self.base_url, href)
+            filename = href.split('/')[-1]
+            # Extract year from URL or text
+            year = None
+            m = re.search(r'(\d{4})', href)
+            if m:
+                year = int(m.group(1))
+            else:
+                m = re.search(r'(\d{4})', text)
+                if m:
+                    year = int(m.group(1))
+            if year is None or year < 1990 or year > 2100:
+                # Try from filename
+                m = re.search(r'(\d{4})', filename)
+                if m:
+                    year = int(m.group(1))
+            if year is None:
+                year = self._current_year  # might be None, skip if unknown
+            if year is None:
+                return
+            # Determine type
+            file_type = self._classify_dataset(text, filename)
+            self.links.append({
+                'year': year,
+                'name': filename,
+                'url': absolute_url,
+                'description': text or filename,
+                'file_type': file_type
+            })
+
+    def _classify_dataset(self, text, filename):
+        lower = (text + ' ' + filename).lower()
+        if 'latest' in lower:
+            return 'latest'
+        if 'all' in lower:
+            return 'all'
+        if 'schedule c' in lower or 'sch-c' in lower:
+            return 'schedule_c'
+        if 'schedule a' in lower or 'sch-a' in lower:
+            return 'schedule_a'
+        if 'schedule d' in lower or 'sch-d' in lower:
+            return 'schedule_d'
+        if 'schedule g' in lower or 'sch-g' in lower:
+            return 'schedule_g'
+        if 'schedule h' in lower or 'sch-h' in lower:
+            return 'schedule_h'
+        if 'schedule i' in lower or 'sch-i' in lower:
+            return 'schedule_i'
+        if 'schedule r' in lower or 'sch-r' in lower:
+            return 'schedule_r'
+        if 'form 5500-sf' in lower or '5500-sf' in lower:
+            return 'form_5500_sf'
+        if 'form 5500' in lower or '5500' in lower:
+            return 'form_5500'
+        return 'other'
 
 
-def _fetch_page(url, timeout=30):
+def fetch_dol_page(url, timeout=30, user_agent=None):
+    """Fetch HTML content of DOL page with retries."""
     config = load_config()
-    user_agent = config.get('dol_user_agent', DEFAULT_USER_AGENT)
+    user_agent = user_agent or config.get('dol_user_agent', DEFAULT_USER_AGENT)
     retries = config.get('retry_count', 3)
     backoff = 1
     last_error = None
@@ -91,54 +145,46 @@ def _fetch_page(url, timeout=30):
             logger.error(f"Unexpected error on attempt {attempt+1}: {last_error}")
         time.sleep(backoff)
         backoff *= 2
-    raise ConnectionError(f"Failed to fetch {url}: {last_error}")
-
-
-def _load_cache():
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            pass
-    return None
-
-
-def _save_cache(data):
-    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-    with open(CACHE_FILE, 'w') as f:
-        json.dump(data, f, indent=2)
+    raise ConnectionError(f"Failed to fetch DOL page: {last_error}")
 
 
 def discover_datasets(force_refresh=False):
-    """Discover available datasets from DOL page, fallback to cache if offline."""
+    """
+    Discover available datasets from DOL page.
+    Returns a dict with:
+        discovered_at, latest_year, datasets: {year: [ {name, url, description, file_type}, ... ]}
+    Falls back to cache if offline.
+    """
     cache = _load_cache()
     if cache and not force_refresh:
         logger.info("Using cached DOL dataset metadata.")
         return cache
+
     config = load_config()
     url = config.get('dol_index_url')
     if not url:
         raise ValueError("DOL index URL not configured")
+
     try:
-        html = _fetch_page(url)
-        parser = DOLDatasetHTMLParser()
+        html = fetch_dol_page(url)
+        parser = DOLDatasetHTMLParser(url)
         parser.feed(html)
+
+        # Build structured catalog by year
         catalog = {}
-        for year, files in parser.datasets.items():
-            catalog[str(year)] = []
-            for fname, url, size in files:
-                catalog[str(year)].append({
-                    'name': fname,
-                    'url': url,
-                    'compressed_size': size,
-                    'type': 'unknown'
-                })
+        for link in parser.links:
+            year = link['year']
+            catalog.setdefault(str(year), []).append(link)
+
+        if not catalog:
+            raise ValueError("No dataset links found on DOL page")
+
+        latest_year = str(max(int(y) for y in catalog.keys()))
         metadata = {
             'discovered_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            'latest_year': str(max(parser.datasets.keys())) if parser.datasets else None,
-            'years': sorted(catalog.keys()),
-            'datasets': catalog
+            'latest_year': latest_year,
+            'datasets': catalog,
+            'years': sorted(catalog.keys(), key=int)
         }
         _save_cache(metadata)
         return metadata
@@ -150,64 +196,30 @@ def discover_datasets(force_refresh=False):
         raise
 
 
-def run_dol_diagnostics():
-    """Diagnostic test for DOL connectivity."""
-    result = {
-        'dns': False, 'tls': False, 'http': False,
-        'page': False, 'discovery': False,
-        'latest_year': None, 'file_count': 0,
-        'cache': os.path.exists(CACHE_FILE),
-        'error': None
-    }
-    config = load_config()
-    url = config.get('dol_index_url')
-    user_agent = config.get('dol_user_agent', DEFAULT_USER_AGENT)
+def get_dataset_links(year=None, force_refresh=False):
+    """Return a flat list of dataset links, optionally filtered by year."""
+    metadata = discover_datasets(force_refresh)
+    links = []
+    for y, files in metadata['datasets'].items():
+        if year is not None and int(y) != year:
+            continue
+        for f in files:
+            f['year'] = int(y)
+            links.append(f)
+    return links
 
-    # DNS
-    import urllib.parse
-    host = urllib.parse.urlparse(url).hostname
-    try:
-        socket.getaddrinfo(host, 443)
-        result['dns'] = True
-    except Exception as e:
-        result['error'] = f"DNS failed: {e}"
-        return result
 
-    # HTTP/TLS
-    try:
-        req = Request(url, headers={'User-Agent': user_agent})
-        with urlopen(req, timeout=15) as resp:
-            result['tls'] = True
-            result['http'] = True
-            html = resp.read().decode('utf-8', errors='ignore')
-            result['page'] = True
-    except HTTPError as e:
-        result['tls'] = True
-        result['http'] = False
-        result['error'] = f"HTTP {e.code}: {e.reason}"
-        return result
-    except URLError as e:
-        result['error'] = f"Connection: {e.reason}"
-        if 'certificate' in str(e).lower():
-            result['tls'] = False
-        return result
-    except Exception as e:
-        result['error'] = str(e)
-        return result
+def _load_cache():
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
 
-    # Parsing
-    try:
-        parser = DOLDatasetHTMLParser()
-        parser.feed(html)
-        if parser.datasets:
-            result['discovery'] = True
-            result['latest_year'] = max(parser.datasets.keys())
-            result['file_count'] = sum(len(v) for v in parser.datasets.values())
-        else:
-            result['discovery'] = False
-            result['error'] = "No dataset links found"
-    except Exception as e:
-        result['discovery'] = False
-        result['error'] = f"Parsing error: {e}"
 
-    return result
+def _save_cache(data):
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+    with open(CACHE_FILE, 'w') as f:
+        json.dump(data, f, indent=2)
