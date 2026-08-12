@@ -48,7 +48,7 @@ Evidence & Confidence
 
 📦 Data
 
-401 Finder uses the U.S. Department of Labor Form 5500 datasets.
+401k Finder uses the U.S. Department of Labor Form 5500 datasets.
 
 Official source:
 
@@ -121,8 +121,8 @@ No Docker or systemd is required.
 
 🚀 Installation
 
-git clone https://github.com/g33l0/401-finder.git
-cd 401-finder
+git clone https://github.com/g33l0/401k-finder.git
+cd 401k-finder
 pip install -r requirements.txt
 python main.py
 
@@ -154,7 +154,7 @@ python main.py --health
 
 🔐 Privacy & Security
 
-401 Finder is designed primarily around publicly available retirement-plan information.
+401k Finder is designed primarily around publicly available retirement-plan information.
 
 The application should never request or store:
 	•	Social Security numbers
@@ -200,7 +200,7 @@ GitHub: https://github.com/g33l0
 
 ⸻
 
-401 Finder
+401k Finder
 
 Public Form 5500 data → searchable retirement-plan intelligence.
 
