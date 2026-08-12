@@ -12,6 +12,7 @@ from app.exports import export_result
 from app.datasets import check_and_update_datasets
 
 def parse_args():
+    """Build and return the argument parser. (Does NOT parse sys.argv.)"""
     parser = argparse.ArgumentParser(description="401K Provider Finder")
     parser.add_argument('--company', help='Company name to search')
     parser.add_argument('--year', type=int, help='Plan year')
@@ -22,6 +23,7 @@ def parse_args():
     parser.add_argument('--health', action='store_true', help='Run health check')
     parser.add_argument('--update', action='store_true', help='Check and download dataset updates')
     parser.add_argument('--self-test', action='store_true', help='Run self diagnostic')
+    parser.add_argument('--test-dol', action='store_true', help='Test DOL dataset connectivity')
     return parser
 
 def main():
@@ -31,6 +33,22 @@ def main():
     ensure_dirs(config)
     setup_logging(config)
     initialize_database()
+
+    if args.test_dol:
+        from app.dol_datasets import run_dol_diagnostics
+        diag = run_dol_diagnostics()
+        print("DOL CONNECTION TEST")
+        print(f"DNS:                 {'PASS' if diag['dns'] else 'FAIL'}")
+        print(f"TLS:                 {'PASS' if diag['tls'] else 'FAIL'}")
+        print(f"HTTP:                {'PASS' if diag['http'] else 'FAIL'}")
+        print(f"DOL PAGE:            {'PASS' if diag['page'] else 'FAIL'}")
+        print(f"DATASET DISCOVERY:   {'PASS' if diag['discovery'] else 'FAIL'}")
+        print(f"LATEST YEAR:         {diag.get('latest_year') or 'N/A'}")
+        print(f"DATASET FILES:       {diag.get('file_count')}")
+        print(f"CACHE:               {'PASS' if diag['cache'] else 'N/A'}")
+        if diag.get('error'):
+            print(f"ERROR: {diag['error']}")
+        sys.exit(0)
 
     if args.self_test:
         run_self_test()
@@ -75,44 +93,68 @@ def main():
         main_menu()
 
 def run_self_test():
-    # (unchanged – same as the last corrected version)
+    """Perform comprehensive self-test of all components."""
     tests = []
+
     def test(name, func):
         try:
             func()
             tests.append((name, "PASS"))
         except Exception as e:
             tests.append((name, f"FAIL: {e}"))
+
     def check(condition, message="Assertion failed"):
         if not condition:
             raise AssertionError(message)
 
+    # Database test
     test("Database", lambda: initialize_database())
+
+    # Matching test
     from app.matching import exact_match
     test("Company matching", lambda: check(exact_match("Airgas USA, LLC", "Airgas USA LLC")))
+
+    # EIN matching (no crash)
     from app.ein import find_ein
     test("EIN matching", lambda: find_ein("Nonexistent"))
+
+    # Plans
     from app.plans import is_401k_plan
     test("Plan detection", lambda: check(is_401k_plan("401(k) Savings Plan")))
+
+    # Schedule C parser (placeholder)
     test("Schedule C parser", lambda: None)
+
+    # Provider classification
     from app.classification import classify_provider
     test("Provider classification", lambda: check(classify_provider("Fidelity", "recordkeeping") == 'RECORDKEEPER'))
-    from app.database import get_connection
-    conn = get_connection()
+
+    # Provider identity resolution (add alias to make test meaningful)
+    from app.database import get_connection as get_conn
+    conn = get_conn()
     conn.execute("DELETE FROM provider_identities")
     conn.execute("INSERT INTO provider_identities (id, canonical_name, current_display_name) VALUES (99,'Empower','Empower')")
     conn.commit()
     conn.close()
+
     from app.models import add_provider_alias
     add_provider_alias(99, "Great-West Life & Annuity", "HISTORICAL_NAME")
+
     from app.provider_resolution import resolve_provider
     test("Provider identity resolution", lambda: check(resolve_provider("Great-West Life & Annuity")['canonical_identity'] == 'Empower'))
+
+    # URL validation
     from app.utils import is_valid_url
     test("URL validation", lambda: check(not is_valid_url("badurl") and is_valid_url("https://example.com")))
+
+    # Export (creates file in exports/)
     from app.exports import export_result
     test("Export", lambda: export_result({'company': 'test'}, format='json'))
+
+    # CLI: test that argument parser can be created and parse an empty list (no crash)
     test("CLI", lambda: parse_args().parse_args([]))
 
+    # Print summary
     print("\nSELF TEST RESULTS:")
     for name, status in tests:
         print(f"  {name}: {status}")
