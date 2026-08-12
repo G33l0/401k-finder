@@ -1,11 +1,15 @@
+import sys
+import os
 import zipfile
 import tempfile
 from pathlib import Path
+
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from rich import box
+
 from app.search import perform_search
 from app.providers import add_full_provider
 from app.models import (
@@ -46,11 +50,22 @@ def first_run_installer():
     ))
     catalog = fetch_dataset_catalog()
     if not catalog:
-        console.print("[red]Cannot reach DOL dataset page. Choose offline mode or try later.[/]")
-        latest = None
-    else:
-        latest = get_latest_year(catalog)
-        console.print(f"Latest DOL dataset detected: [bold]{latest}[/]")
+        console.print("[red]Unable to contact DOL dataset service and no cached metadata available.[/]")
+        console.print("[yellow]Options:[/]")
+        console.print("1. Retry")
+        console.print("2. Offline Mode / Skip Download")
+        console.print("0. Exit")
+        choice = Prompt.ask("Choice", choices=["1","2","0"])
+        if choice == "1":
+            first_run_installer()
+        elif choice == "2":
+            return
+        else:
+            sys.exit(0)
+        return
+
+    latest = get_latest_year(catalog)
+    console.print(f"Latest DOL dataset detected: [bold]{latest}[/]")
     console.print("\nSelect the data package you want to install:\n")
     console.print("1. ESSENTIAL – smallest, for basic 401(k) provider lookups")
     console.print("2. STANDARD – includes additional schedules (recommended)")
@@ -63,9 +78,6 @@ def first_run_installer():
         sys.exit(0)
     if choice == '5':
         console.print("[yellow]Entering offline mode. You can install datasets later from Dataset Manager.[/]")
-        return
-    if latest is None:
-        console.print("[red]Cannot proceed without a known dataset year. Restart when network is available.[/]")
         return
     pkg_map = {'1': 'essential', '2': 'standard', '3': 'full', '4': 'custom'}
     package = pkg_map[choice]
@@ -110,7 +122,6 @@ def install_package(catalog, year, package):
         if Confirm.ask("Keep raw downloaded files?", default=False):
             console.print("Raw files kept.")
         else:
-            # Clean up raw directory
             import shutil
             raw_dir = Path(config['raw_dir']) / str(year)
             if raw_dir.exists():
@@ -133,7 +144,7 @@ def install_custom(catalog, year):
         return
     comp_total = sum(sz for _, _, sz, _ in selected if sz) or 0
     extract_total = int(comp_total * 8.0) if comp_total else 0
-    db_est = int(extract_total * 0.8)
+    db_est = int(extract_total * 0.8) if extract_total else 0
     console.print(f"\nEstimated download: {human_readable_size(comp_total)}")
     console.print(f"Estimated extracted: ~{human_readable_size(extract_total)}")
     console.print(f"Estimated database: ~{human_readable_size(db_est)}")
@@ -142,7 +153,6 @@ def install_custom(catalog, year):
         console.print(f"Available storage: {human_readable_size(free)}")
     if not Confirm.ask("Download selected files?"):
         return
-    # Use a custom routine
     from app.downloader import download_file
     from app.validation import validate_zip_integrity
     config = load_config()
@@ -162,7 +172,7 @@ def install_custom(catalog, year):
     except Exception as e:
         console.print(f"[red]Installation failed: {e}[/]")
 
-# ---------------- MAIN MENU (unchanged except added first-run call) ----------------
+# ---------------- MAIN MENU ----------------
 def main_menu():
     while True:
         console.clear()
@@ -347,7 +357,6 @@ def dataset_manager_menu():
     Prompt.ask("Press Enter to continue")
 
 def import_local_dataset():
-    # (unchanged from previous version – local CSV/ZIP import)
     console.print("[bold]Import Local Dataset[/]")
     year_str = Prompt.ask("Dataset year")
     try:
