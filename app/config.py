@@ -8,7 +8,6 @@ def load_config(path=None):
     if path is None:
         path = DEFAULT_CONFIG_PATH
     if not os.path.exists(path):
-        # Return defaults if file missing
         return {
             "database_path": "data/401k_finder.db",
             "data_dir": "data",
@@ -19,7 +18,7 @@ def load_config(path=None):
             "log_dir": "logs",
             "request_timeout": 30,
             "retry_count": 3,
-            "update_check_interval_days": 7,
+            "update_check_interval_days": 30,
             "automatic_update": False,
             "online_verification": True,
             "color_enabled": True,
@@ -32,5 +31,5 @@ def load_config(path=None):
         return json.load(f)
 
 def ensure_dirs(config):
-    for key in ['data_dir', 'raw_dir', 'processed_dir', 'cache_dir', 'export_dir', 'log_dir']:
+    for key in ['data_dir', 'raw_dir', 'processed_dir', 'cache_dir', 'export_dir', 'log_dir', 'backup_dir', 'metadata_dir']:
         Path(config.get(key, key)).mkdir(parents=True, exist_ok=True)
