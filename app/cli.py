@@ -48,6 +48,7 @@ def first_run_installer():
         "[dim]No local Form 5500 dataset installed.[/]",
         border_style="bright_blue", box=box.ROUNDED
     ))
+
     catalog = fetch_dataset_catalog()
     if not catalog:
         console.print("[red]Unable to contact DOL dataset service and no cached metadata available.[/]")
@@ -55,15 +56,16 @@ def first_run_installer():
         console.print("1. Retry")
         console.print("2. Offline Mode / Skip Download")
         console.print("0. Exit")
-        choice = Prompt.ask("Choice", choices=["1","2","0"])
+        choice = Prompt.ask("Choice", choices=["1", "2", "0"])
         if choice == "1":
-            first_run_installer()
+            first_run_installer()   # retry
         elif choice == "2":
-            return
+            return                  # continue to main menu without data
         else:
             sys.exit(0)
-        return
+        return                      # important: skip the rest
 
+    # Catalog exists – proceed with package selection
     latest = get_latest_year(catalog)
     console.print(f"Latest DOL dataset detected: [bold]{latest}[/]")
     console.print("\nSelect the data package you want to install:\n")
@@ -85,6 +87,7 @@ def first_run_installer():
         install_custom(catalog, latest)
     else:
         install_package(catalog, latest, package)
+
 
 def install_package(catalog, year, package):
     """Show sizes and confirm, then download the selected package."""
@@ -118,7 +121,6 @@ def install_package(catalog, year, package):
     try:
         download_and_process_package(year, package)
         console.print(f"[green]{package.capitalize()} dataset installed successfully![/]")
-        # Ask about keeping raw files
         if Confirm.ask("Keep raw downloaded files?", default=False):
             console.print("Raw files kept.")
         else:
@@ -129,6 +131,7 @@ def install_package(catalog, year, package):
                 console.print("Raw files removed.")
     except Exception as e:
         console.print(f"[red]Installation failed: {e}[/]")
+
 
 def install_custom(catalog, year):
     """Let the user pick individual files."""
@@ -171,6 +174,7 @@ def install_custom(catalog, year):
         console.print("[green]Custom installation complete.[/]")
     except Exception as e:
         console.print(f"[red]Installation failed: {e}[/]")
+
 
 # ---------------- MAIN MENU ----------------
 def main_menu():
@@ -220,6 +224,7 @@ def main_menu():
             console.print("[bold]Goodbye![/]")
             break
 
+
 def find_provider_flow():
     company = Prompt.ask("Enter company name")
     year = Prompt.ask("Enter plan year", default="2025")
@@ -237,6 +242,7 @@ def find_provider_flow():
         return
     result = perform_search(company, year_int)
     display_result(result)
+
 
 def display_result(result):
     table = Table(show_header=False, box=box.SIMPLE)
@@ -265,6 +271,7 @@ def display_result(result):
             console.print(f"  - {ev}")
     Prompt.ask("Press Enter to continue")
 
+
 def company_ein_flow():
     company = Prompt.ask("Enter company name")
     from app.ein import find_ein
@@ -276,9 +283,11 @@ def company_ein_flow():
         console.print("[red]No EIN found.[/]")
     Prompt.ask("Press Enter to continue")
 
+
 def historical_flow():
     console.print("[yellow]Provider history timeline will be displayed when implemented fully.[/]")
     Prompt.ask("Press Enter to continue")
+
 
 def provider_directory_flow():
     console.print("1. Search Provider")
@@ -315,6 +324,7 @@ def provider_directory_flow():
         add_provider_alias(identity["id"], alias, alias_type)
         console.print("[green]Alias added.[/]")
     Prompt.ask("Press Enter to continue")
+
 
 def dataset_manager_menu():
     console.print("1. Install/Update Dataset (online)")
@@ -355,6 +365,7 @@ def dataset_manager_menu():
     elif choice == "6":
         import_local_dataset()
     Prompt.ask("Press Enter to continue")
+
 
 def import_local_dataset():
     console.print("[bold]Import Local Dataset[/]")
@@ -404,6 +415,7 @@ def import_local_dataset():
             console.print(f"[red]Failed {cf.name}: {e}[/]")
     console.print("[green]Local import complete.[/]")
 
+
 def db_stats():
     from app.database import get_connection
     conn = get_connection()
@@ -414,11 +426,14 @@ def db_stats():
     console.print(f"Plans: {plans}")
     console.print(f"Service Providers: {providers}")
 
+
 def config_menu():
     console.print("Configuration editing not implemented in CLI. Edit config/config.json directly.")
+
 
 def export_menu():
     console.print("Export last result (if any) will be saved.")
     console.print("[yellow]No previous result in memory.[/]")
+
 
 run_interactive = main_menu
