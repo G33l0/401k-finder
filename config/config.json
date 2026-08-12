@@ -14,11 +14,12 @@
     "automatic_update": false,
     "online_verification": true,
     "color_enabled": true,
-    "result_limit": 10,
+    "result_limit": 50,
     "confidence_high": 90,
     "confidence_medium": 70,
     "confidence_low": 50,
     "dol_index_url": "https://www.dol.gov/agencies/ebsa/about-ebsa/our-activities/public-disclosure/foia/form-5500-datasets",
-    "storage_safety_margin_mb": 50,
+    "dol_user_agent": "401k-Finder/1.0 (compatible; +https://github.com/401k-finder)",
+    "storage_safety_margin_mb": 75,
     "csv_expansion_factor": 8.0
 }
