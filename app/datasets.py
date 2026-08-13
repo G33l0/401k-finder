@@ -7,10 +7,9 @@ import json
 import logging
 import os
 import shutil
-import sqlite3
-import tempfile
 import time
 import zipfile
+import tempfile
 from pathlib import Path
 
 from app.config import load_config
@@ -18,13 +17,12 @@ from app.dol_datasets import discover_datasets, get_dataset_links
 from app.downloader import download_file, sha256_file
 from app.validation import validate_zip_integrity
 from app.utils import human_readable_size, get_free_disk_space
-from app.models import insert_company, insert_plan, insert_service_provider
+from app.models import insert_company, insert_plan, insert_service_provider, record_dataset_file
 from app.database import get_connection
 
 logger = logging.getLogger(__name__)
 
 MANIFEST_FILE = "data/metadata/datasets.json"
-
 
 # ---------------------------------------------------------------------------
 # Manifest handling
@@ -38,12 +36,10 @@ def load_manifest():
             pass
     return {"datasets": []}
 
-
 def save_manifest(manifest):
     os.makedirs(os.path.dirname(MANIFEST_FILE), exist_ok=True)
     with open(MANIFEST_FILE, 'w') as f:
         json.dump(manifest, f, indent=2)
-
 
 def add_to_manifest(year, dataset_type, source, catalog_url, download_url,
                     filename, size_bytes, sha256, status):
@@ -66,15 +62,11 @@ def add_to_manifest(year, dataset_type, source, catalog_url, download_url,
     })
     save_manifest(manifest)
 
-
 # ---------------------------------------------------------------------------
 # Backward-compatible functions used by app/cli.py
 # ---------------------------------------------------------------------------
 def fetch_dataset_catalog():
-    """
-    Return catalog of years -> list of (filename, url, size) tuples.
-    This is the format expected by the original CLI.
-    """
+    """Return catalog of years -> list of (filename, url, size) tuples."""
     metadata = discover_datasets()
     if not metadata or 'datasets' not in metadata:
         return None
@@ -83,24 +75,16 @@ def fetch_dataset_catalog():
         year = int(year_str)
         catalog[year] = []
         for f in files:
-            # f is a dict with 'name', 'url', 'description', 'file_type'
-            # size may or may not be present; use 0 if missing
             size = f.get('compressed_size') or f.get('size')
             catalog[year].append((f['name'], f['url'], size))
     return catalog
-
 
 def get_latest_year(catalog):
     if not catalog:
         return None
     return max(catalog.keys())
 
-
 def classify_file_type(filename, year):
-    """
-    Heuristically determine dataset type from filename.
-    Used by package selection and import.
-    """
     lower = filename.lower()
     if 'sf' in lower and 'private' in lower:
         return 'main_form5500'
@@ -120,11 +104,7 @@ def classify_file_type(filename, year):
         return 'schedule_r'
     return 'other'
 
-
 def calculate_package_sizes(catalog, year, package='standard'):
-    """
-    Return estimated sizes and file list for a given package.
-    """
     if year not in catalog:
         return None
     files = catalog[year]
@@ -142,8 +122,6 @@ def calculate_package_sizes(catalog, year, package='standard'):
                 selected.append((fname, url, size, ftype))
         elif package == 'full':
             selected.append((fname, url, size, ftype))
-        # 'custom' handled elsewhere
-
     comp_total = sum(sz for _, _, sz, _ in selected if sz) if selected else 0
     extract_total = int(comp_total * expansion) if comp_total else 0
     db_estimate = int(extract_total * 0.8) if extract_total else 0
@@ -155,12 +133,7 @@ def calculate_package_sizes(catalog, year, package='standard'):
         'file_list': selected
     }
 
-
 def download_and_process_package(year, package_type='essential'):
-    """
-    Download, validate, and process a full package.
-    This is the high‑level entry point used by the installer.
-    """
     config = load_config()
     catalog = fetch_dataset_catalog()
     if not catalog or year not in catalog:
@@ -168,19 +141,13 @@ def download_and_process_package(year, package_type='essential'):
     sizes = calculate_package_sizes(catalog, year, package_type)
     if not sizes or not sizes['file_list']:
         raise RuntimeError("Selected package has no files.")
-
     safety_mb = config.get('storage_safety_margin_mb', 50) * 1024 * 1024
     required = sizes['temp_needed'] + sizes['database'] + safety_mb
     free = get_free_disk_space()
     if free is not None and free < required:
-        raise RuntimeError(
-            f"Insufficient disk space. Required: {human_readable_size(required)}, "
-            f"Available: {human_readable_size(free)}"
-        )
-
+        raise RuntimeError(f"Insufficient disk space. Required: {human_readable_size(required)}, Available: {human_readable_size(free)}")
     raw_dir = Path(config['raw_dir']) / str(year)
     raw_dir.mkdir(parents=True, exist_ok=True)
-
     for fname, url, size, ftype in sizes['file_list']:
         dest = raw_dir / fname
         try:
@@ -191,30 +158,18 @@ def download_and_process_package(year, package_type='essential'):
                 with zipfile.ZipFile(dest, 'r') as zf:
                     zf.extractall(tmpdir)
                 process_extracted_files(tmpdir, year, ftype)
-            # Record dataset file in DB (if needed)
-            from app.models import record_dataset_file
-            record_dataset_file(year, fname, ftype, compressed_size=size,
-                                extracted_size=None, source_url=url)
+            record_dataset_file(year, fname, ftype, compressed_size=size, extracted_size=None, source_url=url)
         except Exception as e:
             logger.error(f"Failed to process {fname}: {e}")
             if dest.exists():
                 dest.unlink()
             raise
-
     conn = get_connection()
-    conn.execute(
-        "INSERT OR REPLACE INTO dataset_versions (year, download_date, record_count) "
-        "VALUES (?, datetime('now'), 0)",
-        (year,)
-    )
+    conn.execute("INSERT OR REPLACE INTO dataset_versions (year, download_date, record_count) VALUES (?, datetime('now'), 0)", (year,))
     conn.commit()
     return True
 
-
 def process_extracted_files(directory, year, file_type):
-    """
-    Process CSV files extracted from a ZIP.
-    """
     csv_files = list(Path(directory).glob('**/*.csv'))
     if not csv_files:
         logger.warning(f"No CSV found in {directory}")
@@ -226,73 +181,43 @@ def process_extracted_files(directory, year, file_type):
         elif 'sch_c' in fname or 'schedule_c' in fname:
             import_schedule_c_csv(str(csv_file), year)
 
-
 # ---------------------------------------------------------------------------
-# New DOL dataset pipeline (discovery, download, extract, build)
+# New DOL dataset pipeline
 # ---------------------------------------------------------------------------
 def download_dataset(year, dataset_type='latest', force=False):
-    """
-    Download the dataset for a given year.
-    Returns (file_path, selected_link_dict).
-    """
     config = load_config()
     links = get_dataset_links(year)
     if not links:
         raise RuntimeError(f"No dataset links found for year {year}")
-
-    # Filter by type
     if dataset_type == 'latest':
-        selected = next(
-            (l for l in links if l.get('file_type') == 'latest' and 'zip' in l['name'].lower()),
-            links[0]
-        )
+        selected = next((l for l in links if l.get('file_type') == 'latest' and 'zip' in l['name'].lower()), links[0])
     elif dataset_type == 'all':
-        selected = next(
-            (l for l in links if l.get('file_type') == 'all' and 'zip' in l['name'].lower()),
-            links[0]
-        )
+        selected = next((l for l in links if l.get('file_type') == 'all' and 'zip' in l['name'].lower()), links[0])
     else:
         selected = links[0]
-
     url = selected['url']
     filename = selected['name']
     download_dir = Path(config['raw_dir']) / str(year)
     download_dir.mkdir(parents=True, exist_ok=True)
     dest_path = download_dir / filename
-
     if dest_path.exists() and not force:
         print(f"Dataset file already exists: {dest_path}")
         return str(dest_path), selected
-
     print(f"Downloading {url} ...")
     expected_size = selected.get('size')
     download_file(url, str(dest_path), expected_size=expected_size)
-
     if not validate_zip_integrity(dest_path):
         dest_path.unlink(missing_ok=True)
         raise ValueError("Downloaded file is not a valid ZIP archive")
-
     checksum = sha256_file(dest_path)
     size = os.path.getsize(dest_path)
-
-    add_to_manifest(
-        year=year,
-        dataset_type=dataset_type,
-        source='DOL',
-        catalog_url=config.get('dol_index_url'),
-        download_url=url,
-        filename=filename,
-        size_bytes=size,
-        sha256=checksum,
-        status='downloaded'
-    )
+    add_to_manifest(year=year, dataset_type=dataset_type, source='DOL',
+                    catalog_url=config.get('dol_index_url'), download_url=url,
+                    filename=filename, size_bytes=size, sha256=checksum,
+                    status='downloaded')
     return str(dest_path), selected
 
-
 def extract_dataset(zip_path, year):
-    """
-    Safely extract ZIP into data/raw/<year>/extracted/.
-    """
     config = load_config()
     extract_dir = Path(config['raw_dir']) / str(year) / 'extracted'
     extract_dir.mkdir(parents=True, exist_ok=True)
@@ -307,50 +232,30 @@ def extract_dataset(zip_path, year):
         raise
     return extract_dir
 
-
 def import_csv_to_db(csv_path, year):
-    """
-    Import a single CSV file into the database based on its name.
-    """
     fname = Path(csv_path).name.lower()
     if 'f_5500' in fname or 'form_5500' in fname:
         import_form5500_csv(str(csv_path), year)
     elif 'sch_c' in fname or 'schedule_c' in fname:
         import_schedule_c_csv(str(csv_path), year)
 
-
 def build_database(year, dataset_type='latest', force=False):
-    """
-    Download, extract, import, and mark dataset active.
-    """
     zip_path, link = download_dataset(year, dataset_type, force=force)
     extract_dir = extract_dataset(zip_path, year)
-
     csv_files = list(extract_dir.rglob('*.csv'))
     if not csv_files:
         raise RuntimeError("No CSV files found in extracted dataset")
     print(f"Found {len(csv_files)} CSV files. Importing...")
     for csv_file in csv_files:
         import_csv_to_db(csv_file, year)
-
-    add_to_manifest(
-        year=year,
-        dataset_type=dataset_type,
-        source='DOL',
-        catalog_url=load_config().get('dol_index_url'),
-        download_url=link['url'],
-        filename=link['name'],
-        size_bytes=os.path.getsize(zip_path),
-        sha256=sha256_file(zip_path),
-        status='active'
-    )
+    add_to_manifest(year=year, dataset_type=dataset_type, source='DOL',
+                    catalog_url=load_config().get('dol_index_url'),
+                    download_url=link['url'], filename=link['name'],
+                    size_bytes=os.path.getsize(zip_path),
+                    sha256=sha256_file(zip_path), status='active')
     print("Database build complete.")
 
-
 def import_dataset_from_file(file_path, year):
-    """
-    Import a locally provided ZIP file.
-    """
     config = load_config()
     dest = Path(config['raw_dir']) / str(year)
     dest.mkdir(parents=True, exist_ok=True)
@@ -362,14 +267,10 @@ def import_dataset_from_file(file_path, year):
         import_csv_to_db(csv_file, year)
     print("Import complete.")
 
-
 # ---------------------------------------------------------------------------
-# CSV import functions (used by both old and new pipeline)
+# CSV import functions
 # ---------------------------------------------------------------------------
 def import_form5500_csv(filepath, year):
-    """
-    Import Form 5500 main data from a CSV file into the database.
-    """
     from app.utils import normalize_company_name
     conn = get_connection()
     cursor = conn.cursor()
@@ -386,28 +287,33 @@ def import_form5500_csv(filepath, year):
                 if not (sponsor_name and ein and plan_name and ack_id):
                     continue
                 norm = normalize_company_name(sponsor_name)
-                cursor.execute(
-                    "INSERT OR IGNORE INTO companies (name, normalized_name, ein) VALUES (?,?,?)",
-                    (sponsor_name.strip(), norm, ein)
-                )
+                cursor.execute("INSERT OR IGNORE INTO companies (name, normalized_name, ein) VALUES (?,?,?)",
+                               (sponsor_name.strip(), norm, ein))
                 conn.commit()
                 company = cursor.execute("SELECT id FROM companies WHERE ein=? LIMIT 1", (ein,)).fetchone()
                 if company:
-                    insert_plan(company['id'], plan_name.strip(), plan_number, plan_type,
-                                year, ein, ack_id, year)
+                    insert_plan(company['id'], plan_name.strip(), plan_number, plan_type, year, ein, ack_id, year)
     except Exception as e:
         logger.error(f"Form 5500 import error: {e}")
         raise
     conn.close()
 
-
 def import_schedule_c_csv(filepath, year):
-    """
-    Import Schedule C data from a CSV file.
-    """
     from app.schedule_c import parse_schedule_c
     conn = get_connection()
     plans = conn.execute("SELECT id, ein, plan_number FROM plans WHERE dataset_year=?", (year,)).fetchall()
     plan_map = {(p['ein'], p['plan_number']): p['id'] for p in plans if p['ein'] and p['plan_number']}
     parse_schedule_c(filepath, plan_map)
     conn.close()
+
+def check_and_update_datasets():
+    """Check for dataset updates and prompt user."""
+    print("Checking for dataset updates...")
+    from app.dol_datasets import discover_datasets
+    metadata = discover_datasets(force_refresh=True)
+    if metadata:
+        latest = metadata.get('latest_year')
+        print(f"Latest available dataset year: {latest}")
+        # Add update logic here if needed
+    else:
+        print("Could not check updates.")
