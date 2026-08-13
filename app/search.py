@@ -6,7 +6,6 @@ from app.confidence import calculate_confidence
 from app.provider_resolution import resolve_provider
 
 def perform_search(company, year):
-    """Complete search pipeline returning structured result."""
     result = {
         'company': company,
         'year': year,
@@ -18,66 +17,37 @@ def perform_search(company, year):
         'confidence': {},
         'evidence': []
     }
-
-    # Step 1: Find EIN candidates
     ein_candidates = find_ein(company)
     if not ein_candidates:
         result['error'] = "Company not found in database."
         return result
-
     ein = ein_candidates[0]['ein']
     result['ein'] = ein
     result['evidence'].append('EIN match via DOL Form 5500')
-
-    # Step 2: Find plans for EIN in requested year
     conn = get_connection()
-    plans = conn.execute(
-        "SELECT * FROM plans WHERE ein=? AND plan_year=?",
-        (ein, year)
-    ).fetchall()
-
+    plans = conn.execute("SELECT * FROM plans WHERE ein=? AND plan_year=?", (ein, year)).fetchall()
     if not plans:
-        # Fallback to latest available year
-        plans = conn.execute(
-            "SELECT * FROM plans WHERE ein=? ORDER BY plan_year DESC LIMIT 1",
-            (ein,)
-        ).fetchall()
+        plans = conn.execute("SELECT * FROM plans WHERE ein=? ORDER BY plan_year DESC LIMIT 1", (ein,)).fetchall()
         if plans:
             result['fallback_year'] = plans[0]['plan_year']
-            result['evidence'].append(
-                f"Requested year {year} not available; using latest filing {plans[0]['plan_year']}"
-            )
+            result['evidence'].append(f"Requested year {year} not available; using latest filing {plans[0]['plan_year']}")
         else:
             result['error'] = "No plans found for this employer."
             return result
-
-    # Step 3: Identify 401(k) plans
     k_plans = [p for p in plans if is_401k_plan(p['plan_name'])]
     if not k_plans:
         result['plan'] = plans[0]['plan_name']
         result['error'] = "No 401(k) plan identified; may be other retirement plan."
         return result
-
     plan = k_plans[0]
     result['plan'] = plan['plan_name']
     result['plan_number'] = plan['plan_number']
-
-    # Step 4: Get service providers for that plan
-    providers = conn.execute(
-        "SELECT * FROM service_providers WHERE plan_id=?",
-        (plan['id'],)
-    ).fetchall()
-
+    providers = conn.execute("SELECT * FROM service_providers WHERE plan_id=?", (plan['id'],)).fetchall()
     recordkeepers = [p for p in providers if p['classification'] == 'RECORDKEEPER']
     if recordkeepers:
         rk = recordkeepers[0]
         result['recordkeeper_filing_name'] = rk['provider_name']
-        # Resolve provider identity
-        identity_info = resolve_provider(
-            rk['provider_name'],
-            year,
-            rk.get('provider_ein')
-        )
+        identity_info = resolve_provider(rk['provider_name'], year, rk.get('provider_ein'))
         result['recordkeeper_identity'] = identity_info['canonical_identity']
         result['recordkeeper_current'] = identity_info['current_name']
         result['evidence'].extend(identity_info['evidence'])
@@ -85,7 +55,6 @@ def perform_search(company, year):
             'provider_match': identity_info['confidence'] * 100,
             'overall': calculate_confidence('HIGH')
         }
-        # Look up login/contact info in provider directory
         dir_entries = search_provider(identity_info['canonical_identity'])
         if dir_entries:
             entry = dir_entries[0]
@@ -95,13 +64,10 @@ def perform_search(company, year):
     else:
         result['recordkeeper_filing_name'] = "Recordkeeper could not be conclusively determined."
         result['confidence'] = {'overall': calculate_confidence('LOW')}
-
     return result
 
 def search_ein(company):
-    """Wrapper around find_ein for CLI."""
     return find_ein(company)
 
 def search_history(company):
-    """Placeholder for provider history search."""
     return {"history": []}
