@@ -23,7 +23,9 @@ from app.database import get_connection
 logger = logging.getLogger(__name__)
 MANIFEST_FILE = "data/metadata/datasets.json"
 
-# ---------- Manifest ----------
+# ---------------------------------------------------------------------------
+# Manifest handling
+# ---------------------------------------------------------------------------
 def load_manifest():
     if os.path.exists(MANIFEST_FILE):
         try:
@@ -41,19 +43,29 @@ def save_manifest(manifest):
 def add_to_manifest(year, dataset_type, source, catalog_url, download_url,
                     filename, size_bytes, sha256, status):
     manifest = load_manifest()
-    manifest['datasets'] = [d for d in manifest['datasets']
-                            if not (d['year'] == year and d['dataset_type'] == dataset_type)]
+    manifest['datasets'] = [
+        d for d in manifest['datasets']
+        if not (d['year'] == year and d['dataset_type'] == dataset_type)
+    ]
     manifest['datasets'].append({
-        'year': year, 'dataset_type': dataset_type, 'source': source,
-        'catalog_url': catalog_url, 'download_url': download_url,
-        'filename': filename, 'downloaded_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-        'sha256': sha256, 'size_bytes': size_bytes, 'status': status
+        'year': year,
+        'dataset_type': dataset_type,
+        'source': source,
+        'catalog_url': catalog_url,
+        'download_url': download_url,
+        'filename': filename,
+        'downloaded_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        'sha256': sha256,
+        'size_bytes': size_bytes,
+        'status': status
     })
     save_manifest(manifest)
 
-# ---------- Backward compatibility for CLI ----------
+# ---------------------------------------------------------------------------
+# Backward-compatible functions used by app/cli.py
+# ---------------------------------------------------------------------------
 def fetch_dataset_catalog():
-    """Return catalog in old format: year -> list of (filename, url, size)."""
+    """Return catalog of years -> list of (filename, url, size) tuples."""
     links = get_dataset_links()
     catalog = {}
     for link in links:
@@ -64,7 +76,8 @@ def fetch_dataset_catalog():
 def get_latest_year(catalog):
     if not catalog:
         return None
-    years = [y for y in catalog.keys() if 1990 <= y <= 2100]  # filter out bogus years
+    # Filter out bogus years like 5500
+    years = [y for y in catalog.keys() if 1990 <= y <= 2100]
     return max(years) if years else None
 
 def classify_file_type(filename, year=None):
@@ -103,8 +116,8 @@ def calculate_package_sizes(catalog, year, package='standard'):
                 selected.append((link['name'], link['url'], link.get('compressed_size'), ftype))
         elif package == 'full':
             selected.append((link['name'], link['url'], link.get('compressed_size'), ftype))
-    comp_total = sum(sz for _,_,sz,_ in selected if sz) if selected else 0
-    # sizes may be unknown; use 0 if not known
+    comp_total = sum(sz for _, _, sz, _ in selected if sz) if selected else 0
+    # If sizes unknown, we still proceed but show unknown size later
     extract_total = int(comp_total * 8.0) if comp_total else 0
     db_estimate = int(extract_total * 0.8) if extract_total else 0
     return {
@@ -126,7 +139,6 @@ def download_and_process_package(year, package_type='essential'):
 
     # Download layout files first (needed for import)
     for fname, url, size, ftype in sizes['file_list']:
-        # Find layout URL from static catalog
         link = next((l for l in get_dataset_links(year) if l['name'] == fname), None)
         if link and 'layout_url' in link:
             layout_path = raw_dir / (fname.replace('.zip', '_layout.txt'))
@@ -152,16 +164,26 @@ def download_and_process_package(year, package_type='essential'):
             zf.extractall(extract_dir)
         layout_file = raw_dir / (fname.replace('.zip', '_layout.txt'))
         # Process CSV files in extract_dir
-        csv_files = list(extract_dir.glob('*.csv'))
-        if not csv_files:
-            csv_files = list(extract_dir.rglob('*.csv'))
-        for csv_file in csv_files:
-            import_csv_with_layout(csv_file, year, layout_file, ftype)
+        process_extracted_files(extract_dir, year, ftype, layout_file)
     print("Package processed successfully.")
+
+def process_extracted_files(directory, year, file_type, layout_file=None):
+    """
+    Process CSV files extracted from a ZIP.
+    If layout_file is provided, use it for column mapping.
+    """
+    csv_files = list(Path(directory).glob('*.csv'))
+    if not csv_files:
+        csv_files = list(Path(directory).rglob('*.csv'))
+    if not csv_files:
+        logger.warning(f"No CSV found in {directory}")
+        return
+    for csv_file in csv_files:
+        import_csv_with_layout(csv_file, year, layout_file, file_type)
 
 def import_csv_with_layout(csv_path, year, layout_file, ftype):
     """Import CSV using layout file to map fields."""
-    field_map = parse_layout_file(layout_file) if layout_file.exists() else {}
+    field_map = parse_layout_file(layout_file) if layout_file and Path(layout_file).exists() else {}
     if ftype.startswith('form_5500'):
         import_form5500_csv(csv_path, year, field_map)
     elif ftype == 'schedule_c':
@@ -195,7 +217,6 @@ def import_form5500_csv(filepath, year, field_map=None):
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                # Use field_map to get actual column names; fallback to common DOL names
                 ein = row.get('SPONSOR_DFE_EIN') or row.get('SPONSOR_EIN') or row.get('EIN')
                 sponsor = row.get('SPONSOR_DFE_NAME') or row.get('SPONSOR_NAME') or row.get('NAME')
                 plan_name = row.get('PLAN_NAME')
@@ -224,9 +245,11 @@ def import_schedule_c_csv(filepath, year, field_map=None):
     parse_schedule_c(filepath, plan_map)
     conn.close()
 
-# ---------- Download dataset commands (used by CLI) ----------
+# ---------------------------------------------------------------------------
+# Download dataset commands (used by CLI)
+# ---------------------------------------------------------------------------
 def download_dataset(year, dataset_type='all', force=False):
-    """Download a single dataset file (for full package, downloads all)."""
+    """Download all dataset files for a given year."""
     links = get_dataset_links(year)
     if not links:
         raise RuntimeError("No dataset links found")
@@ -247,14 +270,14 @@ def download_dataset(year, dataset_type='all', force=False):
 def build_database(year, dataset_type='all', force=False):
     """Download all, extract, import, mark active."""
     raw_dir, links = download_dataset(year, dataset_type, force)
-    download_and_process_package(year, 'full')  # Use full package to include all
+    download_and_process_package(year, 'full')
     add_to_manifest(year=year, dataset_type=dataset_type, source='DOL',
                     catalog_url='', download_url='',
                     filename='all', size_bytes=0, sha256='', status='active')
     print("Database build complete.")
 
 def import_dataset_from_file(file_path, year):
-    """Import local ZIP file."""
+    """Import a local ZIP file."""
     config = load_config()
     raw_dir = Path(config['raw_dir']) / str(year)
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -266,10 +289,9 @@ def import_dataset_from_file(file_path, year):
     extract_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(dest, 'r') as zf:
         zf.extractall(extract_dir)
-    # Find CSVs and import; attempt to guess type from filename
-    for csv_file in extract_dir.rglob('*.csv'):
-        ftype = classify_file_type(dest.name, year)
-        import_csv_with_layout(csv_file, year, None, ftype)
+    # Detect type and import
+    ftype = classify_file_type(dest.name, year)
+    process_extracted_files(extract_dir, year, ftype)
     print("Import complete.")
 
 def check_and_update_datasets():
