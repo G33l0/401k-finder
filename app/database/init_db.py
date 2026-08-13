@@ -5,18 +5,19 @@ from sqlalchemy import text
 from app.database.base import Base
 from app.database.engine import engine
 
-# Import models so SQLAlchemy knows every table.
+# Importing models registers every ORM class with Base.metadata.
 from app.database import models  # noqa: F401
 
 
 def initialize_database() -> None:
-    """Create all database tables if they do not already exist."""
+    """Create the application database tables if they do not exist."""
+
     Base.metadata.create_all(bind=engine)
 
     with engine.begin() as connection:
-        connection.execute(
-            text("PRAGMA foreign_keys = ON")
-        )
+        connection.execute(text("PRAGMA foreign_keys = ON"))
+        connection.execute(text("PRAGMA journal_mode = WAL"))
+        connection.execute(text("PRAGMA synchronous = NORMAL"))
 
 
 if __name__ == "__main__":
