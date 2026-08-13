@@ -19,11 +19,12 @@ def perform_search(company, year):
     }
     ein_candidates = find_ein(company)
     if not ein_candidates:
-        result['error'] = "Company not found in database."
+        result['error'] = "Company not found in imported DOL dataset. Please ensure the dataset is installed."
         return result
     ein = ein_candidates[0]['ein']
     result['ein'] = ein
     result['evidence'].append('EIN match via DOL Form 5500')
+
     conn = get_connection()
     plans = conn.execute("SELECT * FROM plans WHERE ein=? AND plan_year=?", (ein, year)).fetchall()
     if not plans:
@@ -34,14 +35,17 @@ def perform_search(company, year):
         else:
             result['error'] = "No plans found for this employer."
             return result
+
     k_plans = [p for p in plans if is_401k_plan(p['plan_name'])]
     if not k_plans:
         result['plan'] = plans[0]['plan_name']
         result['error'] = "No 401(k) plan identified; may be other retirement plan."
         return result
+
     plan = k_plans[0]
     result['plan'] = plan['plan_name']
     result['plan_number'] = plan['plan_number']
+
     providers = conn.execute("SELECT * FROM service_providers WHERE plan_id=?", (plan['id'],)).fetchall()
     recordkeepers = [p for p in providers if p['classification'] == 'RECORDKEEPER']
     if recordkeepers:
@@ -64,6 +68,8 @@ def perform_search(company, year):
     else:
         result['recordkeeper_filing_name'] = "Recordkeeper could not be conclusively determined."
         result['confidence'] = {'overall': calculate_confidence('LOW')}
+
+    conn.close()
     return result
 
 def search_ein(company):
