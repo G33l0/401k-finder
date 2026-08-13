@@ -27,6 +27,7 @@ from app.datasets import (
     download_dataset,
     build_database,
     import_dataset_from_file,
+    validate_and_import_raw,   # new function
 )
 from app.exports import export_result
 from app.health import run_health_check
@@ -49,7 +50,6 @@ def show_banner():
 
 # ---------------- FIRST RUN INSTALLER ----------------
 def first_run_installer():
-    """Display the setup wizard when no dataset is installed."""
     console.clear()
     console.print(
         Panel.fit(
@@ -59,7 +59,6 @@ def first_run_installer():
             box=box.ROUNDED,
         )
     )
-
     catalog = fetch_dataset_catalog()
     if not catalog:
         console.print("[red]Unable to contact DOL dataset service and no cached metadata available.[/]")
@@ -101,7 +100,6 @@ def first_run_installer():
 
 
 def install_package(catalog, year, package):
-    """Show sizes and confirm, then download the selected package."""
     sizes = calculate_package_sizes(catalog, year, package)
     if not sizes or not sizes["file_list"]:
         console.print("[red]No files available for this package.[/]")
@@ -136,17 +134,17 @@ def install_package(catalog, year, package):
             console.print("Raw files kept.")
         else:
             import shutil
-
             raw_dir = Path(config["raw_dir"]) / str(year)
             if raw_dir.exists():
                 shutil.rmtree(raw_dir)
                 console.print("Raw files removed.")
+    except KeyboardInterrupt:
+        console.print("[yellow]Download interrupted by user.[/]")
     except Exception as e:
         console.print(f"[red]Installation failed: {e}[/]")
 
 
 def install_custom(catalog, year):
-    """Let the user pick individual files."""
     files = catalog[year]
     selected = []
     for fname, url, size in files:
@@ -170,7 +168,6 @@ def install_custom(catalog, year):
         return
     from app.downloader import download_file
     from app.validation import validate_zip_integrity
-
     config = load_config()
     raw_dir = Path(config["raw_dir"]) / str(year)
     raw_dir.mkdir(parents=True, exist_ok=True)
@@ -185,6 +182,8 @@ def install_custom(catalog, year):
                     zf.extractall(tmpdir)
                 process_extracted_files(tmpdir, year, ftype)
         console.print("[green]Custom installation complete.[/]")
+    except KeyboardInterrupt:
+        console.print("[yellow]Download interrupted by user.[/]")
     except Exception as e:
         console.print(f"[red]Installation failed: {e}[/]")
 
@@ -204,22 +203,42 @@ def main_menu():
         console.print("8. Diagnostics / Health Check")
         console.print("9. Export Results")
         console.print("0. Exit")
-        choice = Prompt.ask("Enter choice", choices=[str(i) for i in range(10)])
+        try:
+            choice = Prompt.ask("Enter choice", choices=[str(i) for i in range(10)])
+        except KeyboardInterrupt:
+            console.print("[yellow]Interrupted. Exiting.[/]")
+            sys.exit(0)
+
         if choice == "1":
             console.clear()
-            find_provider_flow()
+            try:
+                find_provider_flow()
+            except KeyboardInterrupt:
+                console.print("[yellow]Search interrupted.[/]")
         elif choice == "2":
             console.clear()
-            company_ein_flow()
+            try:
+                company_ein_flow()
+            except KeyboardInterrupt:
+                console.print("[yellow]Search interrupted.[/]")
         elif choice == "3":
             console.clear()
-            historical_flow()
+            try:
+                historical_flow()
+            except KeyboardInterrupt:
+                console.print("[yellow]Interrupted.[/]")
         elif choice == "4":
             console.clear()
-            provider_directory_flow()
+            try:
+                provider_directory_flow()
+            except KeyboardInterrupt:
+                console.print("[yellow]Interrupted.[/]")
         elif choice == "5":
             console.clear()
-            dataset_manager_menu()
+            try:
+                dataset_manager_menu()
+            except KeyboardInterrupt:
+                console.print("[yellow]Dataset manager interrupted.[/]")
         elif choice == "6":
             console.clear()
             db_stats()
@@ -288,13 +307,12 @@ def display_result(result):
 def company_ein_flow():
     company = Prompt.ask("Enter company name")
     from app.ein import find_ein
-
     candidates = find_ein(company)
     if candidates:
         for c in candidates:
             console.print(f"EIN: {c['ein']} (confidence: {c['confidence']}%)")
     else:
-        console.print("[red]No EIN found.[/]")
+        console.print("[red]No EIN found. Dataset may not be imported yet.[/]")
     Prompt.ask("Press Enter to continue")
 
 
@@ -346,7 +364,7 @@ def dataset_manager_menu():
     console.print("1. Install/Update Dataset (online)")
     console.print("2. Download Historical Dataset")
     console.print("3. Show Installed Datasets")
-    console.print("4. Validate Datasets")
+    console.print("4. Validate & Import Raw Data")
     console.print("5. Backup Database")
     console.print("6. Import Local Dataset (offline)")
     choice = Prompt.ask("Choice", choices=["1", "2", "3", "4", "5", "6"])
@@ -372,7 +390,6 @@ def dataset_manager_menu():
             console.print(f"[red]Dataset year {year} not found.[/]")
     elif choice == "3":
         from app.database import get_connection
-
         conn = get_connection()
         years = conn.execute("SELECT DISTINCT dataset_year FROM plans ORDER BY dataset_year").fetchall()
         if years:
@@ -380,7 +397,19 @@ def dataset_manager_menu():
         else:
             console.print("[yellow]No datasets installed.[/]")
     elif choice == "4":
-        console.print("Validation not yet implemented.")
+        # Validate & import raw files
+        year_str = Prompt.ask("Dataset year")
+        try:
+            year = int(year_str)
+        except ValueError:
+            console.print("[red]Invalid year[/]")
+            Prompt.ask("Press Enter to continue")
+            return
+        raw_path = Prompt.ask("Path to raw directory or ZIP file")
+        try:
+            validate_and_import_raw(year, raw_path)
+        except Exception as e:
+            console.print(f"[red]Validation/import failed: {e}[/]")
     elif choice == "5":
         console.print("Backup not yet implemented.")
     elif choice == "6":
@@ -396,17 +425,21 @@ def import_local_dataset():
     except ValueError:
         console.print("[red]Invalid year[/]")
         return
-    path = Prompt.ask("Path to ZIP file")
+    path = Prompt.ask("Path to ZIP file or directory")
     try:
-        import_dataset_from_file(path, year)
+        if os.path.isdir(path):
+            validate_and_import_raw(year, path)
+        else:
+            import_dataset_from_file(path, year)
         console.print("[green]Import complete.[/]")
+    except KeyboardInterrupt:
+        console.print("[yellow]Import interrupted.[/]")
     except Exception as e:
         console.print(f"[red]Import failed: {e}[/]")
 
 
 def db_stats():
     from app.database import get_connection
-
     conn = get_connection()
     companies = conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0]
     plans = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
