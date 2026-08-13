@@ -12,7 +12,7 @@ from app.health import run_health_check
 from app.search import perform_search, search_provider, search_ein, search_history
 from app.exports import export_result
 from app.datasets import check_and_update_datasets, build_database, import_dataset_from_file
-from app.dol_datasets import discover_datasets, run_dol_diagnostics
+from app.dol_datasets import run_dol_diagnostics
 
 def parse_args():
     parser = argparse.ArgumentParser(description="401K Provider Finder")
@@ -39,7 +39,6 @@ def main():
     parser = parse_args()
     args = parser.parse_args()
 
-    # Setup logging
     config = load_config()
     ensure_dirs(config)
     if args.debug:
@@ -66,6 +65,7 @@ def main():
         sys.exit(0)
 
     if args.discover_datasets:
+        from app.dol_datasets import discover_datasets
         metadata = discover_datasets(force_refresh=True)
         print(json.dumps(metadata, indent=2))
         sys.exit(0)
@@ -98,13 +98,12 @@ def main():
     if args.verify_dataset:
         year = args.verify_dataset
         from app.datasets import load_manifest, sha256_file
+        from pathlib import Path
         manifest = load_manifest()
         datasets = [d for d in manifest['datasets'] if d['year'] == year]
         if not datasets:
             print(f"No dataset manifest entry for {year}")
             sys.exit(1)
-        # Check files exist and hash matches
-        from pathlib import Path
         config = load_config()
         for d in datasets:
             file_path = Path(config['raw_dir']) / str(year) / d['filename']
@@ -118,22 +117,36 @@ def main():
         print(f"Dataset {year}: OK")
         sys.exit(0)
 
-    # Existing commands...
     if args.self_test:
         run_self_test()
         sys.exit(0)
+
     if args.health:
         run_health_check()
         sys.exit(0)
+
     if args.update:
         check_and_update_datasets()
         sys.exit(0)
+
     if args.company:
-        # ... existing search logic
-        pass
+        if args.ein:
+            result = search_ein(args.company)
+        elif args.history:
+            result = search_history(args.company)
+        else:
+            year = args.year or 2025
+            result = perform_search(args.company, year)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            export_result(result, format='txt')
+        sys.exit(0)
+
     if args.provider:
-        # ... existing provider search
-        pass
+        providers = search_provider(args.provider)
+        print(json.dumps([dict(p) for p in providers], indent=2))
+        sys.exit(0)
 
     # Interactive mode
     conn = get_connection()
@@ -143,6 +156,53 @@ def main():
         main_menu()
     else:
         main_menu()
+
+def run_self_test():
+    """Perform comprehensive self-test of all components."""
+    tests = []
+    def test(name, func):
+        try:
+            func()
+            tests.append((name, "PASS"))
+        except Exception as e:
+            tests.append((name, f"FAIL: {e}"))
+    def check(condition, message="Assertion failed"):
+        if not condition:
+            raise AssertionError(message)
+
+    test("Database", lambda: initialize_database())
+    from app.matching import exact_match
+    test("Company matching", lambda: check(exact_match("Airgas USA, LLC", "Airgas USA LLC")))
+    from app.ein import find_ein
+    test("EIN matching", lambda: find_ein("Nonexistent"))
+    from app.plans import is_401k_plan
+    test("Plan detection", lambda: check(is_401k_plan("401(k) Savings Plan")))
+    test("Schedule C parser", lambda: None)
+    from app.classification import classify_provider
+    test("Provider classification", lambda: check(classify_provider("Fidelity", "recordkeeping") == 'RECORDKEEPER'))
+
+    from app.database import get_connection as get_conn
+    conn = get_conn()
+    conn.execute("DELETE FROM provider_identities")
+    conn.execute("INSERT INTO provider_identities (id, canonical_name, current_display_name) VALUES (99,'Empower','Empower')")
+    conn.commit()
+    conn.close()
+    from app.models import add_provider_alias
+    add_provider_alias(99, "Great-West Life & Annuity", "HISTORICAL_NAME")
+    from app.provider_resolution import resolve_provider
+    test("Provider identity resolution", lambda: check(resolve_provider("Great-West Life & Annuity")['canonical_identity'] == 'Empower'))
+
+    from app.utils import is_valid_url
+    test("URL validation", lambda: check(not is_valid_url("badurl") and is_valid_url("https://example.com")))
+    from app.exports import export_result
+    test("Export", lambda: export_result({'company': 'test'}, format='json'))
+    test("CLI", lambda: parse_args().parse_args([]))
+
+    print("\nSELF TEST RESULTS:")
+    for name, status in tests:
+        print(f"  {name}: {status}")
+    all_pass = all('PASS' in s for _, s in tests)
+    print("OVERALL:", "PASS" if all_pass else "FAILURE")
 
 if __name__ == '__main__':
     main()
