@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "401k-finder-pro"
+version = "1.0.0"
+description = "Local Form 5500 retirement-plan research and search application"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+
+dependencies = [
+    "PySide6>=6.8,<7",
+    "SQLAlchemy>=2.0,<3",
+    "alembic>=1.14,<2",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "httpx>=0.28,<1",
+    "python-dateutil>=2.9,<3",
+    "rapidfuzz>=3.11,<4",
+    "orjson>=3.10,<4",
+    "platformdirs>=4.3,<5",
+    "rich>=13.9,<14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-qt>=4.4,<5",
+    "pytest-cov>=6,<7",
+]
+
+[project.scripts]
+401k-finder = "app.main:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
