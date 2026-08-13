@@ -1,6 +1,3 @@
-"""
-Streaming downloader with progress, retry, resume, and SHA-256.
-"""
 import hashlib
 import logging
 import os
@@ -13,9 +10,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_USER_AGENT = "401K-Provider-Finder/1.0 (+https://github.com/G33l0/401-finder)"
 
-
 def _print_progress(downloaded, total, start_time, prefix=""):
-    """Print simple progress bar."""
     if total and total > 0:
         pct = downloaded / total * 100
         bar_len = 30
@@ -30,12 +25,7 @@ def _print_progress(downloaded, total, start_time, prefix=""):
         speed = downloaded / elapsed
         print(f"\r{prefix} {downloaded} bytes (unknown total) {speed/1024:.1f} KB/s", end='')
 
-
 def download_file(url, dest_path, expected_size=None, timeout=None, retries=None, resume=True):
-    """
-    Download a file with progress, retry, and optional resume.
-    Saves to a temporary .part file, then renames atomically.
-    """
     config = load_config()
     timeout = timeout or config.get('request_timeout', 30)
     retries = retries or config.get('retry_count', 3)
@@ -53,9 +43,8 @@ def download_file(url, dest_path, expected_size=None, timeout=None, retries=None
                 headers['Range'] = f'bytes={downloaded}-'
             req = Request(url, headers=headers)
             with urlopen(req, timeout=timeout) as resp:
-                # Check if server ignored range and returned 200
                 if resume and downloaded > 0 and resp.status != 206:
-                    downloaded = 0  # restart from scratch
+                    downloaded = 0
                     mode = 'wb'
                 else:
                     mode = 'ab' if downloaded > 0 else 'wb'
@@ -72,11 +61,9 @@ def download_file(url, dest_path, expected_size=None, timeout=None, retries=None
                         f.write(chunk)
                         downloaded += len(chunk)
                         _print_progress(downloaded, total, start, prefix="Downloading:")
-                print()  # newline after progress
-                # Validate expected size if provided
+                print()
                 if expected_size and os.path.getsize(part_path) != expected_size:
                     raise ValueError(f"Downloaded size {os.path.getsize(part_path)} != expected {expected_size}")
-                # Atomic rename
                 os.replace(part_path, dest_path)
                 return True
         except Exception as e:
@@ -87,9 +74,7 @@ def download_file(url, dest_path, expected_size=None, timeout=None, retries=None
                 raise
     return False
 
-
 def sha256_file(filepath):
-    """Calculate SHA-256 hash of a file."""
     h = hashlib.sha256()
     with open(filepath, 'rb') as f:
         while True:
