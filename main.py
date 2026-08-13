@@ -49,113 +49,121 @@ def main():
 
     initialize_database()
 
-    if args.test_dol:
-        diag = run_dol_diagnostics()
-        print("DOL CONNECTION TEST")
-        print(f"DNS:                 {'PASS' if diag['dns'] else 'FAIL'}")
-        print(f"TLS:                 {'PASS' if diag['tls'] else 'FAIL'}")
-        print(f"HTTP:                {'PASS' if diag['http'] else 'FAIL'}")
-        print(f"DOL PAGE:            {'PASS' if diag['page'] else 'FAIL'}")
-        print(f"DATASET DISCOVERY:   {'PASS' if diag['discovery'] else 'FAIL'}")
-        print(f"LATEST YEAR:         {diag.get('latest_year') or 'N/A'}")
-        print(f"DATASET FILES:       {diag.get('file_count')}")
-        print(f"CACHE:               {'PASS' if diag['cache'] else 'N/A'}")
-        if diag.get('error'):
-            print(f"ERROR: {diag['error']}")
-        sys.exit(0)
+    try:
+        if args.test_dol:
+            diag = run_dol_diagnostics()
+            print("DOL CONNECTION TEST")
+            print(f"DNS:                 {'PASS' if diag['dns'] else 'FAIL'}")
+            print(f"TLS:                 {'PASS' if diag['tls'] else 'FAIL'}")
+            print(f"HTTP:                {'PASS' if diag['http'] else 'FAIL'}")
+            print(f"DOL PAGE:            {'PASS' if diag['page'] else 'FAIL'}")
+            print(f"DATASET DISCOVERY:   {'PASS' if diag['discovery'] else 'FAIL'}")
+            print(f"LATEST YEAR:         {diag.get('latest_year') or 'N/A'}")
+            print(f"DATASET FILES:       {diag.get('file_count')}")
+            print(f"CACHE:               {'PASS' if diag['cache'] else 'N/A'}")
+            if diag.get('error'):
+                print(f"ERROR: {diag['error']}")
+            sys.exit(0)
 
-    if args.discover_datasets:
-        from app.dol_datasets import discover_datasets
-        metadata = discover_datasets(force_refresh=True)
-        print(json.dumps(metadata, indent=2))
-        sys.exit(0)
+        if args.discover_datasets:
+            from app.dol_datasets import discover_datasets
+            metadata = discover_datasets(force_refresh=True)
+            print(json.dumps(metadata, indent=2))
+            sys.exit(0)
 
-    if args.dataset_status:
-        from app.datasets import load_manifest
-        manifest = load_manifest()
-        print(json.dumps(manifest, indent=2))
-        sys.exit(0)
+        if args.dataset_status:
+            from app.datasets import load_manifest
+            manifest = load_manifest()
+            print(json.dumps(manifest, indent=2))
+            sys.exit(0)
 
-    if args.download_dataset:
-        year = args.download_dataset
-        from app.datasets import download_dataset
-        path, link = download_dataset(year, 'latest')
-        print(f"Downloaded to {path}")
-        sys.exit(0)
+        if args.download_dataset:
+            year = args.download_dataset
+            from app.datasets import download_dataset
+            path, link = download_dataset(year, 'all')
+            print(f"Downloaded to {path}")
+            sys.exit(0)
 
-    if args.import_dataset:
-        file_path = args.import_dataset
-        year = args.year or 2025
-        import_dataset_from_file(file_path, year)
-        print(f"Imported {file_path} for year {year}")
-        sys.exit(0)
-
-    if args.build_database:
-        year = args.build_database
-        build_database(year, 'latest', force=True)
-        sys.exit(0)
-
-    if args.verify_dataset:
-        year = args.verify_dataset
-        from app.datasets import load_manifest, sha256_file
-        from pathlib import Path
-        manifest = load_manifest()
-        datasets = [d for d in manifest['datasets'] if d['year'] == year]
-        if not datasets:
-            print(f"No dataset manifest entry for {year}")
-            sys.exit(1)
-        config = load_config()
-        for d in datasets:
-            file_path = Path(config['raw_dir']) / str(year) / d['filename']
-            if not file_path.exists():
-                print(f"FAIL: {file_path} missing")
-                sys.exit(1)
-            actual_hash = sha256_file(file_path)
-            if actual_hash != d['sha256']:
-                print(f"FAIL: checksum mismatch for {d['filename']}")
-                sys.exit(1)
-        print(f"Dataset {year}: OK")
-        sys.exit(0)
-
-    if args.self_test:
-        run_self_test()
-        sys.exit(0)
-
-    if args.health:
-        run_health_check()
-        sys.exit(0)
-
-    if args.update:
-        check_and_update_datasets()
-        sys.exit(0)
-
-    if args.company:
-        if args.ein:
-            result = search_ein(args.company)
-        elif args.history:
-            result = search_history(args.company)
-        else:
+        if args.import_dataset:
+            file_path = args.import_dataset
             year = args.year or 2025
-            result = perform_search(args.company, year)
-        if args.json:
-            print(json.dumps(result, indent=2))
+            import_dataset_from_file(file_path, year)
+            print(f"Imported {file_path} for year {year}")
+            sys.exit(0)
+
+        if args.build_database:
+            year = args.build_database
+            build_database(year, 'all', force=True)
+            sys.exit(0)
+
+        if args.verify_dataset:
+            year = args.verify_dataset
+            from app.datasets import load_manifest, sha256_file
+            from pathlib import Path
+            manifest = load_manifest()
+            datasets = [d for d in manifest['datasets'] if d['year'] == year]
+            if not datasets:
+                print(f"No dataset manifest entry for {year}")
+                sys.exit(1)
+            config = load_config()
+            for d in datasets:
+                file_path = Path(config['raw_dir']) / str(year) / d['filename']
+                if not file_path.exists():
+                    print(f"FAIL: {file_path} missing")
+                    sys.exit(1)
+                actual_hash = sha256_file(file_path)
+                if actual_hash != d['sha256']:
+                    print(f"FAIL: checksum mismatch for {d['filename']}")
+                    sys.exit(1)
+            print(f"Dataset {year}: OK")
+            sys.exit(0)
+
+        if args.self_test:
+            run_self_test()
+            sys.exit(0)
+
+        if args.health:
+            run_health_check()
+            sys.exit(0)
+
+        if args.update:
+            check_and_update_datasets()
+            sys.exit(0)
+
+        if args.company:
+            if args.ein:
+                result = search_ein(args.company)
+            elif args.history:
+                result = search_history(args.company)
+            else:
+                year = args.year or 2025
+                result = perform_search(args.company, year)
+            if args.json:
+                print(json.dumps(result, indent=2))
+            else:
+                export_result(result, format='txt')
+            sys.exit(0)
+
+        if args.provider:
+            providers = search_provider(args.provider)
+            print(json.dumps([dict(p) for p in providers], indent=2))
+            sys.exit(0)
+
+        # Interactive mode
+        conn = get_connection()
+        row = conn.execute("SELECT COUNT(*) FROM plans").fetchone()
+        if row[0] == 0:
+            first_run_installer()
+            main_menu()
         else:
-            export_result(result, format='txt')
-        sys.exit(0)
+            main_menu()
 
-    if args.provider:
-        providers = search_provider(args.provider)
-        print(json.dumps([dict(p) for p in providers], indent=2))
+    except KeyboardInterrupt:
+        print("\n[bold yellow]Interrupted by user. Exiting cleanly...[/]")
         sys.exit(0)
-
-    # Interactive mode
-    conn = get_connection()
-    row = conn.execute("SELECT COUNT(*) FROM plans").fetchone()
-    if row[0] == 0:
-        first_run_installer()
-        main_menu()
-    else:
-        main_menu()
+    except Exception as e:
+        print(f"\n[red]An unexpected error occurred: {e}[/]")
+        sys.exit(1)
 
 def run_self_test():
     """Perform comprehensive self-test of all components."""
