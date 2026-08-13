@@ -17,14 +17,13 @@ from app.dol_datasets import STATIC_CATALOG, get_dataset_links
 from app.downloader import download_file, sha256_file
 from app.validation import validate_zip_integrity
 from app.utils import human_readable_size, get_free_disk_space
-from app.models import insert_company, insert_plan, insert_service_provider, record_dataset_file
 from app.database import get_connection
 
 logger = logging.getLogger(__name__)
 MANIFEST_FILE = "data/metadata/datasets.json"
 
 # ---------------------------------------------------------------------------
-# Manifest handling
+# Manifest handling (unchanged)
 # ---------------------------------------------------------------------------
 def load_manifest():
     if os.path.exists(MANIFEST_FILE):
@@ -76,12 +75,10 @@ def fetch_dataset_catalog():
 def get_latest_year(catalog):
     if not catalog:
         return None
-    # Filter out bogus years like 5500
     years = [y for y in catalog.keys() if 1990 <= y <= 2100]
     return max(years) if years else None
 
 def classify_file_type(filename, year=None):
-    """Classify DOL file based on official filename pattern."""
     lower = filename.lower()
     if 'f_5500_sf' in lower:
         return 'form_5500_sf'
@@ -102,8 +99,7 @@ def classify_file_type(filename, year=None):
     return 'other'
 
 def calculate_package_sizes(catalog, year, package='standard'):
-    """Return files selected for package. Uses static catalog links directly."""
-    # catalog may be old format; we rebuild from static for correctness
+    """Return files selected for package."""
     links = get_dataset_links(year)
     selected = []
     for link in links:
@@ -117,7 +113,6 @@ def calculate_package_sizes(catalog, year, package='standard'):
         elif package == 'full':
             selected.append((link['name'], link['url'], link.get('compressed_size'), ftype))
     comp_total = sum(sz for _, _, sz, _ in selected if sz) if selected else 0
-    # If sizes unknown, we still proceed but show unknown size later
     extract_total = int(comp_total * 8.0) if comp_total else 0
     db_estimate = int(extract_total * 0.8) if extract_total else 0
     return {
@@ -137,7 +132,7 @@ def download_and_process_package(year, package_type='essential'):
     raw_dir = Path(config['raw_dir']) / str(year)
     raw_dir.mkdir(parents=True, exist_ok=True)
 
-    # Download layout files first (needed for import)
+    # Download layout files first
     for fname, url, size, ftype in sizes['file_list']:
         link = next((l for l in get_dataset_links(year) if l['name'] == fname), None)
         if link and 'layout_url' in link:
@@ -163,22 +158,21 @@ def download_and_process_package(year, package_type='essential'):
         with zipfile.ZipFile(dest, 'r') as zf:
             zf.extractall(extract_dir)
         layout_file = raw_dir / (fname.replace('.zip', '_layout.txt'))
-        # Process CSV files in extract_dir
         process_extracted_files(extract_dir, year, ftype, layout_file)
     print("Package processed successfully.")
 
 def process_extracted_files(directory, year, file_type, layout_file=None):
     """
     Process CSV files extracted from a ZIP.
-    If layout_file is provided, use it for column mapping.
     """
-    csv_files = list(Path(directory).glob('*.csv'))
-    if not csv_files:
-        csv_files = list(Path(directory).rglob('*.csv'))
+    csv_files = list(Path(directory).rglob('*.csv'))
     if not csv_files:
         logger.warning(f"No CSV found in {directory}")
         return
     for csv_file in csv_files:
+        # Skip layout files (they are .txt, but just in case)
+        if csv_file.suffix.lower() != '.csv':
+            continue
         import_csv_with_layout(csv_file, year, layout_file, file_type)
 
 def import_csv_with_layout(csv_path, year, layout_file, ftype):
@@ -189,15 +183,14 @@ def import_csv_with_layout(csv_path, year, layout_file, ftype):
     elif ftype == 'schedule_c':
         import_schedule_c_csv(csv_path, year, field_map)
     else:
-        logger.info(f"Skipping import for {ftype} (not needed for provider finder)")
+        logger.info(f"Skipping import for {ftype}")
 
 def parse_layout_file(layout_path):
-    """Parse DOL layout file to extract field names and positions."""
+    """Parse DOL layout file to extract field names (if needed)."""
     mapping = {}
     try:
         with open(layout_path, 'r', encoding='utf-8') as f:
             for line in f:
-                # Layout format: position, field name, description
                 parts = line.strip().split(',')
                 if len(parts) >= 2:
                     pos = parts[0].strip()
@@ -209,10 +202,14 @@ def parse_layout_file(layout_path):
     return mapping
 
 def import_form5500_csv(filepath, year, field_map=None):
-    """Import Form 5500 / 5500-SF data."""
+    """
+    Import Form 5500 / 5500-SF data.
+    Uses a single connection for all inserts.
+    """
     from app.utils import normalize_company_name
     conn = get_connection()
     cursor = conn.cursor()
+    count = 0
     try:
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
@@ -222,32 +219,60 @@ def import_form5500_csv(filepath, year, field_map=None):
                 plan_name = row.get('PLAN_NAME')
                 plan_number = row.get('PLAN_NUMBER') or row.get('PLAN_NUM')
                 ack_id = row.get('ACK_ID')
+                plan_type = row.get('PLAN_TYPE_CODE') or row.get('PLAN_CHAR_CODE') or ''
                 if not (ein and sponsor and plan_name and ack_id):
                     continue
                 norm = normalize_company_name(sponsor)
                 cursor.execute("INSERT OR IGNORE INTO companies (name, normalized_name, ein) VALUES (?,?,?)",
                                (sponsor.strip(), norm, ein))
-                conn.commit()
-                company = cursor.execute("SELECT id FROM companies WHERE ein=? LIMIT 1", (ein,)).fetchone()
-                if company:
-                    insert_plan(company['id'], plan_name.strip(), plan_number, '', year, ein, ack_id, year)
+                # Get company id
+                cursor.execute("SELECT id FROM companies WHERE ein=? LIMIT 1", (ein,))
+                company_row = cursor.fetchone()
+                if company_row:
+                    company_id = company_row['id']
+                    cursor.execute("INSERT OR IGNORE INTO plans (company_id, plan_name, plan_number, plan_type, plan_year, ein, filing_id, dataset_year) VALUES (?,?,?,?,?,?,?,?)",
+                                   (company_id, plan_name.strip(), plan_number, plan_type, year, ein, ack_id, year))
+                count += 1
+        conn.commit()
+        logger.info(f"Imported {count} rows from {filepath}")
     except Exception as e:
-        logger.error(f"Form 5500 import error: {e}")
+        logger.error(f"Form 5500 import error for {filepath}: {e}")
+        conn.rollback()
         raise
-    conn.close()
+    finally:
+        conn.close()
 
 def import_schedule_c_csv(filepath, year, field_map=None):
-    """Import Schedule C service provider data."""
+    """
+    Import Schedule C service provider data.
+    """
     from app.schedule_c import parse_schedule_c
     conn = get_connection()
-    plans = conn.execute("SELECT id, ein, plan_number FROM plans WHERE dataset_year=?", (year,)).fetchall()
-    plan_map = {(p['ein'], p['plan_number']): p['id'] for p in plans if p['ein'] and p['plan_number']}
-    parse_schedule_c(filepath, plan_map)
-    conn.close()
+    cursor = conn.cursor()
+    plans = {}
+    try:
+        # Build plan map from existing plans
+        cursor.execute("SELECT id, ein, plan_number FROM plans WHERE dataset_year=?", (year,))
+        for p in cursor.fetchall():
+            if p['ein'] and p['plan_number']:
+                plans[(p['ein'], p['plan_number'])] = p['id']
+    except Exception as e:
+        logger.error(f"Schedule C plan map error: {e}")
+        conn.close()
+        return
 
-# ---------------------------------------------------------------------------
-# Download dataset commands (used by CLI)
-# ---------------------------------------------------------------------------
+    # Use the single connection for parsing
+    try:
+        parse_schedule_c(filepath, plans, conn)
+        conn.commit()
+        logger.info(f"Schedule C imported from {filepath}")
+    except Exception as e:
+        logger.error(f"Schedule C import error: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
 def download_dataset(year, dataset_type='all', force=False):
     """Download all dataset files for a given year."""
     links = get_dataset_links(year)
@@ -289,7 +314,6 @@ def import_dataset_from_file(file_path, year):
     extract_dir.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(dest, 'r') as zf:
         zf.extractall(extract_dir)
-    # Detect type and import
     ftype = classify_file_type(dest.name, year)
     process_extracted_files(extract_dir, year, ftype)
     print("Import complete.")
