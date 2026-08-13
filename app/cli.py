@@ -24,6 +24,9 @@ from app.datasets import (
     download_and_process_package,
     classify_file_type,
     process_extracted_files,
+    download_dataset,
+    build_database,
+    import_dataset_from_file,
 )
 from app.exports import export_result
 from app.health import run_health_check
@@ -32,22 +35,30 @@ from app.config import load_config
 
 console = Console()
 
+
 def show_banner():
-    console.print(Panel.fit(
-        "[bold cyan]401K PROVIDER FINDER[/]\n"
-        "[dim]U.S. Retirement Plan Research Tool[/]",
-        border_style="bright_blue", box=box.ROUNDED
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]401K PROVIDER FINDER[/]\n"
+            "[dim]U.S. Retirement Plan Research Tool[/]",
+            border_style="bright_blue",
+            box=box.ROUNDED,
+        )
+    )
+
 
 # ---------------- FIRST RUN INSTALLER ----------------
 def first_run_installer():
     """Display the setup wizard when no dataset is installed."""
     console.clear()
-    console.print(Panel.fit(
-        "[bold cyan]401K PROVIDER FINDER - SETUP[/]\n"
-        "[dim]No local Form 5500 dataset installed.[/]",
-        border_style="bright_blue", box=box.ROUNDED
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]401K PROVIDER FINDER - SETUP[/]\n"
+            "[dim]No local Form 5500 dataset installed.[/]",
+            border_style="bright_blue",
+            box=box.ROUNDED,
+        )
+    )
 
     catalog = fetch_dataset_catalog()
     if not catalog:
@@ -58,16 +69,16 @@ def first_run_installer():
         console.print("0. Exit")
         choice = Prompt.ask("Choice", choices=["1", "2", "0"])
         if choice == "1":
-            first_run_installer()   # retry
+            first_run_installer()
         elif choice == "2":
-            return                  # continue to main menu without data
+            return
         else:
             sys.exit(0)
-        return                      # important: skip the rest
+        return
 
-    # Catalog exists – proceed with package selection
     latest = get_latest_year(catalog)
-    console.print(f"Latest DOL dataset detected: [bold]{latest}[/]")
+    console.print(f"DOL Form 5500 Dataset\nYear: {latest}\nScope: ALL")
+
     console.print("\nSelect the data package you want to install:\n")
     console.print("1. ESSENTIAL – smallest, for basic 401(k) provider lookups")
     console.print("2. STANDARD – includes additional schedules (recommended)")
@@ -76,14 +87,14 @@ def first_run_installer():
     console.print("5. OFFLINE / SKIP DOWNLOAD")
     console.print("0. Exit")
     choice = Prompt.ask("Enter choice", choices=[str(i) for i in range(6)])
-    if choice == '0':
+    if choice == "0":
         sys.exit(0)
-    if choice == '5':
+    if choice == "5":
         console.print("[yellow]Entering offline mode. You can install datasets later from Dataset Manager.[/]")
         return
-    pkg_map = {'1': 'essential', '2': 'standard', '3': 'full', '4': 'custom'}
+    pkg_map = {"1": "essential", "2": "standard", "3": "full", "4": "custom"}
     package = pkg_map[choice]
-    if package == 'custom':
+    if package == "custom":
         install_custom(catalog, latest)
     else:
         install_package(catalog, latest, package)
@@ -92,18 +103,18 @@ def first_run_installer():
 def install_package(catalog, year, package):
     """Show sizes and confirm, then download the selected package."""
     sizes = calculate_package_sizes(catalog, year, package)
-    if not sizes or not sizes['file_list']:
+    if not sizes or not sizes["file_list"]:
         console.print("[red]No files available for this package.[/]")
         return
     config = load_config()
-    safety_mb = config.get('storage_safety_margin_mb', 50)
+    safety_mb = config.get("storage_safety_margin_mb", 50)
     safety_bytes = safety_mb * 1024 * 1024
-    required = sizes['temp_needed'] + sizes['database'] + safety_bytes
+    required = sizes["temp_needed"] + sizes["database"] + safety_bytes
     free = get_free_disk_space()
     console.print(f"\n[bold]{package.upper()} PACKAGE[/]")
-    console.print(f"Latest dataset: {year}")
+    console.print(f"Dataset year: {year}")
     console.print("Files:")
-    for fname, _, sz, ftype in sizes['file_list']:
+    for fname, _, sz, ftype in sizes["file_list"]:
         console.print(f"  • {fname} ({human_readable_size(sz) if sz else 'unknown size'})")
     console.print(f"\nCompressed download: {human_readable_size(sizes['compressed']) if sizes['compressed'] else 'unknown'}")
     console.print(f"Extracted size: ~{human_readable_size(sizes['extracted']) if sizes['extracted'] else 'unknown'}")
@@ -125,7 +136,8 @@ def install_package(catalog, year, package):
             console.print("Raw files kept.")
         else:
             import shutil
-            raw_dir = Path(config['raw_dir']) / str(year)
+
+            raw_dir = Path(config["raw_dir"]) / str(year)
             if raw_dir.exists():
                 shutil.rmtree(raw_dir)
                 console.print("Raw files removed.")
@@ -139,8 +151,8 @@ def install_custom(catalog, year):
     selected = []
     for fname, url, size in files:
         ftype = classify_file_type(fname, year)
-        sz_str = human_readable_size(size) if size else 'unknown'
-        if Confirm.ask(f"Include {fname} ({sz_str})?", default=(ftype in ('main_form5500','schedule_c'))):
+        sz_str = human_readable_size(size) if size else "unknown"
+        if Confirm.ask(f"Include {fname} ({sz_str})?", default=(ftype in ("form_5500", "schedule_c"))):
             selected.append((fname, url, size, ftype))
     if not selected:
         console.print("[yellow]No files selected.[/]")
@@ -158,8 +170,9 @@ def install_custom(catalog, year):
         return
     from app.downloader import download_file
     from app.validation import validate_zip_integrity
+
     config = load_config()
-    raw_dir = Path(config['raw_dir']) / str(year)
+    raw_dir = Path(config["raw_dir"]) / str(year)
     raw_dir.mkdir(parents=True, exist_ok=True)
     try:
         for fname, url, size, ftype in selected:
@@ -168,7 +181,7 @@ def install_custom(catalog, year):
             if not validate_zip_integrity(dest):
                 raise ValueError(f"Corrupt ZIP: {fname}")
             with tempfile.TemporaryDirectory() as tmpdir:
-                with zipfile.ZipFile(dest, 'r') as zf:
+                with zipfile.ZipFile(dest, "r") as zf:
                     zf.extractall(tmpdir)
                 process_extracted_files(tmpdir, year, ftype)
         console.print("[green]Custom installation complete.[/]")
@@ -275,6 +288,7 @@ def display_result(result):
 def company_ein_flow():
     company = Prompt.ask("Enter company name")
     from app.ein import find_ein
+
     candidates = find_ein(company)
     if candidates:
         for c in candidates:
@@ -318,9 +332,11 @@ def provider_directory_flow():
             return
         console.print(f"Managing aliases for {identity['canonical_name']}")
         alias = Prompt.ask("Alias name")
-        alias_type = Prompt.ask("Alias type",
-                               choices=["FORM_5500_NAME","HISTORICAL_NAME","BRAND","LEGAL_ENTITY","OTHER"],
-                               default="FORM_5500_NAME")
+        alias_type = Prompt.ask(
+            "Alias type",
+            choices=["FORM_5500_NAME", "HISTORICAL_NAME", "BRAND", "LEGAL_ENTITY", "OTHER"],
+            default="FORM_5500_NAME",
+        )
         add_provider_alias(identity["id"], alias, alias_type)
         console.print("[green]Alias added.[/]")
     Prompt.ask("Press Enter to continue")
@@ -333,7 +349,7 @@ def dataset_manager_menu():
     console.print("4. Validate Datasets")
     console.print("5. Backup Database")
     console.print("6. Import Local Dataset (offline)")
-    choice = Prompt.ask("Choice", choices=["1","2","3","4","5","6"])
+    choice = Prompt.ask("Choice", choices=["1", "2", "3", "4", "5", "6"])
     if choice == "1":
         first_run_installer()
     elif choice == "2":
@@ -344,7 +360,11 @@ def dataset_manager_menu():
             console.print("[red]Invalid year[/]")
             Prompt.ask("Press Enter to continue")
             return
-        package = Prompt.ask("Package (essential/standard/full)", choices=["essential","standard","full"], default="essential")
+        package = Prompt.ask(
+            "Package (essential/standard/full)",
+            choices=["essential", "standard", "full"],
+            default="essential",
+        )
         catalog = fetch_dataset_catalog()
         if catalog and year in catalog:
             install_package(catalog, year, package)
@@ -352,6 +372,7 @@ def dataset_manager_menu():
             console.print(f"[red]Dataset year {year} not found.[/]")
     elif choice == "3":
         from app.database import get_connection
+
         conn = get_connection()
         years = conn.execute("SELECT DISTINCT dataset_year FROM plans ORDER BY dataset_year").fetchall()
         if years:
@@ -375,49 +396,17 @@ def import_local_dataset():
     except ValueError:
         console.print("[red]Invalid year[/]")
         return
-    config = load_config()
-    raw_dir = Path(config["raw_dir"]) / str(year)
-    if not raw_dir.exists():
-        console.print(f"[red]Directory not found: {raw_dir}[/]")
-        return
-    zip_files = list(raw_dir.glob("*.zip"))
-    csv_files = list(raw_dir.glob("*.csv"))
-    if not zip_files and not csv_files:
-        console.print("[red]No ZIP or CSV files found.[/]")
-        return
-    if zip_files:
-        console.print(f"ZIP files: {len(zip_files)}")
-    if csv_files:
-        console.print(f"CSV files: {len(csv_files)}")
-    if not Confirm.ask("Process these files?"):
-        return
-    for zf in zip_files:
-        ftype = classify_file_type(zf.name, year)
-        try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                with zipfile.ZipFile(zf, 'r') as z:
-                    z.extractall(tmpdir)
-                process_extracted_files(tmpdir, year, ftype)
-            console.print(f"[green]{zf.name} imported.[/]")
-        except Exception as e:
-            console.print(f"[red]Failed {zf.name}: {e}[/]")
-    for cf in csv_files:
-        fname = cf.name.lower()
-        try:
-            if 'f_5500' in fname or 'form_5500' in fname:
-                from app.datasets import import_form5500_csv
-                import_form5500_csv(str(cf), year)
-            elif 'sch_c' in fname or 'schedule_c' in fname:
-                from app.datasets import import_schedule_c_csv
-                import_schedule_c_csv(str(cf), year)
-            console.print(f"[green]{cf.name} imported.[/]")
-        except Exception as e:
-            console.print(f"[red]Failed {cf.name}: {e}[/]")
-    console.print("[green]Local import complete.[/]")
+    path = Prompt.ask("Path to ZIP file")
+    try:
+        import_dataset_from_file(path, year)
+        console.print("[green]Import complete.[/]")
+    except Exception as e:
+        console.print(f"[red]Import failed: {e}[/]")
 
 
 def db_stats():
     from app.database import get_connection
+
     conn = get_connection()
     companies = conn.execute("SELECT COUNT(*) FROM companies").fetchone()[0]
     plans = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
