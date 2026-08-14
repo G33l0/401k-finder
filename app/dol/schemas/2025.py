@@ -175,7 +175,6 @@ FIELD_BY_POSITION: dict[int, FieldDefinition] = {
 }
 
 
-# Fields that uniquely identify and connect a plan filing.
 IDENTITY_FIELDS = (
     "ACK_ID",
     "PLAN_NAME",
@@ -187,7 +186,6 @@ IDENTITY_FIELDS = (
 )
 
 
-# Schedule attachment indicators.
 SCHEDULE_ATTACHMENT_FIELDS = (
     "SCH_R_ATTACHED_IND",
     "SCH_MB_ATTACHED_IND",
@@ -203,7 +201,6 @@ SCHEDULE_ATTACHMENT_FIELDS = (
 )
 
 
-# Fields particularly useful to the 401(k) finder.
 PLAN_SEARCH_FIELDS = (
     "PLAN_NAME",
     "SPONSOR_DFE_NAME",
@@ -228,17 +225,14 @@ def get_field(name: str) -> FieldDefinition:
 
 
 def validate_schema() -> None:
-    """Validate the internal schema definition."""
+    """Validate the 2025 Form 5500 schema."""
 
     if len(FIELDS) != 140:
         raise ValueError(
             f"Expected 140 fields, found {len(FIELDS)}."
         )
 
-    positions = [
-        field.position
-        for field in FIELDS
-    ]
+    positions = [field.position for field in FIELDS]
 
     if positions != list(range(1, 141)):
         raise ValueError(
@@ -246,15 +240,10 @@ def validate_schema() -> None:
             "from 1 through 140 exactly once."
         )
 
-    names = [
-        field.name
-        for field in FIELDS
-    ]
+    names = [field.name for field in FIELDS]
 
     if len(names) != len(set(names)):
-        raise ValueError(
-            "Duplicate field names detected."
-        )
+        raise ValueError("Duplicate field names detected.")
 
     for field in FIELDS:
         if field.field_type == "TEXT":
@@ -262,14 +251,11 @@ def validate_schema() -> None:
                 raise ValueError(
                     f"Invalid text size for {field.name}."
                 )
-
         elif field.field_type == "NUMERIC":
             if field.size is not None:
                 raise ValueError(
-                    f"Numeric field {field.name} "
-                    "must not have a text size."
+                    f"Numeric field {field.name} must not have a text size."
                 )
-
         else:
             raise ValueError(
                 f"Unsupported field type: {field.field_type}"
