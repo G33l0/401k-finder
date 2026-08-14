@@ -5,13 +5,6 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True, slots=True)
 class ScheduleDefinition:
-    """
-    Description of a Form 5500 schedule for a particular year.
-
-    This class deliberately does not assume that a schedule exists
-    for every year.
-    """
-
     code: str
     name: str
     form_year: int
@@ -22,14 +15,28 @@ class ScheduleDefinition:
 
     notes: str = ""
 
-    aliases: tuple[str, ...] = field(default_factory=tuple)
+    aliases: tuple[str, ...] = field(
+        default_factory=tuple
+    )
 
-    def matches_column(self, column_name: str) -> bool:
-        """Return True when column_name is a known provider column."""
-
+    def matches_column(
+        self,
+        column_name: str,
+    ) -> bool:
         normalized = column_name.strip().upper()
 
         return normalized in {
             column.strip().upper()
             for column in self.provider_columns
+        }
+
+    def has_required_column(
+        self,
+        column_name: str,
+    ) -> bool:
+        normalized = column_name.strip().upper()
+
+        return normalized in {
+            column.strip().upper()
+            for column in self.required_columns
         }
