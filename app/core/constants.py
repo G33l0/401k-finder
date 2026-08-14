@@ -25,6 +25,17 @@ SUPPORTED_FORM_YEARS = tuple(range(2009, 2026))
 
 LATEST_SUPPORTED_FORM_YEAR = 2025
 
+VERIFIED_FORM_YEARS = (2025,)
+
+VERIFIED_SCHEDULES_2025 = (
+    "A",
+    "C",
+    "D",
+    "H",
+    "I",
+    "R",
+)
+
 DOL_DATASET_URL = (
     "https://www.dol.gov/agencies/ebsa/about-ebsa/"
     "our-activities/public-disclosure/foia/form-5500-datasets"
