@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from app.dol.schedules.normalizer import (
@@ -10,214 +9,135 @@ from app.dol.schedules.normalizer import (
 )
 
 
-def first_value(
+def get_value(
     row: dict[str, Any],
-    *names: str,
+    field_name: str,
 ) -> Any:
-    """
-    Return the first non-empty value for the supplied column names.
-    """
+    """Read an exact DOL field name."""
 
-    normalized = {
-        key.strip().upper(): value
-        for key, value in row.items()
-    }
+    if field_name in row:
+        return row[field_name]
 
-    for name in names:
-        value = normalized.get(name.upper())
-
-        if value is not None:
-            text = str(value).strip()
-
-            if text:
-                return value
+    # Defensive fallback for CSV headers containing whitespace.
+    for key, value in row.items():
+        if key.strip() == field_name:
+            return value
 
     return None
 
 
-def parse_ein(row: dict[str, Any]) -> str | None:
-    value = first_value(
-        row,
-        "EIN",
-        "SPONS_DFE_EIN",
-        "SPONSOR_EIN",
-        "SPONS_DFE_EIN_1",
-    )
-
-    return normalize_ein(value)
-
-
-def parse_plan_number(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "PN",
-        "PLAN_NUMBER",
-        "PLAN_NO",
-    )
-
-    return normalize_plan_number(value)
-
-
-def parse_plan_name(
-    row: dict[str, Any],
-) -> str:
-    value = first_value(
-        row,
-        "PLAN_NAME",
-        "PLAN_NAME_1",
-        "PLAN_NAME_2",
-    )
-
-    normalized = normalize_text(value)
-
-    return normalized or "UNKNOWN PLAN"
-
-
-def parse_sponsor_name(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "SPONS_DFE_NAME",
-        "SPONSOR_NAME",
-        "SPONS_DFE_NAME_1",
-        "SPONS_DFE_NAME_2",
-    )
-
-    return normalize_text(value)
-
-
-def parse_state(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "SPONS_DFE_LOC_US_STATE",
-        "SPONS_DFE_STATE",
-        "SPONSOR_STATE",
-        "STATE",
-    )
-
-    return normalize_text(value)
-
-
-def parse_city(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "SPONS_DFE_LOC_US_CITY",
-        "SPONS_DFE_CITY",
-        "SPONSOR_CITY",
-        "CITY",
-    )
-
-    return normalize_text(value)
-
-
-def parse_zip(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "SPONS_DFE_LOC_US_ZIP",
-        "SPONS_DFE_ZIP",
-        "SPONSOR_ZIP",
-        "ZIP",
-    )
-
-    return normalize_text(value)
-
-
-def parse_filing_id(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "ACK_ID",
-        "FILING_ID",
-        "FILINGID",
-        "ACKID",
-    )
-
-    return normalize_text(value)
-
-
-def parse_filing_type(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "FORM_TAX_PRD",
-        "FORM_TYPE",
-        "FILING_TYPE",
-    )
-
-    return normalize_text(value)
-
-
-def parse_status(
-    row: dict[str, Any],
-) -> str | None:
-    value = first_value(
-        row,
-        "FILING_STATUS",
-        "STATUS",
-        "FILING_STATUS_CODE",
-    )
-
-    return normalize_text(value)
-
-
-def extract_identity(
+def parse_2025_identity(
     row: dict[str, Any],
 ) -> dict[str, str | None]:
-    """Extract the common filing identity fields."""
+    """
+    Parse the authoritative 2025 Form 5500 identity fields.
+    """
 
     return {
-        "plan_number": parse_plan_number(row),
-        "plan_name": parse_plan_name(row),
-        "sponsor_name": parse_sponsor_name(row),
-        "sponsor_ein": parse_ein(row),
-        "sponsor_city": parse_city(row),
-        "sponsor_state": parse_state(row),
-        "sponsor_zip": parse_zip(row),
-        "filing_id": parse_filing_id(row),
-        "filing_type": parse_filing_type(row),
-        "filing_status": parse_status(row),
+        "ack_id": normalize_text(
+            get_value(row, "ACK_ID")
+        ),
+        "plan_name": normalize_text(
+            get_value(row, "PLAN_NAME")
+        ),
+        "plan_number": normalize_plan_number(
+            get_value(row, "SPONS_DFE_PN")
+        ),
+        "sponsor_name": normalize_text(
+            get_value(row, "SPONSOR_DFE_NAME")
+        ),
+        "sponsor_dba_name": normalize_text(
+            get_value(row, "SPONS_DFE_DBA_NAME")
+        ),
+        "sponsor_ein": normalize_ein(
+            get_value(row, "SPONS_DFE_EIN")
+        ),
+        "plan_year_begin": normalize_text(
+            get_value(row, "FORM_PLAN_YEAR_BEGIN_DATE")
+        ),
+        "tax_period": normalize_text(
+            get_value(row, "FORM_TAX_PRD")
+        ),
+        "plan_effective_date": normalize_text(
+            get_value(row, "PLAN_EFF_DATE")
+        ),
+        "filing_status": normalize_text(
+            get_value(row, "FILING_STATUS")
+        ),
+        "date_received": normalize_text(
+            get_value(row, "DATE_RECEIVED")
+        ),
     }
 
 
-def infer_schedule_code(
-    filename: str,
-) -> str | None:
+def parse_2025_schedule_attachments(
+    row: dict[str, Any],
+) -> dict[str, str | None]:
     """
-    Attempt to identify a schedule code from a filename.
-
-    This is only a filename hint.
-
-    It must NOT be treated as authoritative if the dataset metadata
-    identifies the schedule differently.
+    Extract the actual schedule attachment indicators
+    from the 2025 Form 5500.
     """
 
-    name = filename.upper()
-
-    match = re.search(
-        r"(?:^|[_\-\s])SCHEDULE[_\-\s]?([A-Z])(?:[_\-\s.]|$)",
-        name,
+    fields = (
+        "SCH_R_ATTACHED_IND",
+        "SCH_MB_ATTACHED_IND",
+        "SCH_SB_ATTACHED_IND",
+        "SCH_H_ATTACHED_IND",
+        "SCH_I_ATTACHED_IND",
+        "SCH_A_ATTACHED_IND",
+        "SCH_C_ATTACHED_IND",
+        "SCH_D_ATTACHED_IND",
+        "SCH_G_ATTACHED_IND",
+        "SCH_DCG_ATTACHED_IND",
+        "SCH_MEP_ATTACHED_IND",
     )
 
-    if match:
-        return match.group(1)
+    return {
+        field: normalize_text(
+            get_value(row, field)
+        )
+        for field in fields
+    }
 
-    match = re.search(
-        r"(?:^|[_\-\s])SCH[_\-\s]?([A-Z])(?:[_\-\s.]|$)",
-        name,
+
+def attached_schedules_2025(
+    row: dict[str, Any],
+) -> tuple[str, ...]:
+    """
+    Return schedules marked as attached by the filing.
+
+    The returned schedule names are only attachment indicators.
+    They do not by themselves establish that a particular provider
+    appears on that schedule.
+    """
+
+    mapping = (
+        ("SCH_A_ATTACHED_IND", "A"),
+        ("SCH_C_ATTACHED_IND", "C"),
+        ("SCH_D_ATTACHED_IND", "D"),
+        ("SCH_G_ATTACHED_IND", "G"),
+        ("SCH_H_ATTACHED_IND", "H"),
+        ("SCH_I_ATTACHED_IND", "I"),
+        ("SCH_R_ATTACHED_IND", "R"),
+        ("SCH_DCG_ATTACHED_IND", "DCG"),
+        ("SCH_MEP_ATTACHED_IND", "MEP"),
+        ("SCH_MB_ATTACHED_IND", "MB"),
+        ("SCH_SB_ATTACHED_IND", "SB"),
     )
 
-    if match:
-        return match.group(1)
+    result: list[str] = []
 
-    return None
+    for field_name, schedule_code in mapping:
+        value = normalize_text(
+            get_value(row, field_name)
+        )
+
+        if value and value.upper() in {
+            "1",
+            "Y",
+            "YES",
+            "TRUE",
+        }:
+            result.append(schedule_code)
+
+    return tuple(result)
