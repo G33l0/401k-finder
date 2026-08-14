@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -25,22 +24,15 @@ from app.dol.filing_parser import (
 from app.dol.provider_extractor import (
     extract_provider_candidates,
 )
-from app.dol.schedules.normalizer import (
-    normalize_column_name,
-)
 from app.dol.schedules.registry import ScheduleRegistry
+from app.dol.schedules.normalizer import normalize_column_name
 
 
 logger = configure_logging()
 
 
-def normalize_provider_name(
-    value: str,
-) -> str:
-    """Create a stable provider lookup value."""
-
+def normalize_provider_name(value: str) -> str:
     normalized = normalize_column_name(value)
-
     return normalized.replace("_", " ").strip()
 
 
@@ -49,12 +41,9 @@ def build_record_key(
     schedule_code: str,
     row: dict[str, Any],
 ) -> str:
-    """
-    Build a deterministic identifier for a schedule row.
-    """
-
     relevant = "|".join(
-        f"{normalize_column_name(key)}={str(value).strip()}"
+        f"{normalize_column_name(key)}="
+        f"{str(value).strip()}"
         for key, value in sorted(row.items())
         if value is not None
     )
@@ -71,7 +60,6 @@ def build_record_key(
 
 
 class DOLImporter:
-    """Import normalized and raw DOL filing information."""
 
     def __init__(
         self,
@@ -88,29 +76,29 @@ class DOLImporter:
         schedule_code: str | None = None,
         dataset_name: str = "unknown",
     ) -> int:
-        """
-        Import a CSV file.
 
-        Returns the number of processed records.
-        """
-
-        if form_year < 2009:
+        if not 2009 <= form_year <= 2025:
             raise ValueError(
-                "Form 5500 datasets before 2009 are not supported."
-            )
-
-        if form_year > 2025:
-            raise ValueError(
-                "Form 5500 year exceeds the currently supported range."
+                "Form 5500 year must be between 2009 and 2025."
             )
 
         inferred_code = (
             schedule_code
             or infer_schedule_code(path.name)
             or "FORM5500"
+        ).upper()
+
+        definition = self.registry.get(
+            form_year,
+            inferred_code,
         )
 
-        inferred_code = inferred_code.upper()
+        if definition is not None:
+            logger.info(
+                "Using schema for %s Schedule %s",
+                form_year,
+                inferred_code,
+            )
 
         processed = 0
 
@@ -123,7 +111,6 @@ class DOLImporter:
                 schedule_code=inferred_code,
                 dataset_name=dataset_name,
             )
-
             processed += 1
 
         self.session.commit()
@@ -141,21 +128,23 @@ class DOLImporter:
         identity: dict[str, str | None],
         form_year: int,
     ) -> Plan:
-        plan_number = identity["plan_number"]
-        sponsor_ein = identity["sponsor_ein"]
-        plan_name = identity["plan_name"]
 
-        query = select(Plan)
+        plan_number = identity.get("plan_number")
+        sponsor_ein = identity.get("sponsor_ein")
+        plan_name = identity.get("plan_name")
+        sponsor_name = identity.get("sponsor_name")
 
         if sponsor_ein and plan_number:
-            query = query.where(
+            query = select(Plan).where(
                 Plan.sponsor_ein == sponsor_ein,
                 Plan.plan_number == plan_number,
             )
         else:
-            query = query.where(
-                Plan.plan_name == plan_name,
-                Plan.sponsor_name == identity["sponsor_name"],
+            query = select(Plan).where(
+                Plan.plan_name == (
+                    plan_name or "UNKNOWN PLAN"
+                ),
+                Plan.sponsor_name == sponsor_name,
             )
 
         plan = self.session.execute(
@@ -166,11 +155,11 @@ class DOLImporter:
             plan = Plan(
                 plan_number=plan_number,
                 plan_name=plan_name or "UNKNOWN PLAN",
-                sponsor_name=identity["sponsor_name"],
+                sponsor_name=sponsor_name,
                 sponsor_ein=sponsor_ein,
-                sponsor_city=identity["sponsor_city"],
-                sponsor_state=identity["sponsor_state"],
-                sponsor_zip=identity["sponsor_zip"],
+                sponsor_city=identity.get("sponsor_city"),
+                sponsor_state=identity.get("sponsor_state"),
+                sponsor_zip=identity.get("sponsor_zip"),
                 first_year=form_year,
                 last_year=form_year,
             )
@@ -205,7 +194,8 @@ class DOLImporter:
         source_file: str,
         dataset_name: str,
     ) -> Filing:
-        filing_id = identity["filing_id"]
+
+        filing_id = identity.get("filing_id")
 
         if filing_id:
             filing = self.session.execute(
@@ -222,8 +212,11 @@ class DOLImporter:
             plan_id=plan.id,
             form_year=form_year,
             filing_id=filing_id,
-            filing_type=identity["filing_type"],
-            filing_status=identity["filing_status"],
+            filing_type=identity.get("filing_type"),
+            filing_status=identity.get("filing_status"),
+            filing_received_date=identity.get(
+                "filing_received_date"
+            ),
             source_dataset=dataset_name,
             source_file=source_file,
         )
@@ -242,6 +235,7 @@ class DOLImporter:
         schedule_code: str,
         dataset_name: str,
     ) -> None:
+
         identity = extract_identity(row)
 
         plan = self._find_or_create_plan(
@@ -294,40 +288,56 @@ class DOLImporter:
                 candidate.name
             )
 
-            party = PlanParty(
-                plan_id=plan.id,
-                provider_id=provider.id,
-                role="UNCLASSIFIED_PROVIDER",
-                role_detail=candidate.reason,
-                form_year=form_year,
-                schedule_code=schedule_code,
-                source_filing_id=identity["filing_id"],
-                confidence=candidate.confidence,
+            existing_party = self.session.execute(
+                select(PlanParty).where(
+                    PlanParty.plan_id == plan.id,
+                    PlanParty.provider_id == provider.id,
+                    PlanParty.form_year == form_year,
+                    PlanParty.schedule_code == schedule_code,
+                    PlanParty.role == candidate.role,
+                )
+            ).scalar_one_or_none()
+
+            if existing_party is None:
+                self.session.add(
+                    PlanParty(
+                        plan_id=plan.id,
+                        provider_id=provider.id,
+                        role=candidate.role,
+                        role_detail=candidate.reason,
+                        form_year=form_year,
+                        schedule_code=schedule_code,
+                        source_filing_id=identity.get(
+                            "filing_id"
+                        ),
+                        confidence=candidate.confidence,
+                    )
+                )
+
+            self.session.add(
+                Evidence(
+                    plan_id=plan.id,
+                    filing_id=filing.id,
+                    form_year=form_year,
+                    source_type="DOL_SCHEDULE",
+                    schedule_code=schedule_code,
+                    source_file=source_file,
+                    source_row=row_number,
+                    field_name=candidate.source_field,
+                    field_value=candidate.name,
+                    source_reference=identity.get(
+                        "filing_id"
+                    ),
+                    notes=candidate.reason,
+                    confidence=candidate.confidence,
+                )
             )
-
-            self.session.add(party)
-
-            evidence = Evidence(
-                plan_id=plan.id,
-                filing_id=filing.id,
-                form_year=form_year,
-                source_type="DOL_SCHEDULE",
-                schedule_code=schedule_code,
-                source_file=source_file,
-                source_row=row_number,
-                field_name=candidate.source_field,
-                field_value=candidate.name,
-                source_reference=identity["filing_id"],
-                notes=candidate.reason,
-                confidence=candidate.confidence,
-            )
-
-            self.session.add(evidence)
 
     def _find_or_create_provider(
         self,
         name: str,
     ) -> Provider:
+
         normalized = normalize_provider_name(name)
 
         provider = self.session.execute(
@@ -358,12 +368,6 @@ def import_dataset(
     dataset_name: str = "unknown",
     schedule_code: str | None = None,
 ) -> int:
-    """
-    Import every CSV under a dataset directory.
-
-    Files are processed individually so a malformed file can be
-    identified precisely.
-    """
 
     if not directory.exists():
         raise FileNotFoundError(
