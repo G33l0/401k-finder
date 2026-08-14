@@ -4,10 +4,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.dol.schedules.normalizer import (
-    normalize_column_name,
-    normalize_text,
-)
+from app.dol.schedules.normalizer import normalize_column_name, normalize_text
 
 
 @dataclass(slots=True)
@@ -16,37 +13,15 @@ class ProviderCandidate:
     source_field: str
     confidence: str
     reason: str
+    role: str
 
 
-_PROVIDER_HINTS = (
-    "PROVIDER",
-    "SERVICE_PROVIDER",
-    "SERVICEPROVIDER",
-    "TRUSTEE",
-    "TRUST",
-    "CUSTODIAN",
-    "INVESTMENT_MANAGER",
-    "INVESTMENT_MGR",
-    "RECORDKEEPER",
-    "ADMINISTRATOR",
-    "ADMIN",
-    "INSURANCE",
-    "INSURER",
-    "BROKER",
-    "FUND",
-    "BANK",
-)
-
-
-def looks_like_provider_field(
-    field_name: str,
-) -> bool:
-    normalized = normalize_column_name(field_name)
-
-    return any(
-        hint in normalized
-        for hint in _PROVIDER_HINTS
-    )
+ROLE_FIELDS: dict[str, str] = {
+    "INS_CARRIER_NAME": "INSURER",
+    "ACCOUNTANT_FIRM_NAME": "ACCOUNTANT",
+    "FDCRY_TRUST_NAME": "TRUST",
+    "FDCRY_TRUSTEE_CUST_NAME": "TRUSTEE_CUSTODIAN",
+}
 
 
 def clean_provider_name(
@@ -72,16 +47,19 @@ def clean_provider_name(
 def extract_provider_candidates(
     row: dict[str, Any],
 ) -> list[ProviderCandidate]:
-    """
-    Extract candidate provider names from a schedule row.
-
-    This is intentionally a candidate extractor, not a final classifier.
-    """
-
     candidates: list[ProviderCandidate] = []
+    seen: set[tuple[str, str]] = set()
 
     for field_name, value in row.items():
-        if not looks_like_provider_field(field_name):
+        normalized_field = normalize_column_name(
+            field_name
+        )
+
+        role = ROLE_FIELDS.get(
+            normalized_field
+        )
+
+        if role is None:
             continue
 
         provider_name = clean_provider_name(value)
@@ -89,15 +67,27 @@ def extract_provider_candidates(
         if not provider_name:
             continue
 
+        key = (
+            normalized_field,
+            provider_name.upper(),
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
         candidates.append(
             ProviderCandidate(
                 name=provider_name,
                 source_field=field_name,
-                confidence="MEDIUM",
+                confidence="HIGH",
                 reason=(
-                    "Column name contains a known provider/service "
-                    "indicator."
+                    f"DOL field {normalized_field} "
+                    f"is explicitly mapped to provider role "
+                    f"{role}."
                 ),
+                role=role,
             )
         )
 
