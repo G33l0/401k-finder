@@ -41,23 +41,21 @@ class ValidationResult:
 
 def validate_csv_file(
     path: Path,
+    expected_columns: tuple[str, ...] = (),
 ) -> ValidationResult:
-    """Validate basic structural integrity of a CSV file."""
-
     result = ValidationResult(valid=True)
 
     try:
         iterator = read_csv_rows(path)
-
         first_row = next(iterator, None)
 
         if first_row is None:
             result.valid = False
             result.issues.append(
                 ValidationIssue(
-                    severity="ERROR",
-                    message="CSV contains no data rows.",
-                    file=str(path),
+                    "ERROR",
+                    "CSV contains no data rows.",
+                    str(path),
                 )
             )
             return result
@@ -70,30 +68,45 @@ def validate_csv_file(
             result.valid = False
             result.issues.append(
                 ValidationIssue(
-                    severity="ERROR",
-                    message="First data row is empty.",
-                    file=str(path),
-                    row=row_number,
+                    "ERROR",
+                    "First data row is empty.",
+                    str(path),
+                    row_number,
                 )
             )
             return result
 
-        normalized = {
+        actual = {
             normalize_column_name(key)
             for key in row.keys()
         }
 
-        if not normalized:
+        if not actual:
             result.valid = False
             result.issues.append(
                 ValidationIssue(
-                    severity="ERROR",
-                    message="No usable columns found.",
-                    file=str(path),
+                    "ERROR",
+                    "No usable columns found.",
+                    str(path),
                 )
             )
-
             return result
+
+        expected = {
+            normalize_column_name(column)
+            for column in expected_columns
+        }
+
+        missing = expected - actual
+
+        for column in sorted(missing):
+            result.issues.append(
+                ValidationIssue(
+                    "ERROR",
+                    f"Missing required column: {column}",
+                    str(path),
+                )
+            )
 
         result.rows_checked = 1
 
@@ -103,23 +116,27 @@ def validate_csv_file(
             if not row:
                 result.issues.append(
                     ValidationIssue(
-                        severity="WARNING",
-                        message="Empty data row.",
-                        file=str(path),
-                        row=row_number,
+                        "WARNING",
+                        "Empty data row.",
+                        str(path),
+                        row_number,
                     )
                 )
 
     except Exception as exc:
         result.valid = False
-
         result.issues.append(
             ValidationIssue(
-                severity="ERROR",
-                message=str(exc),
-                file=str(path),
+                "ERROR",
+                str(exc),
+                str(path),
             )
         )
+
+    result.valid = not any(
+        issue.severity == "ERROR"
+        for issue in result.issues
+    )
 
     return result
 
@@ -127,23 +144,16 @@ def validate_csv_file(
 def validate_dataset(
     directory: Path,
 ) -> ValidationResult:
-    """Validate every CSV file below a dataset directory."""
-
     result = ValidationResult(valid=True)
 
     if not directory.exists():
         result.valid = False
-
         result.issues.append(
             ValidationIssue(
-                severity="ERROR",
-                message=(
-                    f"Dataset directory does not exist: "
-                    f"{directory}"
-                ),
+                "ERROR",
+                f"Dataset directory does not exist: {directory}",
             )
         )
-
         return result
 
     csv_files = sorted(
@@ -152,22 +162,26 @@ def validate_dataset(
 
     if not csv_files:
         result.valid = False
-
         result.issues.append(
             ValidationIssue(
-                severity="ERROR",
-                message="No CSV files were found.",
-                file=str(directory),
+                "ERROR",
+                "No CSV files were found.",
+                str(directory),
             )
         )
-
         return result
 
     for csv_file in csv_files:
-        file_result = validate_csv_file(csv_file)
+        file_result = validate_csv_file(
+            csv_file
+        )
 
-        result.files_checked += file_result.files_checked
-        result.rows_checked += file_result.rows_checked
+        result.files_checked += (
+            file_result.files_checked
+        )
+        result.rows_checked += (
+            file_result.rows_checked
+        )
         result.issues.extend(
             file_result.issues
         )
