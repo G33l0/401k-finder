@@ -331,13 +331,25 @@ SERVICE_CODES: dict[str, ServiceCode] = {
 }
 
 
-#: Form 5500 line 1a plan-entity codes (``TYPE_PLAN_ENTITY_CD``).
+#: Form 5500 Part I line A plan-entity codes (``TYPE_PLAN_ENTITY_CD``).
+#:
+#: Note the ordering: 1 is *multiemployer* and 2 is *single-employer*, which is
+#: the reverse of the order the checkboxes appear in on the form itself. The
+#: values are as documented in DOL's Form 5500 Private Pension Plan Research
+#: File user guide, and confirmed against the published data — single-employer
+#: plans are the overwhelming majority and they carry code 2.
 PLAN_ENTITY_CODES: dict[str, str] = {
-    "1": "Single-employer plan",
-    "2": "Multiemployer plan",
+    "1": "Multiemployer plan",
+    "2": "Single-employer plan",
     "3": "Multiple-employer plan",
     "4": "Direct filing entity (DFE)",
 }
+
+#: The subset of plan-entity codes that describe a shared-employer arrangement.
+MULTIEMPLOYER_ENTITY_CODE = "1"
+SINGLE_EMPLOYER_ENTITY_CODE = "2"
+MULTIPLE_EMPLOYER_ENTITY_CODE = "3"
+DFE_ENTITY_CODE = "4"
 
 #: Form 5500 line 1b direct-filing-entity codes (``TYPE_DFE_PLAN_ENTITY_CD``)
 #: and Schedule D entity codes.

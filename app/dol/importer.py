@@ -30,7 +30,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, insert, select, text, update
+from sqlalchemy import insert, select, text, update
 from sqlalchemy.orm import Session
 
 from app.core.constants import PlanCategory, PlanFeature
@@ -889,6 +889,10 @@ class DOLImporter:
         stats.providers_created += len(new_rows)
 
 
+def _drop_temp(session: Session, name: str) -> None:
+    session.execute(text(f"DROP TABLE IF EXISTS temp.{name}"))
+
+
 def refresh_provider_rollups(session: Session) -> int:
     """
     Recompute each provider's plan count, participants and assets.
@@ -897,48 +901,84 @@ def refresh_provider_rollups(session: Session) -> int:
     every engagement, and maintaining them incrementally would mean re-reading
     every provider on every row that mentions it.
 
+    The totals are built into an indexed temporary table first, then joined in.
+    Expressing them as correlated subqueries directly against `plan_parties`
+    makes SQLite rescan that table once per provider per column, which turns a
+    one-second step into a multi-minute one on a real form year.
+
     Returns the number of providers updated.
     """
+
+    _drop_temp(session, "provider_totals")
 
     session.execute(
         text(
             """
+            CREATE TEMP TABLE provider_totals AS
+            SELECT
+                pp.provider_id AS provider_id,
+                COUNT(DISTINCT pp.plan_id) AS plan_count,
+                COALESCE(SUM(p.latest_participants), 0) AS participant_count,
+                COALESCE(SUM(p.latest_total_assets), 0.0) AS assets
+            FROM (SELECT DISTINCT provider_id, plan_id FROM plan_parties) pp
+            LEFT JOIN plans p ON p.id = pp.plan_id
+            GROUP BY pp.provider_id
+            """
+        )
+    )
+    session.execute(
+        text("CREATE UNIQUE INDEX temp.ix_provider_totals ON provider_totals(provider_id)")
+    )
+
+    # The role a provider is engaged in most often across all its plans.
+    _drop_temp(session, "provider_primary_role")
+    session.execute(
+        text(
+            """
+            CREATE TEMP TABLE provider_primary_role AS
+            SELECT provider_id, role FROM (
+                SELECT
+                    provider_id,
+                    role,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY provider_id ORDER BY COUNT(*) DESC, role
+                    ) AS rn
+                FROM plan_parties
+                GROUP BY provider_id, role
+            )
+            WHERE rn = 1
+            """
+        )
+    )
+    session.execute(
+        text("CREATE UNIQUE INDEX temp.ix_provider_role ON provider_primary_role(provider_id)")
+    )
+
+    result = session.execute(
+        text(
+            """
             UPDATE providers
-            SET plan_count = COALESCE((
-                    SELECT COUNT(DISTINCT pp.plan_id)
-                    FROM plan_parties pp WHERE pp.provider_id = providers.id
-                ), 0),
-                participant_count = COALESCE((
-                    SELECT SUM(p.latest_participants)
-                    FROM plans p
-                    WHERE p.id IN (
-                        SELECT DISTINCT pp.plan_id
-                        FROM plan_parties pp WHERE pp.provider_id = providers.id
-                    )
-                ), 0),
-                assets_under_administration = COALESCE((
-                    SELECT SUM(p.latest_total_assets)
-                    FROM plans p
-                    WHERE p.id IN (
-                        SELECT DISTINCT pp.plan_id
-                        FROM plan_parties pp WHERE pp.provider_id = providers.id
-                    )
-                ), 0.0),
-                primary_role = COALESCE((
-                    SELECT pp.role
-                    FROM plan_parties pp
-                    WHERE pp.provider_id = providers.id
-                    GROUP BY pp.role
-                    ORDER BY COUNT(*) DESC
-                    LIMIT 1
-                ), primary_role)
+            SET plan_count = COALESCE(
+                    (SELECT t.plan_count FROM provider_totals t
+                     WHERE t.provider_id = providers.id), 0),
+                participant_count = COALESCE(
+                    (SELECT t.participant_count FROM provider_totals t
+                     WHERE t.provider_id = providers.id), 0),
+                assets_under_administration = COALESCE(
+                    (SELECT t.assets FROM provider_totals t
+                     WHERE t.provider_id = providers.id), 0.0),
+                primary_role = COALESCE(
+                    (SELECT r.role FROM provider_primary_role r
+                     WHERE r.provider_id = providers.id), primary_role)
             """
         )
     )
 
-    session.commit()
+    _drop_temp(session, "provider_totals")
+    _drop_temp(session, "provider_primary_role")
 
-    return int(session.execute(select(func.count(Provider.id))).scalar() or 0)
+    session.commit()
+    return int(result.rowcount or 0)
 
 
 def refresh_plan_rollups(session: Session) -> int:
@@ -949,44 +989,63 @@ def refresh_plan_rollups(session: Session) -> int:
     plan's asset total is only known once those schedules have been imported and
     folded into the filing. This step runs after every import to pick that up.
 
+    The most recent filing per plan is materialised into an indexed temporary
+    table rather than left as a CTE: an unindexed CTE is rescanned for every
+    plan row, which on a real form year (220k plans, 230k filings) does not
+    finish in any reasonable time.
+
     Returns the number of plans updated.
     """
+
+    _drop_temp(session, "latest_filing")
+
+    session.execute(
+        text(
+            """
+            CREATE TEMP TABLE latest_filing AS
+            SELECT plan_id, total_assets_eoy, total_participants, active_participants
+            FROM (
+                SELECT
+                    plan_id,
+                    total_assets_eoy,
+                    total_participants,
+                    active_participants,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY plan_id
+                        ORDER BY form_year DESC, date_received DESC, id DESC
+                    ) AS rn
+                FROM filings
+            )
+            WHERE rn = 1
+            """
+        )
+    )
+    session.execute(
+        text("CREATE UNIQUE INDEX temp.ix_latest_filing ON latest_filing(plan_id)")
+    )
 
     result = session.execute(
         text(
             """
-            WITH latest AS (
-                SELECT
-                    f.plan_id,
-                    f.total_assets_eoy,
-                    f.total_participants,
-                    f.active_participants,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY f.plan_id
-                        ORDER BY f.form_year DESC, f.date_received DESC, f.id DESC
-                    ) AS rank
-                FROM filings f
-            )
             UPDATE plans
             SET latest_total_assets = COALESCE(
-                    (SELECT l.total_assets_eoy FROM latest l
-                     WHERE l.plan_id = plans.id AND l.rank = 1),
-                    plans.latest_total_assets
-                ),
+                    (SELECT l.total_assets_eoy FROM latest_filing l
+                     WHERE l.plan_id = plans.id),
+                    plans.latest_total_assets),
                 latest_participants = COALESCE(
-                    (SELECT l.total_participants FROM latest l
-                     WHERE l.plan_id = plans.id AND l.rank = 1),
-                    plans.latest_participants
-                ),
+                    (SELECT l.total_participants FROM latest_filing l
+                     WHERE l.plan_id = plans.id),
+                    plans.latest_participants),
                 latest_active_participants = COALESCE(
-                    (SELECT l.active_participants FROM latest l
-                     WHERE l.plan_id = plans.id AND l.rank = 1),
-                    plans.latest_active_participants
-                )
-            WHERE EXISTS (SELECT 1 FROM filings f WHERE f.plan_id = plans.id)
+                    (SELECT l.active_participants FROM latest_filing l
+                     WHERE l.plan_id = plans.id),
+                    plans.latest_active_participants)
+            WHERE EXISTS (SELECT 1 FROM latest_filing l WHERE l.plan_id = plans.id)
             """
         )
     )
+
+    _drop_temp(session, "latest_filing")
 
     session.commit()
     return int(result.rowcount or 0)

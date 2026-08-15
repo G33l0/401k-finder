@@ -112,11 +112,30 @@ def test_457_detection_does_not_fire_on_unrelated_numbers():
 
 
 def test_plan_entity_code_sets_employer_structure():
-    _, multiemployer = classify_plan(("2E",), (), plan_entity_code="2")
+    """
+    TYPE_PLAN_ENTITY_CD is 1 = multiemployer, 2 = single-employer,
+    3 = multiple-employer, 4 = DFE — the reverse of the checkbox order on the
+    form. Reading 1 and 2 the other way round labels almost every plan in the
+    country as multiemployer, which is how this was originally caught.
+    """
+
+    _, multiemployer = classify_plan(("2E",), (), plan_entity_code="1")
     assert PlanFeature.MULTIEMPLOYER.value in multiemployer
+
+    _, single = classify_plan(("2E",), (), plan_entity_code="2")
+    assert PlanFeature.MULTIEMPLOYER.value not in single
+    assert PlanFeature.MULTIPLE_EMPLOYER.value not in single
 
     _, multiple = classify_plan(("2E",), (), plan_entity_code="3")
     assert PlanFeature.MULTIPLE_EMPLOYER.value in multiple
+
+
+def test_plan_entity_code_table_matches_dol_documentation():
+    from app.core.codes import PLAN_ENTITY_CODES
+
+    assert PLAN_ENTITY_CODES["1"] == "Multiemployer plan"
+    assert PLAN_ENTITY_CODES["2"] == "Single-employer plan"
+    assert PLAN_ENTITY_CODES["3"] == "Multiple-employer plan"
 
 
 def test_unknown_codes_are_ignored_not_fatal():

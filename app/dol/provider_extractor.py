@@ -25,6 +25,7 @@ from app.core.codes import SERVICE_CODES
 from app.core.constants import ConfidenceLevel, ProviderRole
 from app.dol.normalizer import (
     normalize_ein,
+    normalize_indicator,
     normalize_state,
     normalize_text,
     parse_money,
@@ -109,8 +110,11 @@ class ExtractionRule:
     service_code_field: str | None = None
     direct_comp_field: str | None = None
     indirect_comp_field: str | None = None
-    #: When set, the rule only fires if this indicator field is truthy.
-    require_field: str | None = None
+    #: When set, the rule only fires if this field holds a truthy indicator.
+    require_indicator: str | None = None
+    #: When set, the rule only fires if these fields are all empty. Used for
+    #: fallback rules that must not compete with a directly reported name.
+    require_absent: tuple[str, ...] = ()
     #: When set, the service-code field decides the role and this is the fallback.
     role_from_service_codes: bool = False
 
@@ -130,6 +134,24 @@ EXTRACTION_RULES: dict[str, tuple[ExtractionRule, ...]] = {
             ein_field="ADMIN_EIN",
             city_field="ADMIN_US_CITY",
             state_field="ADMIN_US_STATE",
+        ),
+        # Roughly 95% of Form 5500 filings leave ADMIN_NAME blank and tick
+        # ADMIN_NAME_SAME_SPON_IND instead, meaning the employer administers
+        # the plan itself. Without this rule those plans show no administrator
+        # at all, which reads as "unknown" when the filing in fact answered the
+        # question.
+        ExtractionRule(
+            "SPONSOR_DFE_NAME",
+            ProviderRole.ADMINISTRATOR,
+            ConfidenceLevel.MEDIUM,
+            "The filing reports the plan administrator as the same entity as "
+            "the sponsor (ADMIN_NAME_SAME_SPON_IND), so the plan is "
+            "administered by the employer rather than an outside firm.",
+            ein_field="SPONS_DFE_EIN",
+            city_field="SPONS_DFE_LOC_US_CITY",
+            state_field="SPONS_DFE_LOC_US_STATE",
+            require_indicator="ADMIN_NAME_SAME_SPON_IND",
+            require_absent=("ADMIN_NAME",),
         ),
         ExtractionRule(
             "PREPARER_FIRM_NAME",
@@ -162,6 +184,19 @@ EXTRACTION_RULES: dict[str, tuple[ExtractionRule, ...]] = {
             ein_field="SF_ADMIN_EIN",
             city_field="SF_ADMIN_US_CITY",
             state_field="SF_ADMIN_US_STATE",
+        ),
+        ExtractionRule(
+            "SF_SPONSOR_NAME",
+            ProviderRole.ADMINISTRATOR,
+            ConfidenceLevel.MEDIUM,
+            "The filing reports the plan administrator as the same entity as "
+            "the sponsor (SF_ADMIN_NAME_SAME_SPON_IND), so the plan is "
+            "administered by the employer rather than an outside firm.",
+            ein_field="SF_SPONS_EIN",
+            city_field="SF_SPONS_LOC_US_CITY",
+            state_field="SF_SPONS_LOC_US_STATE",
+            require_indicator="SF_ADMIN_NAME_SAME_SPON_IND",
+            require_absent=("SF_ADMIN_NAME",),
         ),
         ExtractionRule(
             "SF_PREPARER_FIRM_NAME",
@@ -425,7 +460,10 @@ def _apply_rule(
     row: dict[str, Any],
     rule: ExtractionRule,
 ) -> ProviderCandidate | None:
-    if rule.require_field and not normalize_text(row.get(rule.require_field)):
+    if rule.require_indicator and not normalize_indicator(row.get(rule.require_indicator)):
+        return None
+
+    if any(normalize_text(row.get(field)) for field in rule.require_absent):
         return None
 
     name = clean_provider_name(row.get(rule.name_field))

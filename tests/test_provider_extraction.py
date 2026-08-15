@@ -110,6 +110,57 @@ def test_schedule_d_yields_the_investment_vehicle():
     assert ProviderRole.INVESTMENT_VEHICLE.value in roles
 
 
+def test_self_administered_plan_names_the_sponsor_as_administrator():
+    """
+    About 95% of real filings leave ADMIN_NAME blank and tick
+    ADMIN_NAME_SAME_SPON_IND. Without this the vast majority of plans would
+    show no administrator, which reads as "unknown" rather than "the employer".
+    """
+
+    row = {
+        "ACK_ID": "X1",
+        "ADMIN_NAME": "",
+        "ADMIN_NAME_SAME_SPON_IND": "1",
+        "SPONSOR_DFE_NAME": "ACME MANUFACTURING INC",
+        "SPONS_DFE_EIN": "12-3456789",
+    }
+
+    candidates = extract_providers(row, "F_5500")
+    administrators = [c for c in candidates if c.role == ProviderRole.ADMINISTRATOR.value]
+
+    assert len(administrators) == 1
+    assert administrators[0].name == "ACME MANUFACTURING INC"
+    assert administrators[0].confidence == "MEDIUM"
+
+
+def test_named_administrator_wins_over_the_sponsor_fallback():
+    """When a filing names an outside administrator, the fallback must not fire."""
+
+    row = {
+        "ACK_ID": "X1",
+        "ADMIN_NAME": "OUTSIDE TPA SERVICES LLC",
+        "ADMIN_NAME_SAME_SPON_IND": "1",
+        "SPONSOR_DFE_NAME": "ACME MANUFACTURING INC",
+    }
+
+    administrators = [
+        c for c in extract_providers(row, "F_5500")
+        if c.role == ProviderRole.ADMINISTRATOR.value
+    ]
+
+    assert len(administrators) == 1
+    assert administrators[0].name == "OUTSIDE TPA SERVICES LLC"
+
+
+def test_sponsor_fallback_does_not_fire_without_the_indicator():
+    row = {"ACK_ID": "X1", "SPONSOR_DFE_NAME": "ACME MANUFACTURING INC"}
+
+    assert not [
+        c for c in extract_providers(row, "F_5500")
+        if c.role == ProviderRole.ADMINISTRATOR.value
+    ]
+
+
 def test_preparer_is_low_confidence():
     """A form preparer is attached to the plan but does not hold its assets."""
 

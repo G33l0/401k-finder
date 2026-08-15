@@ -15,7 +15,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app.core.codes import PLAN_CHARACTERISTICS
+from app.core.codes import (
+    MULTIEMPLOYER_ENTITY_CODE,
+    MULTIPLE_EMPLOYER_ENTITY_CODE,
+    PLAN_CHARACTERISTICS,
+)
 from app.core.constants import FormType, PlanCategory, PlanFeature
 from app.dol.normalizer import (
     normalize_ein,
@@ -344,9 +348,12 @@ def classify_plan(
         if category is PlanCategory.UNKNOWN:
             category = PlanCategory.DEFINED_CONTRIBUTION
 
-    if plan_entity_code == "2":
+    # TYPE_PLAN_ENTITY_CD: 1 = multiemployer, 2 = single-employer,
+    # 3 = multiple-employer, 4 = DFE. Code 2 is by far the most common and adds
+    # nothing worth flagging, so only the shared-employer arrangements do.
+    if plan_entity_code == MULTIEMPLOYER_ENTITY_CODE:
         features.add(PlanFeature.MULTIEMPLOYER.value)
-    elif plan_entity_code == "3":
+    elif plan_entity_code == MULTIPLE_EMPLOYER_ENTITY_CODE:
         features.add(PlanFeature.MULTIPLE_EMPLOYER.value)
 
     if form_type == FormType.FORM_5500_DCG:
