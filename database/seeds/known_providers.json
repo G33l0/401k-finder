@@ -1,0 +1,29 @@
+{
+  "_comment": [
+    "Extra provider brands, merged with the built-in table in",
+    "app/providers/normalizer.py at start-up.",
+    "",
+    "Use this to group a firm's name variants under one display name without",
+    "editing code. Patterns are matched against the normalized provider name",
+    "key: upper-case, punctuation removed, common legal suffixes dropped.",
+    "So 'Smith & Jones Pension Services, LLC' has the key",
+    "'SMITH JONES PENSION' and would be matched by the pattern 'SMITH JONES'.",
+    "",
+    "A pattern matches when it appears at the start of the key or as a whole",
+    "run of words within it. Keep patterns specific: a pattern of 'TRUST'",
+    "would sweep up hundreds of unrelated firms.",
+    "",
+    "role is optional and only used as a hint when a filing names the provider",
+    "without saying what it does. Valid values are the ProviderRole names in",
+    "app/core/constants.py, for example RECORDKEEPER, TRUSTEE, CUSTODIAN,",
+    "INSURER, INVESTMENT_MANAGER, THIRD_PARTY_ADMINISTRATOR, ACCOUNTANT."
+  ],
+  "providers": [
+    {
+      "canonical_name": "Example Regional TPA",
+      "patterns": ["EXAMPLE REGIONAL PENSION", "EXAMPLE REGIONAL TPA"],
+      "role": "THIRD_PARTY_ADMINISTRATOR",
+      "enabled": false
+    }
+  ]
+}

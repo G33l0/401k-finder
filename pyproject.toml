@@ -4,23 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "401k-finder-pro"
-version = "1.0.0"
-description = "Local Form 5500 retirement-plan research and search application"
+version = "2.0.0"
+description = "Find retirement plans and the firms that hold them, from DOL Form 5500 filings"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
+keywords = ["form5500", "401k", "403b", "retirement", "erisa", "dol", "ebsa"]
 
 dependencies = [
     "PySide6>=6.8,<7",
     "SQLAlchemy>=2.0,<3",
-    "alembic>=1.14,<2",
-    "pydantic>=2.10,<3",
-    "pydantic-settings>=2.7,<3",
     "httpx>=0.28,<1",
+    "platformdirs>=4.3,<5",
     "python-dateutil>=2.9,<3",
     "rapidfuzz>=3.11,<4",
-    "orjson>=3.10,<4",
-    "platformdirs>=4.3,<5",
-    "rich>=13.9,<14",
 ]
 
 [project.optional-dependencies]
@@ -28,10 +24,19 @@ dev = [
     "pytest>=8.3,<9",
     "pytest-qt>=4.4,<5",
     "pytest-cov>=6,<7",
+    "ruff>=0.8",
+]
+build = [
+    "pyinstaller>=6.11",
 ]
 
 [project.scripts]
-401k-finder = "app.main:main"
+# The command-line interface. Works headless, with no Qt required at runtime.
+"401k-finder" = "app.cli:main"
+
+[project.gui-scripts]
+# The desktop application. On Windows this variant launches without a console.
+"401k-finder-gui" = "app.main:main"
 
 [tool.setuptools]
 include-package-data = true
@@ -39,18 +44,32 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["app*"]
 
+[tool.setuptools.package-data]
+# The vendored DOL layouts are read through importlib.resources and must ship
+# inside the package, not alongside it.
+"app.dol.layouts" = ["data/*.json"]
+"app.ui.resources" = ["*.qss", "*.ico", "*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-ra"
+addopts = "-ra --strict-markers"
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [".venv", "build", "dist", "app/dol/layouts/data"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "SIM", "C4"]
+ignore = [
+    # Long lines are unavoidable in the DOL field maps and the HTML templates.
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
 
 [tool.ruff.format]
 quote-style = "double"

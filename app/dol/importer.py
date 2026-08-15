@@ -1,401 +1,1052 @@
+"""
+Import DOL Form 5500 files into the local database.
+
+The import runs in two passes because that is how the data is actually shaped:
+
+    Pass 1  Filing datasets (F_5500, F_5500_SF, F_SCH_DCG) carry plan identity —
+            sponsor EIN, plan number, plan name — and create the Plan and Filing
+            rows. Every filing is keyed by its DOL ACK_ID.
+
+    Pass 2  Schedule datasets carry no plan identity at all; a Schedule H row is
+            just an ACK_ID and a hundred dollar amounts. They are joined to the
+            filings from pass 1 by ACK_ID.
+
+Running pass 2 without pass 1 would leave every schedule row unattached, which
+is the failure the previous single-pass importer produced: it read plan identity
+out of schedule rows that do not contain any, so every schedule row in a file
+collapsed onto one placeholder "UNKNOWN PLAN".
+
+Throughput matters here — a single form year is several million rows — so the
+importer buffers rows and writes them with SQLAlchemy Core bulk inserts, holding
+only the ACK_ID and provider maps in memory.
+"""
+
 from __future__ import annotations
 
-import hashlib
+import time
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, insert, select, text, update
 from sqlalchemy.orm import Session
 
-from app.core.logging import configure_logging
-from app.database.models import (
-    Evidence,
-    Filing,
-    Plan,
-    PlanParty,
-    Provider,
-    ScheduleRecord,
-)
+from app.core.constants import PlanCategory, PlanFeature
+from app.core.exceptions import ImportCancelled
+from app.core.logging import get_logger
+from app.database.models import Evidence, Filing, Plan, PlanParty, Provider, ScheduleRecord
+from app.dol.catalog import DATASETS_BY_NAME, DatasetKind
 from app.dol.csv_reader import read_csv_rows
 from app.dol.filing_parser import (
-    extract_identity,
-    infer_schedule_code,
+    FIELD_MAPS,
+    ParsedFiling,
+    first_value,
+    parse_ack_id,
+    parse_filing_row,
+    parse_row_order,
 )
-from app.dol.provider_extractor import (
-    extract_provider_candidates,
-)
-from app.dol.schedules.registry import ScheduleRegistry
-from app.dol.schedules.normalizer import normalize_column_name
+from app.dol.normalizer import normalize_indicator, parse_money
+from app.dol.provider_extractor import ProviderCandidate, extract_providers
+from app.providers.normalizer import normalize_provider
+
+logger = get_logger(__name__)
+
+#: Called with (rows_processed, rows_total_estimate, message).
+ProgressCallback = Callable[[int, int, str], None]
+
+#: Called before each batch; returning True aborts the import.
+CancelCallback = Callable[[], bool]
 
 
-logger = configure_logging()
+@dataclass(slots=True)
+class ImportStats:
+    """What one dataset import did."""
+
+    dataset: str = ""
+    form_year: int = 0
+
+    rows_read: int = 0
+    rows_imported: int = 0
+    rows_skipped: int = 0
+
+    plans_created: int = 0
+    plans_updated: int = 0
+    filings_created: int = 0
+    schedule_rows: int = 0
+
+    providers_created: int = 0
+    parties_created: int = 0
+    evidence_created: int = 0
+
+    unmatched_ack_ids: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    elapsed_seconds: float = 0.0
+
+    @property
+    def rows_per_second(self) -> float:
+        return self.rows_read / self.elapsed_seconds if self.elapsed_seconds > 0 else 0.0
+
+    def merge(self, other: ImportStats) -> None:
+        self.rows_read += other.rows_read
+        self.rows_imported += other.rows_imported
+        self.rows_skipped += other.rows_skipped
+        self.plans_created += other.plans_created
+        self.plans_updated += other.plans_updated
+        self.filings_created += other.filings_created
+        self.schedule_rows += other.schedule_rows
+        self.providers_created += other.providers_created
+        self.parties_created += other.parties_created
+        self.evidence_created += other.evidence_created
+        self.unmatched_ack_ids += other.unmatched_ack_ids
+        self.errors.extend(other.errors)
+        self.elapsed_seconds += other.elapsed_seconds
+
+    def summary(self) -> str:
+        return (
+            f"{self.rows_read:,} rows read, {self.rows_imported:,} imported, "
+            f"{self.rows_skipped:,} skipped; {self.plans_created:,} plans, "
+            f"{self.filings_created:,} filings, {self.parties_created:,} provider "
+            f"engagements in {self.elapsed_seconds:.1f}s "
+            f"({self.rows_per_second:,.0f} rows/s)"
+        )
 
 
-def normalize_provider_name(value: str) -> str:
-    normalized = normalize_column_name(value)
-    return normalized.replace("_", " ").strip()
-
-
-def build_record_key(
-    form_year: int,
-    schedule_code: str,
-    row: dict[str, Any],
-) -> str:
-    relevant = "|".join(
-        f"{normalize_column_name(key)}="
-        f"{str(value).strip()}"
-        for key, value in sorted(row.items())
-        if value is not None
-    )
-
-    payload = (
-        f"{form_year}|"
-        f"{schedule_code.upper()}|"
-        f"{relevant}"
-    )
-
-    return hashlib.sha256(
-        payload.encode("utf-8")
-    ).hexdigest()
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class DOLImporter:
+    """
+    Imports DOL CSV files into the database.
+
+    One importer instance should be used for a whole form year: it caches the
+    plan, filing and provider lookups it builds, so importing ten datasets costs
+    one set of lookups rather than ten.
+    """
 
     def __init__(
         self,
         session: Session,
-        registry: ScheduleRegistry,
+        batch_size: int = 5000,
+        progress: ProgressCallback | None = None,
+        should_cancel: CancelCallback | None = None,
     ) -> None:
         self.session = session
-        self.registry = registry
+        self.batch_size = max(batch_size, 100)
+        self.progress = progress
+        self.should_cancel = should_cancel
 
-    def import_csv(
-        self,
-        path: Path,
-        form_year: int,
-        schedule_code: str | None = None,
-        dataset_name: str = "unknown",
-    ) -> int:
+        # (ein, plan_number) -> plan id
+        self._plan_ids: dict[tuple[str | None, str | None], int] = {}
+        # ack_id -> (filing id, plan id)
+        self._filing_ids: dict[str, tuple[int, int]] = {}
+        # provider name key -> provider id
+        self._provider_ids: dict[str, int] = {}
+        # Party rows already written, to honour the unique constraint in-process.
+        self._party_keys: set[tuple[int, int, str, int, str]] = set()
 
-        if not 2009 <= form_year <= 2025:
-            raise ValueError(
-                "Form 5500 year must be between 2009 and 2025."
-            )
+        self._caches_loaded = False
 
-        inferred_code = (
-            schedule_code
-            or infer_schedule_code(path.name)
-            or "FORM5500"
-        ).upper()
+    # ------------------------------------------------------------------
+    # Lookup caches
+    # ------------------------------------------------------------------
 
-        definition = self.registry.get(
-            form_year,
-            inferred_code,
-        )
+    def load_caches(self) -> None:
+        """
+        Load the identity maps the import needs, once per session.
 
-        if definition is not None:
-            logger.info(
-                "Using schema for %s Schedule %s",
-                form_year,
-                inferred_code,
-            )
+        Loading these up front turns what would be three SELECTs per row into a
+        dictionary lookup, which is the difference between an import that takes
+        minutes and one that takes days.
+        """
 
-        processed = 0
-
-        for row_number, row in read_csv_rows(path):
-            self._import_row(
-                row=row,
-                row_number=row_number,
-                source_file=str(path),
-                form_year=form_year,
-                schedule_code=inferred_code,
-                dataset_name=dataset_name,
-            )
-            processed += 1
-
-        self.session.commit()
-
-        logger.info(
-            "Imported %s rows from %s",
-            processed,
-            path,
-        )
-
-        return processed
-
-    def _find_or_create_plan(
-        self,
-        identity: dict[str, str | None],
-        form_year: int,
-    ) -> Plan:
-
-        plan_number = identity.get("plan_number")
-        sponsor_ein = identity.get("sponsor_ein")
-        plan_name = identity.get("plan_name")
-        sponsor_name = identity.get("sponsor_name")
-
-        if sponsor_ein and plan_number:
-            query = select(Plan).where(
-                Plan.sponsor_ein == sponsor_ein,
-                Plan.plan_number == plan_number,
-            )
-        else:
-            query = select(Plan).where(
-                Plan.plan_name == (
-                    plan_name or "UNKNOWN PLAN"
-                ),
-                Plan.sponsor_name == sponsor_name,
-            )
-
-        plan = self.session.execute(
-            query.limit(1)
-        ).scalar_one_or_none()
-
-        if plan is None:
-            plan = Plan(
-                plan_number=plan_number,
-                plan_name=plan_name or "UNKNOWN PLAN",
-                sponsor_name=sponsor_name,
-                sponsor_ein=sponsor_ein,
-                sponsor_city=identity.get("sponsor_city"),
-                sponsor_state=identity.get("sponsor_state"),
-                sponsor_zip=identity.get("sponsor_zip"),
-                first_year=form_year,
-                last_year=form_year,
-            )
-
-            self.session.add(plan)
-            self.session.flush()
-
-        else:
-            if plan.first_year is None:
-                plan.first_year = form_year
-            else:
-                plan.first_year = min(
-                    plan.first_year,
-                    form_year,
-                )
-
-            if plan.last_year is None:
-                plan.last_year = form_year
-            else:
-                plan.last_year = max(
-                    plan.last_year,
-                    form_year,
-                )
-
-        return plan
-
-    def _find_or_create_filing(
-        self,
-        plan: Plan,
-        identity: dict[str, str | None],
-        form_year: int,
-        source_file: str,
-        dataset_name: str,
-    ) -> Filing:
-
-        filing_id = identity.get("filing_id")
-
-        if filing_id:
-            filing = self.session.execute(
-                select(Filing).where(
-                    Filing.form_year == form_year,
-                    Filing.filing_id == filing_id,
-                )
-            ).scalar_one_or_none()
-
-            if filing:
-                return filing
-
-        filing = Filing(
-            plan_id=plan.id,
-            form_year=form_year,
-            filing_id=filing_id,
-            filing_type=identity.get("filing_type"),
-            filing_status=identity.get("filing_status"),
-            filing_received_date=identity.get(
-                "filing_received_date"
-            ),
-            source_dataset=dataset_name,
-            source_file=source_file,
-        )
-
-        self.session.add(filing)
-        self.session.flush()
-
-        return filing
-
-    def _import_row(
-        self,
-        row: dict[str, Any],
-        row_number: int,
-        source_file: str,
-        form_year: int,
-        schedule_code: str,
-        dataset_name: str,
-    ) -> None:
-
-        identity = extract_identity(row)
-
-        plan = self._find_or_create_plan(
-            identity,
-            form_year,
-        )
-
-        filing = self._find_or_create_filing(
-            plan,
-            identity,
-            form_year,
-            source_file,
-            dataset_name,
-        )
-
-        record_key = build_record_key(
-            form_year,
-            schedule_code,
-            row,
-        )
-
-        existing = self.session.execute(
-            select(ScheduleRecord).where(
-                ScheduleRecord.form_year == form_year,
-                ScheduleRecord.schedule_code == schedule_code,
-                ScheduleRecord.record_key == record_key,
-            )
-        ).scalar_one_or_none()
-
-        if existing:
+        if self._caches_loaded:
             return
 
-        schedule_record = ScheduleRecord(
-            plan_id=plan.id,
-            filing_id=filing.id,
-            form_year=form_year,
-            schedule_code=schedule_code,
-            source_file=source_file,
-            source_row=row_number,
-            record_key=record_key,
-            raw_data=dict(row),
+        started = time.perf_counter()
+
+        for plan_id, ein, plan_number in self.session.execute(
+            select(Plan.id, Plan.ein, Plan.plan_number)
+        ):
+            self._plan_ids[(ein, plan_number)] = plan_id
+
+        for filing_id, ack_id, plan_id in self.session.execute(
+            select(Filing.id, Filing.ack_id, Filing.plan_id)
+        ):
+            self._filing_ids[ack_id] = (filing_id, plan_id)
+
+        for provider_id, name_key in self.session.execute(
+            select(Provider.id, Provider.name_key)
+        ):
+            self._provider_ids[name_key] = provider_id
+
+        for plan_id, provider_id, role, form_year, schedule_code in self.session.execute(
+            select(
+                PlanParty.plan_id,
+                PlanParty.provider_id,
+                PlanParty.role,
+                PlanParty.form_year,
+                PlanParty.schedule_code,
+            )
+        ):
+            self._party_keys.add((plan_id, provider_id, role, form_year, schedule_code or ""))
+
+        self._caches_loaded = True
+
+        logger.info(
+            "Loaded caches: %s plans, %s filings, %s providers (%.1fs)",
+            len(self._plan_ids),
+            len(self._filing_ids),
+            len(self._provider_ids),
+            time.perf_counter() - started,
         )
 
-        self.session.add(schedule_record)
+    def _check_cancelled(self) -> None:
+        if self.should_cancel and self.should_cancel():
+            raise ImportCancelled("Import cancelled.")
 
-        candidates = extract_provider_candidates(row)
+    def _report(self, done: int, total: int, message: str) -> None:
+        if self.progress:
+            self.progress(done, total, message)
 
-        for candidate in candidates:
-            provider = self._find_or_create_provider(
-                candidate.name
-            )
+    # ------------------------------------------------------------------
+    # Entry point
+    # ------------------------------------------------------------------
 
-            existing_party = self.session.execute(
-                select(PlanParty).where(
-                    PlanParty.plan_id == plan.id,
-                    PlanParty.provider_id == provider.id,
-                    PlanParty.form_year == form_year,
-                    PlanParty.schedule_code == schedule_code,
-                    PlanParty.role == candidate.role,
-                )
-            ).scalar_one_or_none()
-
-            if existing_party is None:
-                self.session.add(
-                    PlanParty(
-                        plan_id=plan.id,
-                        provider_id=provider.id,
-                        role=candidate.role,
-                        role_detail=candidate.reason,
-                        form_year=form_year,
-                        schedule_code=schedule_code,
-                        source_filing_id=identity.get(
-                            "filing_id"
-                        ),
-                        confidence=candidate.confidence,
-                    )
-                )
-
-            self.session.add(
-                Evidence(
-                    plan_id=plan.id,
-                    filing_id=filing.id,
-                    form_year=form_year,
-                    source_type="DOL_SCHEDULE",
-                    schedule_code=schedule_code,
-                    source_file=source_file,
-                    source_row=row_number,
-                    field_name=candidate.source_field,
-                    field_value=candidate.name,
-                    source_reference=identity.get(
-                        "filing_id"
-                    ),
-                    notes=candidate.reason,
-                    confidence=candidate.confidence,
-                )
-            )
-
-    def _find_or_create_provider(
+    def import_file(
         self,
-        name: str,
-    ) -> Provider:
+        path: Path,
+        dataset: str,
+        form_year: int,
+        release: str = "Latest",
+        row_estimate: int = 0,
+    ) -> ImportStats:
+        """Import one DOL CSV file."""
 
-        normalized = normalize_provider_name(name)
+        dataset = dataset.upper()
+        spec = DATASETS_BY_NAME.get(dataset)
 
-        provider = self.session.execute(
-            select(Provider).where(
-                Provider.normalized_name == normalized
-            )
-        ).scalar_one_or_none()
+        stats = ImportStats(dataset=dataset, form_year=form_year)
+        started = time.perf_counter()
 
-        if provider:
-            return provider
+        self.load_caches()
 
-        provider = Provider(
-            name=name,
-            normalized_name=normalized,
+        is_filing_dataset = dataset in FIELD_MAPS and (
+            spec is None or spec.kind is DatasetKind.FILING
         )
 
-        self.session.add(provider)
+        try:
+            if is_filing_dataset:
+                self._import_filing_file(path, dataset, form_year, release, stats, row_estimate)
+            else:
+                self._import_schedule_file(path, dataset, form_year, stats, row_estimate)
+        except ImportCancelled:
+            self.session.rollback()
+            raise
+        except Exception as exc:  # noqa: BLE001 - recorded and re-raised by the caller
+            self.session.rollback()
+            stats.errors.append(f"{type(exc).__name__}: {exc}")
+            stats.elapsed_seconds = time.perf_counter() - started
+            raise
+
+        stats.elapsed_seconds = time.perf_counter() - started
+        logger.info("%s %s: %s", form_year, dataset, stats.summary())
+        return stats
+
+    # ------------------------------------------------------------------
+    # Pass 1: filing datasets
+    # ------------------------------------------------------------------
+
+    def _import_filing_file(
+        self,
+        path: Path,
+        dataset: str,
+        form_year: int,
+        release: str,
+        stats: ImportStats,
+        row_estimate: int,
+    ) -> None:
+        source_file = str(path)
+
+        plan_buffer: list[dict[str, Any]] = []
+        filing_buffer: list[dict[str, Any]] = []
+        pending_providers: list[tuple[str, list[ProviderCandidate], int, str]] = []
+
+        for row_number, row in read_csv_rows(path):
+            stats.rows_read += 1
+
+            if stats.rows_read % self.batch_size == 0:
+                self._check_cancelled()
+                self._flush_plans(plan_buffer, stats)
+                self._flush_filings(filing_buffer, stats)
+                self._flush_providers(pending_providers, form_year, source_file, stats)
+                self._report(
+                    stats.rows_read,
+                    row_estimate,
+                    f"{dataset}: {stats.rows_read:,} rows",
+                )
+
+            parsed = parse_filing_row(row, dataset, form_year)
+
+            if not parsed.ack_id:
+                stats.rows_skipped += 1
+                continue
+
+            if parsed.ack_id in self._filing_ids:
+                # Already imported, e.g. re-running a partially completed year.
+                stats.rows_skipped += 1
+                continue
+
+            plan_key = parsed.plan_key
+            if plan_key[0] is None and plan_key[1] is None:
+                # Without an EIN and plan number there is no stable identity to
+                # merge this filing onto in later years, so key it by ACK_ID.
+                plan_key = (None, f"ACK:{parsed.ack_id[:40]}")
+
+            if plan_key not in self._plan_ids:
+                plan_buffer.append(self._plan_values(parsed, plan_key))
+            else:
+                self._update_plan(self._plan_ids[plan_key], parsed, stats)
+
+            filing_buffer.append((plan_key, self._filing_values(parsed, dataset, release, source_file)))  # type: ignore[arg-type]
+
+            candidates = extract_providers(row, dataset)
+            if candidates:
+                pending_providers.append((parsed.ack_id, candidates, row_number, dataset))
+
+            stats.rows_imported += 1
+
+        self._check_cancelled()
+        self._flush_plans(plan_buffer, stats)
+        self._flush_filings(filing_buffer, stats)
+        self._flush_providers(pending_providers, form_year, source_file, stats)
+        self.session.commit()
+
+        self._report(stats.rows_read, row_estimate or stats.rows_read, f"{dataset}: complete")
+
+    def _plan_values(
+        self,
+        parsed: ParsedFiling,
+        plan_key: tuple[str | None, str | None],
+    ) -> dict[str, Any]:
+        return {
+            "_key": plan_key,
+            "ein": plan_key[0],
+            "plan_number": plan_key[1],
+            "plan_name": parsed.plan_name,
+            "sponsor_name": parsed.sponsor_name,
+            "sponsor_dba_name": parsed.sponsor_dba_name,
+            "sponsor_city": parsed.sponsor_city,
+            "sponsor_state": parsed.sponsor_state,
+            "sponsor_zip": parsed.sponsor_zip,
+            "sponsor_phone": parsed.sponsor_phone,
+            "business_code": parsed.business_code,
+            "plan_effective_date": parsed.plan_effective_date,
+            "plan_category": parsed.plan_category,
+            "plan_features": "|".join(parsed.plan_features) or None,
+            "benefit_codes": "|".join(parsed.pension_codes + parsed.welfare_codes) or None,
+            "is_retirement_plan": parsed.is_retirement_plan,
+            "first_year": parsed.form_year,
+            "last_year": parsed.form_year,
+            "latest_participants": parsed.total_participants,
+            "latest_active_participants": parsed.active_participants,
+            "latest_total_assets": parsed.total_assets_eoy,
+            "created_at": _utcnow(),
+            "updated_at": _utcnow(),
+        }
+
+    def _filing_values(
+        self,
+        parsed: ParsedFiling,
+        dataset: str,
+        release: str,
+        source_file: str,
+    ) -> dict[str, Any]:
+        return {
+            "ack_id": parsed.ack_id,
+            "form_year": parsed.form_year,
+            "form_type": parsed.form_type,
+            "plan_name": parsed.plan_name,
+            "sponsor_name": parsed.sponsor_name,
+            "ein": parsed.ein,
+            "plan_number": parsed.plan_number,
+            "plan_year_begin": parsed.plan_year_begin,
+            "plan_year_end": parsed.plan_year_end,
+            "filing_status": parsed.filing_status,
+            "date_received": parsed.date_received,
+            "is_initial": parsed.is_initial,
+            "is_amended": parsed.is_amended,
+            "is_final": parsed.is_final,
+            "is_short_year": parsed.is_short_year,
+            "plan_entity_code": parsed.plan_entity_code,
+            "dfe_entity_code": parsed.dfe_entity_code,
+            "business_code": parsed.business_code,
+            "pension_codes": "|".join(parsed.pension_codes) or None,
+            "welfare_codes": "|".join(parsed.welfare_codes) or None,
+            "plan_category": parsed.plan_category,
+            "plan_features": "|".join(parsed.plan_features) or None,
+            "total_participants": parsed.total_participants,
+            "active_participants": parsed.active_participants,
+            "participants_with_balances": parsed.participants_with_balances,
+            "total_assets_boy": parsed.total_assets_boy,
+            "total_assets_eoy": parsed.total_assets_eoy,
+            "net_assets_eoy": parsed.net_assets_eoy,
+            "employer_contributions": parsed.employer_contributions,
+            "participant_contributions": parsed.participant_contributions,
+            "admin_name": parsed.admin_name,
+            "admin_ein": parsed.admin_ein,
+            "source_dataset": dataset,
+            "source_release": release,
+            "source_file": source_file,
+            "created_at": _utcnow(),
+        }
+
+    def _update_plan(self, plan_id: int, parsed: ParsedFiling, stats: ImportStats) -> None:
+        """
+        Fold a newer filing's values onto an existing plan.
+
+        Only a filing at least as recent as what the plan already carries may
+        overwrite its display fields, so importing 2019 after 2023 does not make
+        the plan look stale.
+        """
+
+        plan = self.session.get(Plan, plan_id)
+        if plan is None:
+            return
+
+        year = parsed.form_year
+        plan.first_year = min(plan.first_year or year, year)
+        is_newer = year >= (plan.last_year or year)
+        plan.last_year = max(plan.last_year or year, year)
+
+        if is_newer:
+            plan.plan_name = parsed.plan_name
+            plan.sponsor_name = parsed.sponsor_name or plan.sponsor_name
+            plan.sponsor_dba_name = parsed.sponsor_dba_name or plan.sponsor_dba_name
+            plan.sponsor_city = parsed.sponsor_city or plan.sponsor_city
+            plan.sponsor_state = parsed.sponsor_state or plan.sponsor_state
+            plan.sponsor_zip = parsed.sponsor_zip or plan.sponsor_zip
+            plan.sponsor_phone = parsed.sponsor_phone or plan.sponsor_phone
+            plan.business_code = parsed.business_code or plan.business_code
+            plan.plan_effective_date = parsed.plan_effective_date or plan.plan_effective_date
+
+            if parsed.plan_category != PlanCategory.UNKNOWN:
+                plan.plan_category = parsed.plan_category
+                plan.is_retirement_plan = parsed.is_retirement_plan
+
+            if parsed.plan_features:
+                plan.plan_features = "|".join(parsed.plan_features)
+            if parsed.pension_codes or parsed.welfare_codes:
+                plan.benefit_codes = "|".join(parsed.pension_codes + parsed.welfare_codes)
+
+            if parsed.total_participants is not None:
+                plan.latest_participants = parsed.total_participants
+            if parsed.active_participants is not None:
+                plan.latest_active_participants = parsed.active_participants
+            if parsed.total_assets_eoy is not None:
+                plan.latest_total_assets = parsed.total_assets_eoy
+
+        stats.plans_updated += 1
+
+    def _flush_plans(self, buffer: list[dict[str, Any]], stats: ImportStats) -> None:
+        if not buffer:
+            return
+
+        # A file can name the same plan twice (an original and an amended
+        # filing); keep the first and let the later one update it.
+        unique: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+        for values in buffer:
+            unique.setdefault(values["_key"], values)
+
+        rows = [
+            {key: value for key, value in values.items() if key != "_key"}
+            for values in unique.values()
+        ]
+
+        # RETURNING gives back the generated ids in insert order, so the new
+        # plans can be cached without a second lookup query. Selecting them back
+        # by (ein, plan_number) instead would have to scan on plan_number, which
+        # only has 999 distinct values and so matches almost the whole table.
+        assigned = self.session.execute(
+            insert(Plan).returning(Plan.id, Plan.ein, Plan.plan_number),
+            rows,
+        )
+
+        for plan_id, ein, plan_number in assigned:
+            self._plan_ids[(ein, plan_number)] = plan_id
+
         self.session.flush()
+        stats.plans_created += len(rows)
+        buffer.clear()
 
-        return provider
+    def _flush_filings(
+        self,
+        buffer: list[tuple[tuple[str | None, str | None], dict[str, Any]]],
+        stats: ImportStats,
+    ) -> None:
+        if not buffer:
+            return
+
+        rows: list[dict[str, Any]] = []
+        for plan_key, values in buffer:
+            plan_id = self._plan_ids.get(plan_key)
+            if plan_id is None:
+                stats.errors.append(
+                    f"Filing {values['ack_id']} references a plan that was not created."
+                )
+                stats.rows_skipped += 1
+                continue
+            rows.append({**values, "plan_id": plan_id})
+
+        if rows:
+            assigned = self.session.execute(
+                insert(Filing).returning(Filing.id, Filing.ack_id, Filing.plan_id),
+                rows,
+            )
+
+            for filing_id, ack_id, plan_id in assigned:
+                self._filing_ids[ack_id] = (filing_id, plan_id)
+
+            self.session.flush()
+            stats.filings_created += len(rows)
+
+        buffer.clear()
+
+    # ------------------------------------------------------------------
+    # Schedule-sourced enrichment of filing-level facts
+    # ------------------------------------------------------------------
+
+    #: Schedule fields that fill in filing values the main form does not carry.
+    #: A Form 5500 filing has no financial totals of its own — for a large plan
+    #: those live on Schedule H, and for a small one on Schedule I — so without
+    #: this step every Form 5500 plan would show no assets at all.
+    _FILING_ENRICHMENT: dict[str, dict[str, tuple[str, ...]]] = {
+        "F_SCH_H": {
+            "total_assets_boy": ("TOT_ASSETS_BOY_AMT",),
+            "total_assets_eoy": ("TOT_ASSETS_EOY_AMT",),
+            "net_assets_eoy": ("NET_ASSETS_EOY_AMT",),
+            "employer_contributions": ("EMPLR_CONTRIB_INCOME_AMT",),
+            "participant_contributions": ("PARTICIPANT_CONTRIB_AMT",),
+        },
+        "F_SCH_I": {
+            "total_assets_boy": ("SMALL_TOT_ASSETS_BOY_AMT",),
+            "total_assets_eoy": ("SMALL_TOT_ASSETS_EOY_AMT",),
+            "net_assets_eoy": ("SMALL_NET_ASSETS_EOY_AMT",),
+            "employer_contributions": ("SMALL_EMPLR_CONTRIB_INCOME_AMT",),
+            "participant_contributions": ("SMALL_PARTICIPANT_CONTRIB_AMT",),
+        },
+    }
+
+    def _filing_enrichment(
+        self,
+        row: dict[str, Any],
+        dataset: str,
+        filing_id: int,
+    ) -> dict[str, Any] | None:
+        """Build a filing update from a schedule row, or None if it adds nothing."""
+
+        mapping = self._FILING_ENRICHMENT.get(dataset)
+        if mapping is None:
+            return None
+
+        values: dict[str, Any] = {}
+        for attribute, columns in mapping.items():
+            amount = parse_money(first_value(row, *columns))
+            if amount is not None:
+                values[attribute] = amount
+
+        if not values:
+            return None
+
+        return {"id": filing_id, **values}
+
+    def _flush_filing_updates(self, buffer: list[dict[str, Any]]) -> None:
+        if not buffer:
+            return
+
+        # Later rows for the same filing win; DOL can emit more than one
+        # schedule row per filing when a plan year was amended.
+        merged: dict[int, dict[str, Any]] = {}
+        for values in buffer:
+            merged.setdefault(values["id"], {}).update(values)
+
+        self.session.execute(update(Filing), list(merged.values()))
+        self.session.flush()
+        buffer.clear()
+
+    def _schedule_r_features(self, row: dict[str, Any]) -> tuple[str, ...]:
+        """Read plan features Schedule R confirms that the benefit codes may omit."""
+
+        features: list[str] = []
+
+        if normalize_indicator(first_value(row, "F_401K_PLAN_IND")):
+            features.append(PlanFeature.K401.value)
+
+        if any(
+            normalize_indicator(first_value(row, name))
+            for name in ("ESOP_PREF_IND", "ESOP_BACK_TO_BACK_IND", "ESOP_STOCK_NOT_TRADABLE_IND")
+        ):
+            features.append(PlanFeature.ESOP.value)
+
+        return tuple(features)
+
+    def _apply_schedule_r(self, plan_id: int, features: tuple[str, ...]) -> None:
+        """Add Schedule R-confirmed features to a plan without dropping existing ones."""
+
+        if not features:
+            return
+
+        plan = self.session.get(Plan, plan_id)
+        if plan is None:
+            return
+
+        current = set(plan.feature_list())
+        merged = current | set(features)
+
+        if merged != current:
+            plan.plan_features = "|".join(sorted(merged))
+
+        if not plan.is_retirement_plan:
+            plan.is_retirement_plan = True
+            if plan.plan_category in (None, PlanCategory.UNKNOWN, PlanCategory.WELFARE):
+                plan.plan_category = PlanCategory.DEFINED_CONTRIBUTION
+
+    # ------------------------------------------------------------------
+    # Pass 2: schedule datasets
+    # ------------------------------------------------------------------
+
+    def _import_schedule_file(
+        self,
+        path: Path,
+        dataset: str,
+        form_year: int,
+        stats: ImportStats,
+        row_estimate: int,
+    ) -> None:
+        spec = DATASETS_BY_NAME.get(dataset)
+        schedule_code = spec.schedule_code if spec else dataset
+        source_file = str(path)
+
+        record_buffer: list[dict[str, Any]] = []
+        pending_providers: list[tuple[str, list[ProviderCandidate], int, str]] = []
+        filing_updates: list[dict[str, Any]] = []
+        seen_records: set[tuple[str, int | None]] = set()
+
+        for row_number, row in read_csv_rows(path):
+            stats.rows_read += 1
+
+            if stats.rows_read % self.batch_size == 0:
+                self._check_cancelled()
+                self._flush_schedule_records(record_buffer, stats)
+                self._flush_filing_updates(filing_updates)
+                self._flush_providers(pending_providers, form_year, source_file, stats)
+                self._report(
+                    stats.rows_read,
+                    row_estimate,
+                    f"{dataset}: {stats.rows_read:,} rows",
+                )
+
+            ack_id = parse_ack_id(row)
+            if not ack_id:
+                stats.rows_skipped += 1
+                continue
+
+            link = self._filing_ids.get(ack_id)
+            if link is None:
+                # The schedule row belongs to a filing this database does not
+                # have — normally because the matching filing dataset has not
+                # been imported for this year. Keep the row so it links up when
+                # the filing arrives, but do not invent a plan for it.
+                stats.unmatched_ack_ids += 1
+                filing_id, plan_id = None, None
+            else:
+                filing_id, plan_id = link
+
+            row_order = parse_row_order(row)
+            record_key = (ack_id, row_order)
+            if record_key in seen_records:
+                stats.rows_skipped += 1
+                continue
+            seen_records.add(record_key)
+
+            record_buffer.append(
+                {
+                    "ack_id": ack_id,
+                    "plan_id": plan_id,
+                    "filing_id": filing_id,
+                    "form_year": form_year,
+                    "dataset": dataset,
+                    "schedule_code": schedule_code,
+                    "row_order": row_order,
+                    "source_file": source_file,
+                    "source_row": row_number,
+                    "raw_data": {
+                        key: value
+                        for key, value in row.items()
+                        if value not in (None, "") and key != "_EXTRA"
+                    },
+                    "created_at": _utcnow(),
+                }
+            )
+
+            candidates = extract_providers(row, dataset)
+            if candidates and plan_id is not None:
+                pending_providers.append((ack_id, candidates, row_number, dataset))
+
+            if filing_id is not None:
+                enrichment = self._filing_enrichment(row, dataset, filing_id)
+                if enrichment is not None:
+                    filing_updates.append(enrichment)
+
+            if dataset == "F_SCH_R" and plan_id is not None:
+                self._apply_schedule_r(plan_id, self._schedule_r_features(row))
+
+            stats.rows_imported += 1
+
+        self._check_cancelled()
+        self._flush_schedule_records(record_buffer, stats)
+        self._flush_filing_updates(filing_updates)
+        self._flush_providers(pending_providers, form_year, source_file, stats)
+        self.session.commit()
+
+        if stats.unmatched_ack_ids:
+            logger.warning(
+                "%s %s: %s row(s) referenced filings not present in the database. "
+                "Import the matching filing dataset (F_5500 / F_5500_SF) for this "
+                "year and re-run to attach them.",
+                form_year,
+                dataset,
+                stats.unmatched_ack_ids,
+            )
+
+        self._report(stats.rows_read, row_estimate or stats.rows_read, f"{dataset}: complete")
+
+    def _flush_schedule_records(self, buffer: list[dict[str, Any]], stats: ImportStats) -> None:
+        if not buffer:
+            return
+
+        # Guard the (ack_id, dataset, row_order) unique constraint against rows
+        # already present from an earlier partial run.
+        existing = set(
+            self.session.execute(
+                select(ScheduleRecord.ack_id, ScheduleRecord.row_order).where(
+                    ScheduleRecord.dataset == buffer[0]["dataset"],
+                    ScheduleRecord.ack_id.in_({row["ack_id"] for row in buffer}),
+                )
+            ).all()
+        )
+
+        rows = [
+            row for row in buffer if (row["ack_id"], row["row_order"]) not in existing
+        ]
+
+        if rows:
+            self.session.execute(insert(ScheduleRecord), rows)
+            self.session.flush()
+            stats.schedule_rows += len(rows)
+
+        stats.rows_skipped += len(buffer) - len(rows)
+        buffer.clear()
+
+    # ------------------------------------------------------------------
+    # Providers, parties and evidence
+    # ------------------------------------------------------------------
+
+    def _flush_providers(
+        self,
+        buffer: list[tuple[str, list[ProviderCandidate], int, str]],
+        form_year: int,
+        source_file: str,
+        stats: ImportStats,
+    ) -> None:
+        if not buffer:
+            return
+
+        self._ensure_providers(buffer, stats)
+
+        party_rows: list[dict[str, Any]] = []
+        evidence_rows: list[dict[str, Any]] = []
+
+        for ack_id, candidates, row_number, dataset in buffer:
+            link = self._filing_ids.get(ack_id)
+            if link is None:
+                continue
+            filing_id, plan_id = link
+
+            spec = DATASETS_BY_NAME.get(dataset)
+            schedule_code = spec.schedule_code if spec else dataset
+
+            for candidate in candidates:
+                identity = normalize_provider(candidate.name)
+                provider_id = self._provider_ids.get(identity.name_key)
+                if provider_id is None:
+                    continue
+
+                party_key = (plan_id, provider_id, candidate.role, form_year, schedule_code)
+                if party_key in self._party_keys:
+                    continue
+                self._party_keys.add(party_key)
+
+                party_rows.append(
+                    {
+                        "plan_id": plan_id,
+                        "provider_id": provider_id,
+                        "filing_id": filing_id,
+                        "role": candidate.role,
+                        "reported_name": candidate.name,
+                        "reported_ein": candidate.ein,
+                        "relationship_text": candidate.relationship,
+                        "form_year": form_year,
+                        "schedule_code": schedule_code,
+                        "source_field": candidate.source_field,
+                        "service_codes": "|".join(candidate.service_codes) or None,
+                        "direct_compensation": candidate.direct_compensation,
+                        "indirect_compensation": candidate.indirect_compensation,
+                        "confidence": candidate.confidence,
+                        "created_at": _utcnow(),
+                    }
+                )
+
+                evidence_rows.append(
+                    {
+                        "plan_id": plan_id,
+                        "filing_id": filing_id,
+                        "form_year": form_year,
+                        "ack_id": ack_id,
+                        "source_type": "DOL_DATASET",
+                        "dataset": dataset,
+                        "schedule_code": schedule_code,
+                        "source_file": source_file,
+                        "source_row": row_number,
+                        "field_name": candidate.source_field,
+                        "field_value": candidate.name,
+                        "notes": candidate.reason,
+                        "confidence": candidate.confidence,
+                        "created_at": _utcnow(),
+                    }
+                )
+
+        if party_rows:
+            self.session.execute(insert(PlanParty), party_rows)
+            stats.parties_created += len(party_rows)
+
+        if evidence_rows:
+            self.session.execute(insert(Evidence), evidence_rows)
+            stats.evidence_created += len(evidence_rows)
+
+        if party_rows or evidence_rows:
+            self.session.flush()
+
+        buffer.clear()
+
+    def _ensure_providers(
+        self,
+        buffer: list[tuple[str, list[ProviderCandidate], int, str]],
+        stats: ImportStats,
+    ) -> None:
+        """Create any provider records this batch needs, in one insert."""
+
+        new_rows: dict[str, dict[str, Any]] = {}
+
+        for _, candidates, _, _ in buffer:
+            for candidate in candidates:
+                identity = normalize_provider(candidate.name)
+                if not identity.name_key or identity.name_key in self._provider_ids:
+                    continue
+                if identity.name_key in new_rows:
+                    continue
+
+                new_rows[identity.name_key] = {
+                    "name": identity.display_name,
+                    "name_key": identity.name_key,
+                    "ein": candidate.ein,
+                    "city": candidate.city,
+                    "state": candidate.state,
+                    "canonical_name": identity.canonical_name,
+                    "primary_role": candidate.role,
+                    "plan_count": 0,
+                    "participant_count": 0,
+                    "assets_under_administration": 0.0,
+                    "created_at": _utcnow(),
+                    "updated_at": _utcnow(),
+                }
+
+        if not new_rows:
+            return
+
+        assigned = self.session.execute(
+            insert(Provider).returning(Provider.id, Provider.name_key),
+            list(new_rows.values()),
+        )
+
+        for provider_id, name_key in assigned:
+            self._provider_ids[name_key] = provider_id
+
+        self.session.flush()
+        stats.providers_created += len(new_rows)
 
 
-def import_dataset(
+def refresh_provider_rollups(session: Session) -> int:
+    """
+    Recompute each provider's plan count, participants and assets.
+
+    Run once after an import rather than per row: these are aggregates over
+    every engagement, and maintaining them incrementally would mean re-reading
+    every provider on every row that mentions it.
+
+    Returns the number of providers updated.
+    """
+
+    session.execute(
+        text(
+            """
+            UPDATE providers
+            SET plan_count = COALESCE((
+                    SELECT COUNT(DISTINCT pp.plan_id)
+                    FROM plan_parties pp WHERE pp.provider_id = providers.id
+                ), 0),
+                participant_count = COALESCE((
+                    SELECT SUM(p.latest_participants)
+                    FROM plans p
+                    WHERE p.id IN (
+                        SELECT DISTINCT pp.plan_id
+                        FROM plan_parties pp WHERE pp.provider_id = providers.id
+                    )
+                ), 0),
+                assets_under_administration = COALESCE((
+                    SELECT SUM(p.latest_total_assets)
+                    FROM plans p
+                    WHERE p.id IN (
+                        SELECT DISTINCT pp.plan_id
+                        FROM plan_parties pp WHERE pp.provider_id = providers.id
+                    )
+                ), 0.0),
+                primary_role = COALESCE((
+                    SELECT pp.role
+                    FROM plan_parties pp
+                    WHERE pp.provider_id = providers.id
+                    GROUP BY pp.role
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 1
+                ), primary_role)
+            """
+        )
+    )
+
+    session.commit()
+
+    return int(session.execute(select(func.count(Provider.id))).scalar() or 0)
+
+
+def refresh_plan_rollups(session: Session) -> int:
+    """
+    Copy each plan's headline numbers down from its most recent filing.
+
+    Schedule H and Schedule I carry the financials for Form 5500 filers, so a
+    plan's asset total is only known once those schedules have been imported and
+    folded into the filing. This step runs after every import to pick that up.
+
+    Returns the number of plans updated.
+    """
+
+    result = session.execute(
+        text(
+            """
+            WITH latest AS (
+                SELECT
+                    f.plan_id,
+                    f.total_assets_eoy,
+                    f.total_participants,
+                    f.active_participants,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY f.plan_id
+                        ORDER BY f.form_year DESC, f.date_received DESC, f.id DESC
+                    ) AS rank
+                FROM filings f
+            )
+            UPDATE plans
+            SET latest_total_assets = COALESCE(
+                    (SELECT l.total_assets_eoy FROM latest l
+                     WHERE l.plan_id = plans.id AND l.rank = 1),
+                    plans.latest_total_assets
+                ),
+                latest_participants = COALESCE(
+                    (SELECT l.total_participants FROM latest l
+                     WHERE l.plan_id = plans.id AND l.rank = 1),
+                    plans.latest_participants
+                ),
+                latest_active_participants = COALESCE(
+                    (SELECT l.active_participants FROM latest l
+                     WHERE l.plan_id = plans.id AND l.rank = 1),
+                    plans.latest_active_participants
+                )
+            WHERE EXISTS (SELECT 1 FROM filings f WHERE f.plan_id = plans.id)
+            """
+        )
+    )
+
+    session.commit()
+    return int(result.rowcount or 0)
+
+
+def import_directory(
     session: Session,
-    registry: ScheduleRegistry,
     directory: Path,
-    form_year: int,
-    dataset_name: str = "unknown",
-    schedule_code: str | None = None,
-) -> int:
+    form_year: int | None = None,
+    datasets: Iterable[str] | None = None,
+    batch_size: int = 5000,
+    progress: ProgressCallback | None = None,
+) -> ImportStats:
+    """
+    Import every DOL CSV found under a directory.
+
+    Files are ordered so filing datasets import before schedules, which is what
+    lets the schedule rows find their filings.
+    """
+
+    from app.dol.filing_parser import infer_dataset_from_filename
+
+    total = ImportStats(form_year=form_year or 0)
 
     if not directory.exists():
-        raise FileNotFoundError(
-            f"Dataset directory does not exist: {directory}"
-        )
+        raise FileNotFoundError(f"Directory does not exist: {directory}")
 
-    csv_files = sorted(
-        directory.rglob("*.csv")
-    )
+    wanted = {name.upper() for name in datasets} if datasets else None
 
-    if not csv_files:
-        raise FileNotFoundError(
-            f"No CSV files found under: {directory}"
-        )
+    discovered: list[tuple[Path, str, int]] = []
+    for path in sorted(directory.rglob("*.csv")):
+        dataset, year = infer_dataset_from_filename(path.name)
+        if dataset is None or year is None:
+            total.errors.append(f"Skipped unrecognised file: {path.name}")
+            continue
+        if form_year is not None and year != form_year:
+            continue
+        if wanted and dataset not in wanted:
+            continue
+        discovered.append((path, dataset, year))
 
-    importer = DOLImporter(
-        session=session,
-        registry=registry,
-    )
+    if not discovered:
+        raise FileNotFoundError(f"No recognisable DOL CSV files under: {directory}")
 
-    total = 0
+    discovered.sort(key=lambda item: (item[1] not in FIELD_MAPS, item[2], item[1]))
 
-    for csv_file in csv_files:
-        total += importer.import_csv(
-            path=csv_file,
-            form_year=form_year,
-            schedule_code=schedule_code,
-            dataset_name=dataset_name,
-        )
+    importer = DOLImporter(session, batch_size=batch_size, progress=progress)
+
+    for path, dataset, year in discovered:
+        try:
+            total.merge(importer.import_file(path, dataset, year))
+        except ImportCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            total.errors.append(f"{path.name}: {exc}")
+            logger.exception("Failed to import %s", path)
+
+    # Rollups run last: they aggregate over everything just imported, and the
+    # provider figures depend on the plan figures being current.
+    refresh_plan_rollups(session)
+    refresh_provider_rollups(session)
 
     return total

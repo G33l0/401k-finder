@@ -1,42 +1,55 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from app.dol.layouts import Layout, get_layout
+from app.dol.normalizer import normalize_column_name
 
 
 @dataclass(frozen=True, slots=True)
 class ScheduleDefinition:
+    """
+    What the application knows about one dataset for one form year.
+
+    The column list is not restated here — it is read from the vendored DOL
+    layout, which is the published source of truth. This type adds the parts the
+    layout does not carry: a human-readable name, the fields that identify a
+    provider, and the fields that must be present for a row to be usable.
+    """
+
     code: str
     name: str
     form_year: int
-
-    required_columns: tuple[str, ...] = ()
+    dataset: str
 
     provider_columns: tuple[str, ...] = ()
-
+    key_columns: tuple[str, ...] = ("ACK_ID",)
     notes: str = ""
+    aliases: tuple[str, ...] = ()
 
-    aliases: tuple[str, ...] = field(
-        default_factory=tuple
-    )
+    @property
+    def layout(self) -> Layout | None:
+        return get_layout(self.form_year, self.dataset)
 
-    def matches_column(
-        self,
-        column_name: str,
-    ) -> bool:
-        normalized = column_name.strip().upper()
+    @property
+    def columns(self) -> tuple[str, ...]:
+        layout = self.layout
+        return layout.field_names if layout else ()
 
-        return normalized in {
-            column.strip().upper()
-            for column in self.provider_columns
-        }
+    def has_column(self, column_name: str) -> bool:
+        layout = self.layout
+        return layout.has(column_name) if layout else False
 
-    def has_required_column(
-        self,
-        column_name: str,
-    ) -> bool:
-        normalized = column_name.strip().upper()
+    def is_provider_column(self, column_name: str) -> bool:
+        normalized = normalize_column_name(column_name)
+        return normalized in {normalize_column_name(name) for name in self.provider_columns}
 
-        return normalized in {
-            column.strip().upper()
-            for column in self.required_columns
-        }
+    def missing_key_columns(self, columns: tuple[str, ...]) -> tuple[str, ...]:
+        """Return the key columns absent from an actual CSV header."""
+
+        present = {normalize_column_name(column) for column in columns}
+        return tuple(
+            column
+            for column in self.key_columns
+            if normalize_column_name(column) not in present
+        )

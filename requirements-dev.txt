@@ -1,0 +1,13 @@
+# Development and packaging dependencies.
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest>=8.3,<9
+pytest-qt>=4.4,<5
+pytest-cov>=6,<7
+ruff>=0.8
+
+# Windows packaging. Only needed to run build.ps1.
+pyinstaller>=6.11

@@ -1,27 +1,54 @@
 from __future__ import annotations
 
+from functools import lru_cache
+
+from app.dol.layouts import available_years
+from app.dol.schedules import (
+    schedule_a,
+    schedule_actuarial,
+    schedule_c,
+    schedule_d,
+    schedule_form,
+    schedule_g,
+    schedule_group,
+    schedule_h,
+    schedule_i,
+    schedule_r,
+)
 from app.dol.schedules.registry import ScheduleRegistry
-from app.dol.schedules.schedule_a import definition as schedule_a
-from app.dol.schedules.schedule_c import definition as schedule_c
-from app.dol.schedules.schedule_d import definition as schedule_d
-from app.dol.schedules.schedule_h import definition as schedule_h
-from app.dol.schedules.schedule_i import definition as schedule_i
-from app.dol.schedules.schedule_r import definition as schedule_r
+
+#: Each module reports the datasets it covers for a given year, skipping the
+#: ones DOL did not publish that year.
+_MODULES = (
+    schedule_form,
+    schedule_a,
+    schedule_c,
+    schedule_d,
+    schedule_g,
+    schedule_h,
+    schedule_i,
+    schedule_r,
+    schedule_actuarial,
+    schedule_group,
+)
 
 
-def build_default_registry() -> ScheduleRegistry:
+def build_registry(form_years: tuple[int, ...] | None = None) -> ScheduleRegistry:
+    """Build a registry covering the requested years, or every vendored year."""
+
+    years = form_years if form_years is not None else available_years()
     registry = ScheduleRegistry()
 
-    factories = (
-        schedule_a,
-        schedule_c,
-        schedule_d,
-        schedule_h,
-        schedule_i,
-        schedule_r,
-    )
-
-    for factory in factories:
-        registry.register(factory(2025))
+    for year in years:
+        for module in _MODULES:
+            for definition in module.definitions(year):
+                registry.register(definition)
 
     return registry
+
+
+@lru_cache(maxsize=1)
+def build_default_registry() -> ScheduleRegistry:
+    """Return the shared registry for every year this build supports."""
+
+    return build_registry()

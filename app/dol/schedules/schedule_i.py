@@ -1,109 +1,26 @@
+"""Schedule I — small plan financial information."""
+
 from __future__ import annotations
 
+from app.dol.layouts import has_layout
 from app.dol.schedules.base import ScheduleDefinition
 
 
-FORM_YEAR = 2025
-CODE = "I"
-NAME = "Schedule I"
+def definitions(form_year: int) -> tuple[ScheduleDefinition, ...]:
+    if not has_layout(form_year, "F_SCH_I"):
+        return ()
 
-
-FIELDS: tuple[str, ...] = (
-    "ACK_ID",
-    "SCH_I_PLAN_YEAR_BEGIN_DATE",
-    "SCH_I_TAX_PRD",
-    "SCH_I_PLAN_NUM",
-    "SCH_I_EIN",
-    "SMALL_TOT_ASSETS_BOY_AMT",
-    "SMALL_TOT_LIABILITIES_BOY_AMT",
-    "SMALL_NET_ASSETS_BOY_AMT",
-    "SMALL_TOT_ASSETS_EOY_AMT",
-    "SMALL_TOT_LIABILITIES_EOY_AMT",
-    "SMALL_NET_ASSETS_EOY_AMT",
-    "SMALL_EMPLR_CONTRIB_INCOME_AMT",
-    "SMALL_PARTICIPANT_CONTRIB_AMT",
-    "SMALL_OTH_CONTRIB_RCVD_AMT",
-    "SMALL_NON_CASH_CONTRIB_BS_AMT",
-    "SMALL_OTHER_INCOME_AMT",
-    "SMALL_TOT_INCOME_AMT",
-    "SMALL_TOT_DISTRIB_BNFT_AMT",
-    "SMALL_CORRECTIVE_DISTRIB_AMT",
-    "SMALL_DEEM_DSTRB_PARTCP_LN_AMT",
-    "SMALL_ADMIN_SRVC_PROVIDERS_AMT",
-    "SMALL_OTH_EXPENSES_AMT",
-    "SMALL_TOT_EXPENSES_AMT",
-    "SMALL_NET_INCOME_AMT",
-    "SMALL_TOT_PLAN_TRANSFERS_AMT",
-    "SMALL_JOINT_VENTURE_EOY_IND",
-    "SMALL_JOINT_VENTURE_EOY_AMT",
-    "SMALL_EMPLR_PROP_EOY_IND",
-    "SMALL_EMPLR_PROP_EOY_AMT",
-    "SMALL_INV_REAL_ESTATE_EOY_IND",
-    "SMALL_INV_REAL_ESTATE_EOY_AMT",
-    "SMALL_EMPLR_SEC_EOY_IND",
-    "SMALL_EMPLR_SEC_EOY_AMT",
-    "SMALL_MORTG_PARTCP_EOY_IND",
-    "SMALL_MORTG_PARTCP_EOY_AMT",
-    "SMALL_OTH_LNS_PARTCP_EOY_IND",
-    "SMALL_OTH_LNS_PARTCP_EOY_AMT",
-    "SMALL_PERSONAL_PROP_EOY_IND",
-    "SMALL_PERSONAL_PROP_EOY_AMT",
-    "SMALL_FAIL_TRANSM_CONTRIB_IND",
-    "SMALL_FAIL_TRANSM_CONTRIB_AMT",
-    "SMALL_LOANS_IN_DEFAULT_IND",
-    "SMALL_LOANS_IN_DEFAULT_AMT",
-    "SMALL_LEASES_IN_DEFAULT_IND",
-    "SMALL_LEASES_IN_DEFAULT_AMT",
-    "SM_PARTY_IN_INT_NOT_RPTD_IND",
-    "SM_PARTY_IN_INT_NOT_RPTD_AMT",
-    "SMALL_PLAN_INS_FDLTY_BOND_IND",
-    "SMALL_PLAN_INS_FDLTY_BOND_AMT",
-    "SMALL_LOSS_DISCV_DUR_YEAR_IND",
-    "SMALL_LOSS_DISCV_DUR_YEAR_AMT",
-    "SMALL_ASSET_UNDETERM_VAL_IND",
-    "SMALL_ASSET_UNDETERM_VAL_AMT",
-    "SMALL_NON_CASH_CONTRIB_IND",
-    "SMALL_NON_CASH_CONTRIB_AMT",
-    "SMALL_20_PRCNT_SNGL_INVST_IND",
-    "SMALL_20_PRCNT_SNGL_INVST_AMT",
-    "SMALL_ALL_PLAN_AST_DISTRIB_IND",
-    "SM_WAIV_ANNUAL_IQPA_REPORT_IND",
-    "SM_FAIL_PROVIDE_BENEF_DUE_IND",
-    "SM_FAIL_PROVIDE_BENEF_DUE_AMT",
-    "SMALL_PLAN_BLACKOUT_PERIOD_IND",
-    "SM_COMPLY_BLACKOUT_NOTICE_IND",
-    "SMALL_RES_TERM_PLAN_ADPT_IND",
-    "SMALL_RES_TERM_PLAN_ADPT_AMT",
-    "FDCRY_TRUST_EIN",
-    "FDCRY_TRUST_NAME",
-    "SMALL_COVERED_PBGC_INS_IND",
-    "TRUST_INCUR_UNREL_TAX_INC_IND",
-    "TRUST_INCUR_UNREL_TAX_INC_AMT",
-    "IN_SERVICE_DISTRIB_IND",
-    "IN_SERVICE_DISTRIB_AMT",
-    "FDCRY_TRUSTEE_CUST_NAME",
-    "FDCRY_TRUST_CUST_PHONE_NUM",
-    "FDCRY_TRUST_CUST_PHON_NU_FORE",
-    "DISTRIB_MADE_EMPLOYEE_62_IND",
-    "PREMIUM_FILING_CONFIRM_NUMBER",
-)
-
-
-def definition(form_year: int) -> ScheduleDefinition:
-    if form_year != FORM_YEAR:
-        raise ValueError(
-            f"Schedule I is currently defined only for {FORM_YEAR}."
-        )
-
-    return ScheduleDefinition(
-        code=CODE,
-        name=NAME,
-        form_year=FORM_YEAR,
-        required_columns=FIELDS,
-        provider_columns=(
-            "FDCRY_TRUST_NAME",
-            "FDCRY_TRUSTEE_CUST_NAME",
+    return (
+        ScheduleDefinition(
+            code="I",
+            name="Schedule I - Financial Information (Small Plans)",
+            form_year=form_year,
+            dataset="F_SCH_I",
+            provider_columns=("FDCRY_TRUSTEE_CUST_NAME", "FDCRY_TRUST_NAME"),
+            notes=(
+                "Filed by plans with fewer than 100 participants that do not use "
+                "the 5500-SF. Names the trustee or custodian holding plan assets."
+            ),
+            aliases=("SCH_I", "SCHEDULE_I"),
         ),
-        notes="2025 DOL Schedule I layout.",
-        aliases=("SCH_I", "SCHEDULE_I"),
     )

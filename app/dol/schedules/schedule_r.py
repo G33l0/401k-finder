@@ -1,101 +1,41 @@
+"""Schedule R — retirement plan information."""
+
 from __future__ import annotations
 
+from app.dol.layouts import has_layout
 from app.dol.schedules.base import ScheduleDefinition
 
 
-FORM_YEAR = 2025
-CODE = "R"
-NAME = "Schedule R"
+def definitions(form_year: int) -> tuple[ScheduleDefinition, ...]:
+    built: list[ScheduleDefinition] = []
 
-
-FIELDS: tuple[str, ...] = (
-    "ACK_ID",
-    "SCH_R_PLAN_YEAR_BEGIN_DATE",
-    "SCH_R_TAX_PRD",
-    "SCH_R_PN",
-    "SCH_R_EIN",
-    "PEN_VALUE_DSTRB_PD_PRPTY_AMT",
-    "PEN_PAYOR_01_EIN",
-    "PEN_PAYOR_02_EIN",
-    "PEN_BNFT_DISTRIB_SNGL_SUM_CNT",
-    "PEN_ELEC_SATISFY_CODE_412_IND",
-    "PEN_FNDNG_WVRS_DATE",
-    "PEN_EMPLR_CONTRIB_RQR_AMT",
-    "PEN_EMPLR_CONTRIB_PAID_AMT",
-    "PEN_FUNDING_DEFICIENCY_AMT",
-    "PEN_FUNDING_DEADLINE_IND",
-    "PEN_CHG_FNDNG_METHOD_IND",
-    "PEN_AMDMT_INCR_VAL_BNFT_CD",
-    "PEN_SEC_REPAY_LOAN_IND",
-    "ESOP_PREF_IND",
-    "ESOP_BACK_TO_BACK_IND",
-    "ESOP_STOCK_NOT_TRADABLE_IND",
-    "PEN_NO_CONTRIB_CUR_YR_CNT",
-    "PEN_NO_CONTRIB_PREV_YR_CNT",
-    "PEN_NO_CONTRIB_2ND_PREV_YR_CNT",
-    "PEN_NO_CONTRIB_CUR_PREV_PRCNT",
-    "PEN_NO_CONTR_CUR_2ND_PREV_PRC",
-    "PEN_EMPLRS_WITHDRW_PREV_CNT",
-    "PEN_WITHDRW_LIAB_AMT",
-    "PEN_ASSET_LIAB_TRANSFER_IND",
-    "PEN_LIAB_MULT_PLANS_IND",
-    "PEN_STOCK_PRCNT",
-    "PEN_INVST_GRADE_DEBT_PRCNT",
-    "PEN_HI_YLD_DEBT_PRCNT",
-    "PEN_REAL_ESTATE_PRCNT",
-    "PEN_OTH_ASSET_PRCNT",
-    "PEN_AVERAGE_DURATION_CD",
-    "PEN_DURATION_MEASURE_CD",
-    "PEN_OTHER_DURATION_TYPE_TEXT",
-    "F_401K_PLAN_IND",
-    "F_401K_SATISFY_RQMTS_IND",
-    "ADP_ACP_TEST_IND",
-    "MTHD_USED_SATISFY_RQMTS_IND",
-    "PLAN_SATISFY_TESTS_IND",
-    "PLAN_TIMELY_AMENDED_IND",
-    "LAST_PLAN_AMENDMENT_DATE",
-    "TAX_CODE",
-    "LAST_OPIN_ADVISORY_DATE",
-    "LAST_OPIN_ADVISORY_SERIAL_NUM",
-    "FAV_DETERM_LTR_DATE",
-    "PLAN_MAINTAIN_US_TERRITORY_IND",
-    "PEN_401K_DESIGN_BASED_SAFE_IND",
-    "PEN_401K_PRIOR_YEAR_ADP_IND",
-    "PEN_401K_CURRENT_YEAR_ADP_IND",
-    "PEN_401K_NA_IND",
-    "PEN_MTHD_RATIO_PRCNT_TEST_IND",
-    "PEN_MTHD_AVG_BNFT_TEST_IND",
-    "PEN_MTHD_NA_IND",
-    "PEN_UNPAID_MIN_RQD_CONTRIB_IND",
-    "PEN_PBGC_NOTIFIED_CD",
-    "PEN_PBGC_NOTIFIED_EXPLAN_TEXT",
-    "PEN_COUNTING_METHOD_CD",
-    "PEN_CHANGE_PREV_YR_IND",
-    "PEN_CHANGE_2ND_PREV_YR_IND",
-    "PEN_PUBLIC_EQUITY_PRCNT",
-    "PEN_PRIVATE_EQUITY_PRCNT",
-    "PEN_REAL_ASSETS_PRCNT",
-    "PEN_CASH_EQUIVALENT_PRCNT",
-    "PEN_OPIN_LETTER_DATE",
-    "PEN_OPIN_LETTER_SERIAL_NUM",
-)
-
-
-def definition(form_year: int) -> ScheduleDefinition:
-    if form_year != FORM_YEAR:
-        raise ValueError(
-            f"Schedule R is currently defined only for {FORM_YEAR}."
+    if has_layout(form_year, "F_SCH_R"):
+        built.append(
+            ScheduleDefinition(
+                code="R",
+                name="Schedule R - Retirement Plan Information",
+                form_year=form_year,
+                dataset="F_SCH_R",
+                notes=(
+                    "Confirms 401(k) status (F_401K_PLAN_IND), ESOP features, "
+                    "nondiscrimination testing method and the plan's asset "
+                    "allocation. Used to refine plan classification rather than "
+                    "to identify providers."
+                ),
+                aliases=("SCH_R", "SCHEDULE_R"),
+            )
         )
 
-    return ScheduleDefinition(
-        code=CODE,
-        name=NAME,
-        form_year=FORM_YEAR,
-        required_columns=FIELDS,
-        provider_columns=(
-            "PEN_PAYOR_01_EIN",
-            "PEN_PAYOR_02_EIN",
-        ),
-        notes="2025 DOL Schedule R layout.",
-        aliases=("SCH_R", "SCHEDULE_R"),
-    )
+    if has_layout(form_year, "F_SCH_R_PART1"):
+        built.append(
+            ScheduleDefinition(
+                code="R-1",
+                name="Schedule R Part 1 - Contributing Employers",
+                form_year=form_year,
+                dataset="F_SCH_R_PART1",
+                notes="Employers contributing to a multiemployer plan.",
+                aliases=("SCH_R_PART1",),
+            )
+        )
+
+    return tuple(built)
