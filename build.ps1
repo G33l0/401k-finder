@@ -140,14 +140,24 @@ if (-not $SkipTests) {
 
 # ---------------------------------------------------------------------------
 
-Write-Step 'Verifying the vendored DOL layouts'
+Write-Step 'Verifying the vendored DOL layouts in the source tree'
 
 # The layouts are loaded through importlib.resources, so a build that drops
 # them starts fine and then fails on the first search. Check before packaging.
-$layoutCheck = & $VenvPython -c "from app.dol.layouts import available_years; y = available_years(); print(len(y))"
-if ($LASTEXITCODE -ne 0) { throw 'Could not load the vendored DOL layouts.' }
+#
+# The project is not pip-installed into the venv, only its dependencies are, so
+# `import app` resolves via the current directory — which is not necessarily
+# where this script lives when it is invoked by absolute path.
+Push-Location $ProjectRoot
+try {
+    $layoutCheck = & $VenvPython -c "from app.dol.layouts import available_years; print(len(available_years()))"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not load the vendored DOL layouts.' }
+}
+finally {
+    Pop-Location
+}
 
-Write-Ok "$($layoutCheck.Trim()) form year(s) of DOL layouts available offline"
+Write-Ok "$($layoutCheck.Trim()) form year(s) of DOL layouts available in the source tree"
 
 # ---------------------------------------------------------------------------
 
@@ -164,28 +174,59 @@ finally {
 
 $AppDir = Join-Path $DistPath '401K Finder Pro'
 $AppExe = Join-Path $AppDir '401KFinderPro.exe'
+$CliExe = Join-Path $AppDir '401k-finder.exe'
 
-if (-not (Test-Path $AppExe)) {
-    throw "PyInstaller reported success but $AppExe is missing."
+foreach ($required in @($AppExe, $CliExe)) {
+    if (-not (Test-Path $required)) {
+        throw "PyInstaller reported success but $required is missing."
+    }
 }
 
 $sizeMb = [math]::Round((Get-ChildItem $AppDir -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
 Write-Ok "Built $AppExe ($sizeMb MB)"
+Write-Ok "Built $CliExe"
 
 # ---------------------------------------------------------------------------
 
 Write-Step 'Smoke-testing the packaged application'
 
-# Confirms the layouts survived packaging, which is the failure a bad
-# PyInstaller data spec produces.
-$env:FINDER_401K_DATA_DIR = Join-Path $env:TEMP '401k-finder-buildcheck'
+# This has to exercise the BUILT application, not the source tree. Running the
+# check against the venv would pass even if PyInstaller dropped every layout
+# file, which is precisely the failure it is supposed to catch.
+$LayoutDir = Join-Path $AppDir '_internal\app\dol\layouts\data'
+if (-not (Test-Path $LayoutDir)) {
+    throw "The vendored DOL layouts are missing from the build ($LayoutDir). Check the 'datas' entry in the spec file."
+}
+
+$LayoutCount = (Get-ChildItem $LayoutDir -Filter '*.json' | Measure-Object).Count
+if ($LayoutCount -lt 1) {
+    throw "No layout files were packaged into $LayoutDir."
+}
+Write-Ok "$LayoutCount form year(s) of layouts packaged"
+
+# Run the packaged CLI against a throwaway data directory. This starts the
+# frozen executable, loads the layouts through importlib.resources exactly as
+# the shipped application does, and creates a database.
+$CheckDir = Join-Path $env:TEMP '401k-finder-buildcheck'
+if (Test-Path $CheckDir) { Remove-Item $CheckDir -Recurse -Force }
+
+$env:FINDER_401K_DATA_DIR = $CheckDir
 try {
-    & $VenvPython -c "from app.dol.layouts import load_year; assert load_year(2023)['F_5500'].has('ACK_ID')"
-    if ($LASTEXITCODE -ne 0) { throw 'Layout smoke test failed.' }
-    Write-Ok 'Layouts load correctly'
+    $datasets = & $CliExe datasets --year 2023
+    if ($LASTEXITCODE -ne 0) { throw 'The packaged CLI failed to read the vendored layouts.' }
+
+    & $CliExe init | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'The packaged CLI failed to create a database.' }
+
+    if ($datasets -notmatch 'F_5500') {
+        throw 'The packaged CLI did not report the expected datasets for 2023.'
+    }
+
+    Write-Ok 'Packaged application starts, reads its layouts and creates a database'
 }
 finally {
     Remove-Item Env:\FINDER_401K_DATA_DIR -ErrorAction SilentlyContinue
+    if (Test-Path $CheckDir) { Remove-Item $CheckDir -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 # ---------------------------------------------------------------------------

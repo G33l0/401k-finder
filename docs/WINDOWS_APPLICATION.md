@@ -6,7 +6,8 @@ install and run — a Start-menu entry, a desktop icon, no Python, no terminal.
 There are two artefacts:
 
 1. **A standalone application folder** — `dist\401K Finder Pro\`, containing
-   `401KFinderPro.exe` and everything it needs. Copy it anywhere and run it.
+   `401KFinderPro.exe`, `401k-finder.exe` and everything they need. Copy it
+   anywhere and run it.
 2. **An installer** — `401KFinderPro-Setup-<version>.exe`, which puts that
    folder in Program Files, creates shortcuts, and registers an uninstaller.
 
@@ -32,9 +33,16 @@ cd 401k-finder
 Output:
 
 ```
-dist\401K Finder Pro\401KFinderPro.exe
+dist\401K Finder Pro\401KFinderPro.exe     the desktop application
+dist\401K Finder Pro\401k-finder.exe       the command line
 dist\installer\401KFinderPro-Setup-2.0.0.exe
 ```
+
+Both executables share the one folder and the one bundled runtime, so shipping
+the command line alongside the window costs about 11 MB rather than a second
+copy of Qt. `401KFinderPro.exe` is windowed; `401k-finder.exe` is a console
+build of the same code, so `401k-finder sync --year 2023` works on a machine
+that only ever ran the installer.
 
 If PowerShell refuses to run the script:
 
@@ -82,7 +90,10 @@ end user needs nothing at all — not Python, not the Visual C++ redistributable
 4. **Verifies the vendored DOL layouts load.** See the warning below — this is
    the single most common packaging failure.
 5. **Runs PyInstaller** against `installer\401k-finder.spec`.
-6. **Smoke-tests** that the layouts survived packaging.
+6. **Smoke-tests the built application** — checks the layout files are present
+   under `_internal`, then runs the packaged `401k-finder.exe` to confirm it
+   starts, reads those layouts and creates a database. This runs the frozen
+   executable, not the source tree, so it actually catches a bad `datas` entry.
 7. **Runs Inno Setup**, if `-Installer` was passed.
 
 ### Options
@@ -111,9 +122,12 @@ datas = [
 ]
 ```
 
-`build.ps1` verifies it twice — before packaging and after — so the failure
-surfaces during the build rather than in front of a user. If you change where
-the layouts live, change both.
+`build.ps1` verifies this twice: once in the source tree before packaging, and
+once against the built folder afterwards by running the packaged
+`401k-finder.exe`. The second check is the one that matters — a check that
+imports from the source tree would pass even if PyInstaller dropped every
+layout file. If you change where the layouts live, update the spec and the
+`$LayoutDir` path in `build.ps1` together.
 
 ---
 
@@ -166,7 +180,8 @@ Save that as `Run-Portable.bat` next to the executable.
 
 ## Build size
 
-Expect roughly **250–400 MB** for the application folder. Qt is most of it.
+Expect roughly **200 MB** for the application folder, of which Qt is most.
+A Linux build of the same spec measures 198 MB; Windows lands in the same range.
 
 The spec file already excludes the Qt modules the application never touches —
 3D, multimedia, QML/Quick, WebEngine, charts, sensors — which removes about
@@ -195,9 +210,11 @@ Sign the executable, then the installer:
 $signtool = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe"
 $timestamp = "http://timestamp.digicert.com"
 
+# Both executables in the folder, then the installer that wraps them.
 & $signtool sign /fd SHA256 /td SHA256 /tr $timestamp `
     /n "Your Company Name" `
-    "dist\401K Finder Pro\401KFinderPro.exe"
+    "dist\401K Finder Pro\401KFinderPro.exe" `
+    "dist\401K Finder Pro\401k-finder.exe"
 
 & $signtool sign /fd SHA256 /td SHA256 /tr $timestamp `
     /n "Your Company Name" `
@@ -242,7 +259,8 @@ Test on a clean Windows VM with no Python installed:
 
 1. Copy `dist\401K Finder Pro\` across (or run the installer).
 2. Launch it. The window should open and the status bar should report no data
-   imported.
+   imported. `401k-finder.exe status` from a prompt in that folder should say
+   the same thing.
 3. **Open the Data tab and download a year.** This is the real test — it
    exercises TLS, the DOL download, ZIP extraction, the layouts, the importer
    and the database in one go. If the layouts were dropped from the package,
@@ -345,6 +363,8 @@ from there and passes it to Inno Setup, so the two never disagree.
 | Inno Setup not found | Install Inno Setup 6, or build without `-Installer`. |
 | Downloads fail behind a corporate proxy | Set `HTTPS_PROXY` before launching; httpx honours it. TLS-inspecting proxies may also need the corporate CA in the system trust store. |
 | Build succeeds but the executable is ~1 GB | Qt modules were not excluded — this happens if the spec file was replaced by a generated one. Restore `installer\401k-finder.spec`. |
+| `TypeError` about `cipher` or `win_no_prefer_redirects` while reading the spec | An old spec file from PyInstaller 5. Those arguments were removed in PyInstaller 6; the current spec does not use them. |
+| `ModuleNotFoundError: No module named 'app'` during the build | `build.ps1` was run from outside the project directory. The project is not pip-installed into the build venv, so the checks run with the project root as the working directory — this is handled, but a hand-run `python -c "import app"` needs `cd` first. |
 
 Logs are the first place to look: `%LOCALAPPDATA%\401K Finder Pro\logs\application.log`.
 

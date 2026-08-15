@@ -9,6 +9,7 @@
 #define AppName "401K Finder Pro"
 #define AppPublisher "401K Finder Pro"
 #define AppExeName "401KFinderPro.exe"
+#define CliExeName "401k-finder.exe"
 #define AppId "{{9F1C2A64-7B3D-4E58-9C21-5D0A6E4F7B12}"
 
 ; Overridden by build.ps1 with /DAppVersion=...
@@ -52,6 +53,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Files]
 Source: "{#SourceDir}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\{#CliExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion
 Source: "..\docs\WINDOWS_APPLICATION.md"; DestDir: "{app}\docs"; Flags: ignoreversion skipifsourcedoesntexist
@@ -59,6 +61,9 @@ Source: "..\docs\WINDOWS_APPLICATION.md"; DestDir: "{app}\docs"; Flags: ignoreve
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+; A shortcut that opens a prompt in the install folder, so the bundled
+; command line is reachable without the user editing PATH.
+Name: "{group}\{#AppName} command line"; Filename: "{cmd}"; Parameters: "/K echo Run 401k-finder --help to get started. && cd /d ""{app}"""; WorkingDir: "{app}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]

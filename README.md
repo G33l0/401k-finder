@@ -92,6 +92,8 @@ prints the whole trail.
 ### Windows
 
 Download the installer from the releases page and run it. No Python required.
+It installs both the desktop application and `401k-finder.exe`, the same
+command line described below, in the install folder.
 
 To build it yourself, see **[docs/WINDOWS_APPLICATION.md](docs/WINDOWS_APPLICATION.md)**.
 

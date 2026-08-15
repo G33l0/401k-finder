@@ -16,8 +16,10 @@ SPEC_DIR = Path(SPECPATH).resolve()
 PROJECT_ROOT = SPEC_DIR.parent
 
 APP_NAME = "401K Finder Pro"
-ENTRY_POINT = str(PROJECT_ROOT / "app" / "main.py")
+GUI_ENTRY_POINT = str(PROJECT_ROOT / "app" / "main.py")
+CLI_ENTRY_POINT = str(PROJECT_ROOT / "app" / "cli.py")
 ICON = PROJECT_ROOT / "app" / "ui" / "resources" / "app.ico"
+ICON_PATH = str(ICON) if ICON.exists() else None
 
 # The vendored DOL layouts are read through importlib.resources, so PyInstaller
 # cannot discover them by following imports. Without this the application starts
@@ -74,29 +76,34 @@ excludes = [
     "tkinter",
 ]
 
-block_cipher = None
+def build_analysis(entry_point):
+    return Analysis(
+        [entry_point],
+        pathex=[str(PROJECT_ROOT)],
+        binaries=[],
+        datas=datas,
+        hiddenimports=hiddenimports,
+        hookspath=[],
+        hooksconfig={},
+        runtime_hooks=[],
+        excludes=excludes,
+        noarchive=False,
+    )
 
-analysis = Analysis(
-    [ENTRY_POINT],
-    pathex=[str(PROJECT_ROOT)],
-    binaries=[],
-    datas=datas,
-    hiddenimports=hiddenimports,
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=excludes,
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
 
-pyz = PYZ(analysis.pure, analysis.zipped_data, cipher=block_cipher)
+# Two executables share one folder: the windowed application, and a console
+# build of the same code base exposing the command line. Without the second
+# one, `401k-finder sync` and the rest of the CLI are unavailable to anyone who
+# installed the packaged application rather than the source.
+gui_analysis = build_analysis(GUI_ENTRY_POINT)
+cli_analysis = build_analysis(CLI_ENTRY_POINT)
 
-executable = EXE(
-    pyz,
-    analysis.scripts,
+gui_pyz = PYZ(gui_analysis.pure)
+cli_pyz = PYZ(cli_analysis.pure)
+
+gui_executable = EXE(
+    gui_pyz,
+    gui_analysis.scripts,
     [],
     exclude_binaries=True,
     name="401KFinderPro",
@@ -111,14 +118,36 @@ executable = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(ICON) if ICON.exists() else None,
+    icon=ICON_PATH,
+)
+
+cli_executable = EXE(
+    cli_pyz,
+    cli_analysis.scripts,
+    [],
+    exclude_binaries=True,
+    name="401k-finder",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=False,
+    # The CLI needs a console to print to.
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=ICON_PATH,
 )
 
 collection = COLLECT(
-    executable,
-    analysis.binaries,
-    analysis.zipfiles,
-    analysis.datas,
+    gui_executable,
+    gui_analysis.binaries,
+    gui_analysis.datas,
+    cli_executable,
+    cli_analysis.binaries,
+    cli_analysis.datas,
     strip=False,
     upx=False,
     upx_exclude=[],
