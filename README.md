@@ -95,7 +95,10 @@ Download the installer from the releases page and run it. No Python required.
 It installs both the desktop application and `401k-finder.exe`, the same
 command line described below, in the install folder.
 
-To build it yourself, see **[docs/WINDOWS_APPLICATION.md](docs/WINDOWS_APPLICATION.md)**.
+To build it yourself, see **[docs/DEPLOY.md](docs/DEPLOY.md)** — a step-by-step
+guide that assumes no prior experience, and covers where to put your icon and
+logo. [docs/WINDOWS_APPLICATION.md](docs/WINDOWS_APPLICATION.md) is the
+reference on how the packaging works.
 
 ### From source (any platform)
 
@@ -283,7 +286,7 @@ app/
 database/
   migrations/            Schema snapshots (migrations live in code)
   seeds/                 Extra provider brands you can add without editing code
-docs/                    Windows packaging guide
+docs/                    Deployment walkthrough and packaging reference
 installer/               PyInstaller spec and Inno Setup script
 scripts/                 Layout refresh, test-data generation
 tests/                   Test suite

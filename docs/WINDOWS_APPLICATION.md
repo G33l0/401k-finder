@@ -13,6 +13,11 @@ There are two artefacts:
 
 `build.ps1` produces both.
 
+> **New to this?** [`DEPLOY.md`](DEPLOY.md) is a step-by-step walkthrough that
+> assumes nothing — installing the tools, adding your icon and logo, building,
+> testing and distributing. This document is the reference behind it: how the
+> packaging works and what to do when it does not.
+
 ---
 
 ## Quick start
@@ -237,17 +242,30 @@ Tools**.
 
 ---
 
-## An application icon
+## Branding assets
 
-The build works without one — PyInstaller uses a default. To use your own, put a
-multi-resolution `.ico` (16, 32, 48, 64, 128, 256 px) at:
+All optional. With an empty `app\ui\resources\` the application builds and runs
+using Qt's defaults.
 
+| File | Used for |
+|---|---|
+| `app.ico` | Both executables, the installer, and its shortcuts |
+| `logo.png` | The About dialog, and the window icon off Windows |
+| `app.png` | Window-icon fallback where `.ico` cannot be read |
+| `app.qss` | Optional Qt style sheet applied at start-up |
+
+The spec bundles whichever are present; `app/ui/resources/__init__.py` resolves
+them at runtime, handling the fact that a frozen build unpacks data files beside
+the executable rather than next to the module.
+
+Verify what a build resolved — this works against the packaged executable too,
+and reports paths inside `_internal`:
+
+```powershell
+401k-finder.exe status --branding
 ```
-app\ui\resources\app.ico
-```
 
-The spec file picks it up automatically, and Inno Setup uses the executable's
-icon for its shortcuts.
+**Exact size and format requirements are in [`DEPLOY.md`](DEPLOY.md), section 4.**
 
 ---
 

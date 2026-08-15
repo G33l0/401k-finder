@@ -510,9 +510,17 @@ class MainWindow(QMainWindow):
         self.refresh_status()
 
     def show_about(self) -> None:
-        QMessageBox.about(
-            self,
-            "About 401K Finder Pro",
+        from app.ui import resources
+
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("About 401K Finder Pro")
+        dialog.setTextFormat(Qt.RichText)
+
+        logo = resources.logo_pixmap(96)
+        if logo is not None:
+            dialog.setIconPixmap(logo)
+
+        dialog.setText(
             f"<h3>401K Finder Pro {__version__}</h3>"
             "<p>Searches U.S. Department of Labor Form 5500 filings to find "
             "retirement plans — 401(k), 403(b), 457(b), SEP and SIMPLE, ESOP, "
@@ -522,8 +530,9 @@ class MainWindow(QMainWindow):
             "stored locally. Every result cites the dataset, field and row it "
             "came from.</p>"
             f"<p>Source: <a href='{DOL_DATASET_PAGE_URL}'>Form 5500 datasets</a></p>"
-            f"<p>Data folder: {get_app_data_dir()}</p>",
+            f"<p>Data folder: {get_app_data_dir()}</p>"
         )
+        dialog.exec()
 
     def _on_task_failed(self, message: str) -> None:
         logger.error("Task failed: %s", message)

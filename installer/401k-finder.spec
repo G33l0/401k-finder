@@ -28,8 +28,13 @@ datas = [
     (str(PROJECT_ROOT / "app" / "dol" / "layouts" / "data"), "app/dol/layouts/data"),
 ]
 
-for extra in ("app.qss",):
-    candidate = PROJECT_ROOT / "app" / "ui" / "resources" / extra
+# Branding assets are loaded by path at runtime, not imported, so they need the
+# same explicit treatment as the layouts. Any that are absent are simply not
+# bundled -- the application falls back to Qt's defaults. See docs/DEPLOY.md.
+RESOURCE_DIR = PROJECT_ROOT / "app" / "ui" / "resources"
+
+for asset in ("app.ico", "app.png", "logo.png", "app.qss"):
+    candidate = RESOURCE_DIR / asset
     if candidate.exists():
         datas.append((str(candidate), "app/ui/resources"))
 

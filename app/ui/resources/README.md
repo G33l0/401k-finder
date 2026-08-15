@@ -1,16 +1,27 @@
 # UI resources
 
-Optional assets for the desktop application. The build works without any of
-them — this folder exists so a fresh clone has somewhere to put them.
+Optional branding assets. **This folder is empty by design** — the application
+builds and runs using Qt's default icon when nothing is here.
 
-## `app.ico`
+Drop your own files in and they are picked up automatically, by both the source
+checkout and the packaged Windows build.
 
-The Windows application icon. Drop a multi-resolution `.ico` here (16, 32, 48,
-64, 128 and 256 px) and it is picked up automatically by
-`installer/401k-finder.spec` for both executables, and by Inno Setup for its
-shortcuts. Without it, PyInstaller uses its own default icon.
+| File | Used for |
+|---|---|
+| `app.ico` | The `.exe` icon, installer and Start-menu shortcuts (Windows) |
+| `logo.png` | The About dialog, and the window icon on macOS and Linux |
+| `app.png` | Optional window-icon fallback where `.ico` cannot be read |
+| `app.qss` | Optional [Qt style sheet](https://doc.qt.io/qt-6/stylesheet-syntax.html) |
 
-## `app.qss`
+**Full specifications — required icon sizes, colour depth, how to produce an
+`.ico` from a PNG — are in [`docs/DEPLOY.md`](../../../docs/DEPLOY.md), section 4.**
 
-An optional Qt style sheet. If present it is packaged alongside the executable.
-The application currently uses the platform's native styling.
+To check what a build resolved:
+
+```bash
+401k-finder status --branding
+```
+
+Anything reported as `not set` was not found. A corrupt icon is also reported as
+`not set` rather than being used, because Windows draws a broken icon as a blank
+square with no error.

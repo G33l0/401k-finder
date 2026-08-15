@@ -23,6 +23,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from app.core.logging import configure_logging
+    from app.ui import resources
     from app.ui.windows.main_window import MainWindow
 
     configure_logging()
@@ -35,6 +36,16 @@ def main() -> int:
     app.setApplicationVersion(__version__)
     app.setOrganizationName("401K Finder Pro")
     app.setOrganizationDomain("local.401k-finder")
+
+    # Branding is optional: the application runs with Qt's defaults when
+    # app/ui/resources is empty. See docs/DEPLOY.md.
+    icon = resources.app_icon()
+    if icon is not None:
+        app.setWindowIcon(icon)
+
+    stylesheet = resources.load_stylesheet()
+    if stylesheet:
+        app.setStyleSheet(stylesheet)
 
     window = MainWindow()
     window.show()

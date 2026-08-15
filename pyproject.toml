@@ -48,6 +48,8 @@ include = ["app*"]
 # The vendored DOL layouts are read through importlib.resources and must ship
 # inside the package, not alongside it.
 "app.dol.layouts" = ["data/*.json"]
+# Optional branding assets, absent by default. See docs/DEPLOY.md.
+"app.ui.resources" = ["*.ico", "*.png", "*.qss"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

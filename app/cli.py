@@ -301,6 +301,17 @@ def cmd_providers(args: argparse.Namespace) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     from app.services.sync import SyncService
+    from app.ui import resources
+
+    if args.branding:
+        # Confirms which branding assets a build actually resolved. In a
+        # packaged application this reports the unpacked bundle directory, so it
+        # is the quickest way to tell whether an icon made it into the build.
+        found = resources.describe()
+        print(f"Resource folder: {found['resource_dir']}")
+        for slot in ("icon", "logo", "stylesheet"):
+            print(f"  {slot + ':':12} {found[slot] or 'not set (using Qt default)'}")
+        print()
 
     with read_session() as session:
         summary = database_summary(session)
@@ -463,6 +474,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="Show what has been imported.")
     status.add_argument("--year", type=int)
+    status.add_argument(
+        "--branding",
+        action="store_true",
+        help="Also report which icon, logo and style sheet this build resolved.",
+    )
     status.set_defaults(func=cmd_status)
 
     datasets = sub.add_parser("datasets", help="List the DOL datasets for a form year.")
