@@ -112,17 +112,29 @@ You do not need to open Inno Setup. The build finds it automatically.
 
 ## 3. Get the code
 
-Open PowerShell and pick somewhere to work:
+Open PowerShell and pick somewhere to work.
+
+**Avoid Desktop, Documents and OneDrive.** Windows redirects those to OneDrive
+by default, and the build creates thousands of small files that cloud sync will
+crawl through — it looks like the build has frozen. Use a plain local folder:
 
 ```powershell
-cd $HOME\Documents
+mkdir C:\dev -Force
+cd C:\dev
 git clone https://github.com/g33l0/401k-finder.git
 cd 401k-finder
 ```
 
+If you must keep the project in a synced folder, put the build environment
+elsewhere instead:
+
+```powershell
+.\build.ps1 -Clean -Installer -VenvPath C:\venvs\401k
+```
+
 You are now in the project folder. **Every command from here on assumes you are
-in this folder.** If you close PowerShell, `cd $HOME\Documents\401k-finder`
-again before continuing.
+in this folder.** If you close PowerShell, `cd C:\dev\401k-finder` again before
+continuing.
 
 ### Allow the build script to run
 
@@ -408,6 +420,8 @@ installed shows a clear message naming both versions rather than damaging it.
 
 | What you see | What it means |
 |---|---|
+| **It stops at *Preparing the virtual environment* and sits there** | Not a crash — it is slow. Creating the environment writes several thousand small files, and both OneDrive sync and antivirus scanning make that crawl. **Give it 5 minutes before assuming it is stuck.** If your project is on the Desktop or in Documents, those are OneDrive-synced by default: move it to `C:\dev\401k-finder`, or run `.\build.ps1 -VenvPath C:\venvs\401k` to keep just the environment out of sync. Pressing Ctrl+C here produces a `KeyboardInterrupt` traceback ending in `stdout.read()`. |
+| `Failed to create the virtual environment` | Same causes as above. Delete any half-built `.venv` folder before retrying. |
 | `Python was not found` | Python is missing, or was installed without the PATH option. Re-run its installer, choose **Modify**, tick *Add python.exe to PATH*. |
 | `build.ps1 cannot be loaded because running scripts is disabled` | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window first. |
 | `Python 3.14 found, but this project requires...` | Install 3.12 or 3.13 alongside it. |
