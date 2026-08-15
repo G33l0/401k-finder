@@ -1,50 +1,70 @@
+"""Schedule C — service provider information, and its Part 1-3 detail tables."""
+
 from __future__ import annotations
 
+from app.dol.layouts import has_layout
 from app.dol.schedules.base import ScheduleDefinition
 
-
-FORM_YEAR = 2025
-CODE = "C"
-NAME = "Schedule C - Service Provider Information"
-
-
-REQUIRED_COLUMNS: tuple[str, ...] = (
-    "ACK_ID",
-    "PROVIDER_EXCLUDE_IND",
+_PARTS: tuple[tuple[str, str, str, tuple[str, ...], str], ...] = (
+    (
+        "F_SCH_C",
+        "C",
+        "Schedule C - Service Provider Information",
+        (),
+        "Base Schedule C record. The provider detail lives in the Part 1-3 "
+        "tables, which is why this dataset carries no provider name column.",
+    ),
+    (
+        "F_SCH_C_PART1_ITEM1",
+        "C-1-1",
+        "Schedule C Part 1 Item 1 - Eligible Indirect Compensation",
+        ("PROVIDER_ELIGIBLE_NAME",),
+        "Providers receiving only eligible indirect compensation.",
+    ),
+    (
+        "F_SCH_C_PART1_ITEM2",
+        "C-1-2",
+        "Schedule C Part 1 Item 2 - Service Providers and Compensation",
+        ("PROVIDER_OTHER_NAME",),
+        "The richest provider source in the whole dataset: each row names a "
+        "provider, its service codes and what the plan paid it. Service codes "
+        "distinguish recordkeeper from trustee, custodian and investment manager.",
+    ),
+    (
+        "F_SCH_C_PART1_ITEM3",
+        "C-1-3",
+        "Schedule C Part 1 Item 3 - Indirect Compensation Detail",
+        ("PROVIDER_INDIRECT_NAME", "PROVIDER_PAYOR_NAME"),
+        "Providers receiving indirect compensation, and who paid it.",
+    ),
+    (
+        "F_SCH_C_PART2",
+        "C-2",
+        "Schedule C Part 2 - Providers Failing to Supply Information",
+        ("PROVIDER_FAIL_NAME",),
+        "Providers that did not supply the compensation information required.",
+    ),
+    (
+        "F_SCH_C_PART3",
+        "C-3",
+        "Schedule C Part 3 - Terminated Accountants and Actuaries",
+        ("PROVIDER_TERM_NAME",),
+        "Accountants and actuaries terminated during the plan year.",
+    ),
 )
 
 
-PROVIDER_COLUMNS: tuple[str, ...] = ()
-
-
-def definition(form_year: int) -> ScheduleDefinition:
-    """
-    Return the official 2025 Schedule C definition.
-
-    The 2025 Schedule C base dataset layout contains:
-        ACK_ID
-        PROVIDER_EXCLUDE_IND
-
-    Provider/service-provider detail is represented by the associated
-    Schedule C Part 1 tables in the DOL dataset. We therefore do not
-    invent a provider-name column in the base Schedule C definition.
-    """
-
-    if form_year != FORM_YEAR:
-        raise ValueError(
-            f"Schedule C is currently defined only for {FORM_YEAR}."
+def definitions(form_year: int) -> tuple[ScheduleDefinition, ...]:
+    return tuple(
+        ScheduleDefinition(
+            code=code,
+            name=name,
+            form_year=form_year,
+            dataset=dataset,
+            provider_columns=providers,
+            notes=notes,
+            aliases=(dataset.removeprefix("F_"),),
         )
-
-    return ScheduleDefinition(
-        code=CODE,
-        name=NAME,
-        form_year=FORM_YEAR,
-        required_columns=REQUIRED_COLUMNS,
-        provider_columns=PROVIDER_COLUMNS,
-        notes=(
-            "Official 2025 DOL Schedule C base layout. "
-            "Provider detail is handled by Schedule C Part 1 "
-            "dataset tables."
-        ),
-        aliases=("SCH_C", "SCHEDULE_C"),
+        for dataset, code, name, providers, notes in _PARTS
+        if has_layout(form_year, dataset)
     )

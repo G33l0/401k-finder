@@ -1,118 +1,42 @@
+"""Schedule A — insurance information, and Part 1 broker detail."""
+
 from __future__ import annotations
 
+from app.dol.layouts import has_layout
 from app.dol.schedules.base import ScheduleDefinition
 
 
-FORM_YEAR = 2025
-CODE = "A"
-NAME = "Schedule A"
+def definitions(form_year: int) -> tuple[ScheduleDefinition, ...]:
+    built: list[ScheduleDefinition] = []
 
-
-FIELDS: tuple[str, ...] = (
-    "ACK_ID",
-    "SCH_A_PLAN_YEAR_BEGIN_DATE",
-    "SCH_A_PLAN_YEAR_END_DATE",
-    "SCH_A_PLAN_NUM",
-    "SCH_A_EIN",
-    "INS_CARRIER_NAME",
-    "INS_CARRIER_EIN",
-    "INS_CARRIER_NAIC_CODE",
-    "INS_CONTRACT_NUM",
-    "INS_PRSN_COVERED_EOY_CNT",
-    "INS_POLICY_FROM_DATE",
-    "INS_POLICY_TO_DATE",
-    "INS_BROKER_COMM_TOT_AMT",
-    "INS_BROKER_FEES_TOT_AMT",
-    "PENSION_EOY_GEN_ACCT_AMT",
-    "PENSION_EOY_SEP_ACCT_AMT",
-    "PENSION_BASIS_RATES_TEXT",
-    "PENSION_PREM_PAID_TOT_AMT",
-    "PENSION_UNPAID_PREMIUM_AMT",
-    "PENSION_CONTRACT_COST_AMT",
-    "PENSION_COST_TEXT",
-    "ALLOC_CONTRACTS_INDIV_IND",
-    "ALLOC_CONTRACTS_GROUP_IND",
-    "ALLOC_CONTRACTS_OTHER_IND",
-    "ALLOC_CONTRACTS_OTHER_TEXT",
-    "PENS_DISTR_BNFT_TERM_PLN_IND",
-    "UNALLOC_CONTRACTS_DEP_ADM_IND",
-    "UNAL_CONTRAC_IMM_PART_GUAR_IND",
-    "UNALLOC_CONTRACTS_GUAR_INVEST_IND",
-    "UNALLOC_CONTRACTS_OTHER_IND",
-    "UNALLOC_CONTRACTS_OTHER_TEXT",
-    "PENSION_END_PREV_BAL_AMT",
-    "PENSION_CONTRIB_DEP_AMT",
-    "PENSION_DIVND_CR_DEP_AMT",
-    "PENSION_INT_CR_DUR_YR_AMT",
-    "PENSION_TRANSFER_FROM_AMT",
-    "PENSION_OTHER_AMT",
-    "PENSION_OTHER_TEXT",
-    "PENSION_TOT_ADDITIONS_AMT",
-    "PENSION_TOT_BAL_ADDN_AMT",
-    "PENSION_BNFTS_DSBRSD_AMT",
-    "PENSION_ADMIN_CHRG_AMT",
-    "PENSION_TRANSFER_TO_AMT",
-    "PENSION_OTH_DED_AMT",
-    "PENSION_OTH_DED_TEXT",
-    "PENSION_TOT_DED_AMT",
-    "PENSION_EOY_BAL_AMT",
-    "WLFR_BNFT_HEALTH_IND",
-    "WLFR_BNFT_DENTAL_IND",
-    "WLFR_BNFT_VISION_IND",
-    "WLFR_BNFT_LIFE_INSUR_IND",
-    "WLFR_BNFT_TEMP_DISAB_IND",
-    "WLFR_BNFT_LONG_TERM_DISAB_IND",
-    "WLFR_BNFT_UNEMP_IND",
-    "WLFR_BNFT_DRUG_IND",
-    "WLFR_BNFT_STOP_LOSS_IND",
-    "WLFR_BNFT_HMO_IND",
-    "WLFR_BNFT_PPO_IND",
-    "WLFR_BNFT_INDEMNITY_IND",
-    "WLFR_BNFT_OTHER_IND",
-    "WLFR_TYPE_BNFT_OTH_TEXT",
-    "WLFR_PREMIUM_RCVD_AMT",
-    "WLFR_UNPAID_DUE_AMT",
-    "WLFR_RESERVE_AMT",
-    "WLFR_TOT_EARNED_PREM_AMT",
-    "WLFR_CLAIMS_PAID_AMT",
-    "WLFR_INCR_RESERVE_AMT",
-    "WLFR_INCURRED_CLAIM_AMT",
-    "WLFR_CLAIMS_CHRGD_AMT",
-    "WLFR_RET_COMMISSIONS_AMT",
-    "WLFR_RET_ADMIN_AMT",
-    "WLFR_RET_OTH_COST_AMT",
-    "WLFR_RET_OTH_EXPENSE_AMT",
-    "WLFR_RET_TAXES_AMT",
-    "WLFR_RET_CHARGES_AMT",
-    "WLFR_RET_OTH_CHRGS_AMT",
-    "WLFR_RET_TOT_AMT",
-    "WLFR_REFUND_CASH_IND",
-    "WLFR_REFUND_CREDIT_IND",
-    "WLFR_REFUND_AMT",
-    "WLFR_HELD_BNFTS_AMT",
-    "WLFR_CLAIMS_RESERVE_AMT",
-    "WLFR_OTH_RESERVE_AMT",
-    "WLFR_DIVNDS_DUE_AMT",
-    "WLFR_TOT_CHARGES_PAID_AMT",
-    "WLFR_ACQUIS_COST_AMT",
-    "WLFR_ACQUIS_COST_TEXT",
-    "INS_FAIL_PROVIDE_INFO_IND",
-    "INS_FAIL_PROVIDE_INFO_TEXT",
-)
-
-
-def definition(form_year: int) -> ScheduleDefinition:
-    if form_year != FORM_YEAR:
-        raise ValueError(
-            f"Schedule A is currently defined only for {FORM_YEAR}."
+    if has_layout(form_year, "F_SCH_A"):
+        built.append(
+            ScheduleDefinition(
+                code="A",
+                name="Schedule A - Insurance Information",
+                form_year=form_year,
+                dataset="F_SCH_A",
+                provider_columns=("INS_CARRIER_NAME",),
+                notes=(
+                    "Names the insurance company or HMO holding contracts for the "
+                    "plan. For small plans and 403(b) arrangements this is often "
+                    "the only place the asset holder is named."
+                ),
+                aliases=("SCH_A", "SCHEDULE_A"),
+            )
         )
 
-    return ScheduleDefinition(
-        code=CODE,
-        name=NAME,
-        form_year=FORM_YEAR,
-        required_columns=FIELDS,
-        provider_columns=("INS_CARRIER_NAME",),
-        notes="2025 DOL Schedule A layout.",
-        aliases=("SCH_A", "SCHEDULE_A"),
-    )
+    if has_layout(form_year, "F_SCH_A_PART1"):
+        built.append(
+            ScheduleDefinition(
+                code="A-1",
+                name="Schedule A Part 1 - Insurance Brokers",
+                form_year=form_year,
+                dataset="F_SCH_A_PART1",
+                provider_columns=("INS_BROKER_NAME",),
+                notes="Agents and brokers paid commissions on the plan's contracts.",
+                aliases=("SCH_A_PART1",),
+            )
+        )
+
+    return tuple(built)

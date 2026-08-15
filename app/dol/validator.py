@@ -1,10 +1,26 @@
+"""
+Validate downloaded DOL files against their published layouts.
+
+Validation is layout-driven: a file is compared to the field list DOL published
+for that dataset and year. A missing key column is an error because the row
+cannot be attached to a filing without it; a missing or unexpected non-key
+column is a warning, since DOL does revise layouts and the importer reads by
+column name rather than position.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from app.dol.csv_reader import read_csv_rows
-from app.dol.schedules.normalizer import normalize_column_name
+from app.core.exceptions import CSVReadError
+from app.dol.csv_reader import find_csv_files, read_header
+from app.dol.filing_parser import infer_dataset_from_filename
+from app.dol.layouts import get_layout
+
+ERROR = "ERROR"
+WARNING = "WARNING"
+INFO = "INFO"
 
 
 @dataclass(slots=True)
@@ -14,181 +30,155 @@ class ValidationIssue:
     file: str | None = None
     row: int | None = None
 
+    def __str__(self) -> str:
+        location = f" [{Path(self.file).name}]" if self.file else ""
+        return f"{self.severity}{location}: {self.message}"
+
 
 @dataclass(slots=True)
 class ValidationResult:
-    valid: bool
+    valid: bool = True
     files_checked: int = 0
-    rows_checked: int = 0
-    issues: list[ValidationIssue] = field(
-        default_factory=list
-    )
+    issues: list[ValidationIssue] = field(default_factory=list)
+
+    def add(self, severity: str, message: str, file: str | None = None, row: int | None = None) -> None:
+        self.issues.append(ValidationIssue(severity, message, file, row))
+        if severity == ERROR:
+            self.valid = False
+
+    def errors(self) -> list[ValidationIssue]:
+        return [issue for issue in self.issues if issue.severity == ERROR]
+
+    def warnings(self) -> list[ValidationIssue]:
+        return [issue for issue in self.issues if issue.severity == WARNING]
 
     def error_count(self) -> int:
-        return sum(
-            1
-            for issue in self.issues
-            if issue.severity == "ERROR"
-        )
+        return len(self.errors())
 
     def warning_count(self) -> int:
-        return sum(
-            1
-            for issue in self.issues
-            if issue.severity == "WARNING"
+        return len(self.warnings())
+
+    def merge(self, other: ValidationResult) -> None:
+        self.files_checked += other.files_checked
+        self.issues.extend(other.issues)
+        self.valid = self.valid and other.valid
+
+    def summary(self) -> str:
+        state = "valid" if self.valid else "invalid"
+        return (
+            f"{self.files_checked} file(s) checked: {state}, "
+            f"{self.error_count()} error(s), {self.warning_count()} warning(s)"
         )
 
 
 def validate_csv_file(
     path: Path,
-    expected_columns: tuple[str, ...] = (),
+    dataset: str | None = None,
+    form_year: int | None = None,
 ) -> ValidationResult:
-    result = ValidationResult(valid=True)
+    """
+    Check one CSV file against the layout DOL published for it.
+
+    When the dataset and year are not supplied they are recovered from the
+    filename, which DOL names consistently after the archive.
+    """
+
+    result = ValidationResult()
+
+    if dataset is None or form_year is None:
+        inferred_dataset, inferred_year = infer_dataset_from_filename(path.name)
+        dataset = dataset or inferred_dataset
+        form_year = form_year or inferred_year
 
     try:
-        iterator = read_csv_rows(path)
-        first_row = next(iterator, None)
+        header = read_header(path)
+    except CSVReadError as exc:
+        result.add(ERROR, str(exc), str(path))
+        return result
 
-        if first_row is None:
-            result.valid = False
-            result.issues.append(
-                ValidationIssue(
-                    "ERROR",
-                    "CSV contains no data rows.",
-                    str(path),
-                )
-            )
-            return result
+    result.files_checked = 1
 
-        result.files_checked = 1
+    if not header:
+        result.add(ERROR, "File has no header row.", str(path))
+        return result
 
-        row_number, row = first_row
+    if dataset is None or form_year is None:
+        result.add(
+            WARNING,
+            "Could not tell which DOL dataset this file is, so its columns were "
+            "not checked against a published layout.",
+            str(path),
+        )
+        return result
 
-        if not row:
-            result.valid = False
-            result.issues.append(
-                ValidationIssue(
-                    "ERROR",
-                    "First data row is empty.",
-                    str(path),
-                    row_number,
-                )
-            )
-            return result
+    layout = get_layout(form_year, dataset)
+    if layout is None:
+        result.add(
+            WARNING,
+            f"No vendored layout for {dataset} {form_year}; columns were not checked.",
+            str(path),
+        )
+        return result
 
-        actual = {
-            normalize_column_name(key)
-            for key in row.keys()
-        }
-
-        if not actual:
-            result.valid = False
-            result.issues.append(
-                ValidationIssue(
-                    "ERROR",
-                    "No usable columns found.",
-                    str(path),
-                )
-            )
-            return result
-
-        expected = {
-            normalize_column_name(column)
-            for column in expected_columns
-        }
-
-        missing = expected - actual
-
-        for column in sorted(missing):
-            result.issues.append(
-                ValidationIssue(
-                    "ERROR",
-                    f"Missing required column: {column}",
-                    str(path),
-                )
-            )
-
-        result.rows_checked = 1
-
-        for row_number, row in iterator:
-            result.rows_checked += 1
-
-            if not row:
-                result.issues.append(
-                    ValidationIssue(
-                        "WARNING",
-                        "Empty data row.",
-                        str(path),
-                        row_number,
-                    )
-                )
-
-    except Exception as exc:
-        result.valid = False
-        result.issues.append(
-            ValidationIssue(
-                "ERROR",
-                str(exc),
-                str(path),
-            )
+    if "ACK_ID" not in {column.strip().upper() for column in header}:
+        result.add(
+            ERROR,
+            "File has no ACK_ID column, so its rows cannot be attached to a filing.",
+            str(path),
         )
 
-    result.valid = not any(
-        issue.severity == "ERROR"
-        for issue in result.issues
-    )
+    missing = layout.missing_from(header)
+    if missing:
+        preview = ", ".join(missing[:10])
+        suffix = f" (and {len(missing) - 10} more)" if len(missing) > 10 else ""
+        result.add(
+            WARNING,
+            f"{len(missing)} column(s) in the published {dataset} {form_year} "
+            f"layout are absent from this file: {preview}{suffix}.",
+            str(path),
+        )
+
+    unexpected = layout.unexpected_in(header)
+    if unexpected:
+        preview = ", ".join(unexpected[:10])
+        suffix = f" (and {len(unexpected) - 10} more)" if len(unexpected) > 10 else ""
+        result.add(
+            WARNING,
+            f"{len(unexpected)} column(s) are not in the published "
+            f"{dataset} {form_year} layout: {preview}{suffix}.",
+            str(path),
+        )
+
+    if not missing and not unexpected:
+        result.add(
+            INFO,
+            f"Matches the published {dataset} {form_year} layout exactly "
+            f"({len(layout.fields)} fields).",
+            str(path),
+        )
 
     return result
 
 
 def validate_dataset(
     directory: Path,
+    dataset: str | None = None,
+    form_year: int | None = None,
 ) -> ValidationResult:
-    result = ValidationResult(valid=True)
+    """Validate every CSV file under a directory."""
+
+    result = ValidationResult()
 
     if not directory.exists():
-        result.valid = False
-        result.issues.append(
-            ValidationIssue(
-                "ERROR",
-                f"Dataset directory does not exist: {directory}",
-            )
-        )
+        result.add(ERROR, f"Directory does not exist: {directory}")
         return result
 
-    csv_files = sorted(
-        directory.rglob("*.csv")
-    )
-
+    csv_files = find_csv_files(directory)
     if not csv_files:
-        result.valid = False
-        result.issues.append(
-            ValidationIssue(
-                "ERROR",
-                "No CSV files were found.",
-                str(directory),
-            )
-        )
+        result.add(ERROR, "No CSV files were found.", str(directory))
         return result
 
-    for csv_file in csv_files:
-        file_result = validate_csv_file(
-            csv_file
-        )
-
-        result.files_checked += (
-            file_result.files_checked
-        )
-        result.rows_checked += (
-            file_result.rows_checked
-        )
-        result.issues.extend(
-            file_result.issues
-        )
-
-    result.valid = not any(
-        issue.severity == "ERROR"
-        for issue in result.issues
-    )
+    for path in csv_files:
+        result.merge(validate_csv_file(path, dataset, form_year))
 
     return result

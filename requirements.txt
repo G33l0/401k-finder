@@ -1,14 +1,26 @@
+# Runtime dependencies.
+#
+#   pip install -r requirements.txt
+#
+# Python 3.11, 3.12 or 3.13.
+
+# Desktop UI.
 PySide6>=6.8,<7
+
+# Local database. SQLite ships with Python; no server is needed.
 SQLAlchemy>=2.0,<3
-alembic>=1.14,<2
-pydantic>=2.10,<3
-pydantic-settings>=2.7,<3
+
+# Streaming downloads of the DOL archives, with resume support.
 httpx>=0.28,<1
-python-dateutil>=2.9,<3
-rapidfuzz>=3.11,<4
-orjson>=3.10,<4
+
+# Per-platform application data directory.
 platformdirs>=4.3,<5
-rich>=13.9,<14
-pytest>=8.3,<9
-pytest-qt>=4.4,<5
-pytest-cov>=6,<7
+
+# Date parsing across the several formats DOL has used over the years.
+python-dateutil>=2.9,<3
+
+# Fuzzy provider-name matching. The application falls back to a slower built-in
+# comparison if this is unavailable, so it is recommended rather than required.
+rapidfuzz>=3.11,<4
+
+# --- Development and packaging (install with: pip install -r requirements-dev.txt)

@@ -1,41 +1,11 @@
-from __future__ import annotations
+"""
+Backwards-compatible alias for :mod:`app.dol.normalizer`.
 
-import re
-from typing import Any
+The normalizers are used by the layout loader as well as by the schedule
+definitions, so they live one level up to keep ``app.dol.layouts`` and
+``app.dol.schedules`` from importing each other. This module keeps the original
+import path working.
+"""
 
-
-def normalize_column_name(
-    value: Any,
-) -> str:
-    if value is None:
-        return ""
-
-    text = str(value).strip().upper()
-
-    text = re.sub(
-        r"[^A-Z0-9]+",
-        "_",
-        text,
-    )
-
-    return text.strip("_")
-
-
-def normalize_text(
-    value: Any,
-) -> str:
-    if value is None:
-        return ""
-
-    text = str(value).replace(
-        "\x00",
-        "",
-    )
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    )
-
-    return text.strip()
+from app.dol.normalizer import *  # noqa: F401,F403
+from app.dol.normalizer import __all__  # noqa: F401

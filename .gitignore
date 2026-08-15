@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Build output
+build/
+dist/
+*.spec.bak
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated test fixtures (regenerate with: python -m scripts.make_test_data)
+test_data/*.csv
+
+# Local databases and downloaded DOL data, if a developer points the app here
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+dol_data/
+downloads/
+exports/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+.DS_Store
