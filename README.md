@@ -51,6 +51,19 @@ classified from the plan characteristics codes filed on line 8a:
 Welfare benefit plans (health, dental, life) are parsed too, but filtered out of
 search results by default.
 
+**What Form 5500 does not cover.** Only plans subject to Title I of ERISA file,
+so some retirement accounts are largely or entirely absent no matter how well
+the tool works:
+
+- **Governmental 457(b) plans** are exempt, so a search for 457 plans returns
+  almost nothing. The handful that appear are non-governmental arrangements.
+- **Church plans** that have not elected ERISA coverage.
+- **Solo 401(k) and one-participant plans** file Form 5500-EZ with the IRS,
+  which is not part of this public dataset.
+- **IRAs, and SEP/SIMPLE plans using individual IRAs**, generally have no
+  filing obligation — code 2N appears only where a pension plan is funded
+  through Code section 408 accounts, which is rare.
+
 ## Where the provider answers come from
 
 No single field says "this is the recordkeeper". The answer is assembled from
@@ -110,6 +123,10 @@ The application starts empty. Load a form year from DOL:
 This downloads the core datasets — the two main forms plus Schedules A, C Part 1
 Item 2, D Part 1, H, I, R, DCG and MEP — which carry every provider field.
 Expect a few gigabytes and 15–60 minutes depending on your connection.
+
+For scale: the 2023 Form 5500 dataset alone is 231,725 filings covering 223,847
+plans, and imports in about three minutes on a modest machine. Adding the
+5500-SF and the schedules multiplies that several times over.
 
 ```bash
 401k-finder sync --year 2023 --all-datasets   # every published dataset
