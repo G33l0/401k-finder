@@ -169,21 +169,62 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to upgrade pip.' }
 
 Write-Step 'Installing dependencies'
 
-& $VenvPython -m pip install -r (Join-Path $ProjectRoot 'requirements.txt') --quiet
-if ($LASTEXITCODE -ne 0) { throw 'Failed to install dependencies.' }
+$Requirements    = Join-Path $ProjectRoot 'requirements.txt'
+$DevRequirements = Join-Path $ProjectRoot 'requirements-dev.txt'
 
-& $VenvPython -m pip install pyinstaller --quiet
-if ($LASTEXITCODE -ne 0) { throw 'Failed to install PyInstaller.' }
+& $VenvPython -m pip install -r $Requirements --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Failed to install the runtime dependencies.' }
 
-Write-Ok 'Dependencies installed'
+# requirements.txt holds only what the application needs at runtime. The build
+# additionally needs PyInstaller, and the test suite needs pytest -- both live
+# in requirements-dev.txt, which itself includes requirements.txt.
+if (Test-Path $DevRequirements) {
+    & $VenvPython -m pip install -r $DevRequirements --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install the build and test dependencies.' }
+} else {
+    & $VenvPython -m pip install pyinstaller pytest --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install PyInstaller and pytest.' }
+}
+
+# Confirm the tools this script is about to invoke are actually importable,
+# so a missing one is reported here rather than as a bare "No module named X"
+# from a later step.
+$RequiredModules = @('PySide6', 'sqlalchemy', 'PyInstaller')
+if (-not $SkipTests) { $RequiredModules += 'pytest' }
+
+foreach ($module in $RequiredModules) {
+    & $VenvPython -c "import $module" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw @"
+'$module' is missing from the build environment at $VenvPath.
+
+Try deleting that folder and re-running, which forces a clean install. If it
+persists, install it directly to see the real error:
+
+    & '$VenvPython' -m pip install $module
+"@
+    }
+}
+
+Write-Ok "Dependencies installed ($($RequiredModules -join ', ') verified)"
 
 # ---------------------------------------------------------------------------
 
 if (-not $SkipTests) {
     Write-Step 'Running the test suite'
 
-    & $VenvPython -m pytest (Join-Path $ProjectRoot 'tests') -q
-    if ($LASTEXITCODE -ne 0) {
+    # Run from the project root: the project is not pip-installed into the
+    # environment, so `import app` resolves through the working directory.
+    Push-Location $ProjectRoot
+    try {
+        & $VenvPython -m pytest 'tests' -q
+        $testsFailed = $LASTEXITCODE -ne 0
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($testsFailed) {
         throw 'Tests failed. Fix them, or pass -SkipTests to build anyway.'
     }
 
@@ -211,7 +252,9 @@ finally {
     Pop-Location
 }
 
-Write-Ok "$($layoutCheck.Trim()) form year(s) of DOL layouts available in the source tree"
+# Out-String collapses the result whether Python emitted one line or several.
+$layoutYears = ($layoutCheck | Out-String).Trim()
+Write-Ok "$layoutYears form year(s) of DOL layouts available in the source tree"
 
 # ---------------------------------------------------------------------------
 
@@ -272,7 +315,10 @@ try {
     & $CliExe init | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'The packaged CLI failed to create a database.' }
 
-    if ($datasets -notmatch 'F_5500') {
+    # $datasets is an array of output lines. Applying -notmatch to an array
+    # filters it rather than returning a boolean, and the filtered result is
+    # truthy whenever any single line lacks the text -- so join it first.
+    if (($datasets -join "`n") -notmatch 'F_5500') {
         throw 'The packaged CLI did not report the expected datasets for 2023.'
     }
 

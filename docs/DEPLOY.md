@@ -426,6 +426,7 @@ installed shows a clear message naming both versions rather than damaging it.
 | `build.ps1 cannot be loaded because running scripts is disabled` | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window first. |
 | `Python 3.14 found, but this project requires...` | Install 3.12 or 3.13 alongside it. |
 | `Inno Setup 6 was not found` | Install it, or build without `-Installer`. |
+| `No module named pytest` | An older `build.ps1` that installed only the runtime dependencies. Update to the current version — it installs `requirements-dev.txt`, which carries pytest and PyInstaller. |
 | `Tests failed` | Something in the code is broken — the message names which test. Do not ship it. |
 | The build stops at *Smoke-testing* | The packaged application could not read its data files. Rebuild with `-Clean`; if it persists, see the layouts section of [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md). |
 | Your icon does not appear | Windows caches icons aggressively. Sign out and back in, or run `ie4uinit.exe -show`. Confirm the file is there with `401k-finder.exe status --branding`. |

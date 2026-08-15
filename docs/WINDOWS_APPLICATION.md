@@ -89,7 +89,10 @@ end user needs nothing at all — not Python, not the Visual C++ redistributable
 `build.ps1` runs these steps and stops at the first failure:
 
 1. **Checks Python** is present and in the supported range.
-2. **Creates `.venv`** and installs `requirements.txt` plus PyInstaller.
+2. **Creates the environment** and installs `requirements.txt` (what the
+   application needs to run) plus `requirements-dev.txt` (pytest for the test
+   step, PyInstaller for the packaging step), then confirms each tool it is
+   about to invoke is importable.
 3. **Runs the test suite.** A release build with failing tests is a bug you are
    about to ship; pass `-SkipTests` only when iterating on packaging itself.
 4. **Verifies the vendored DOL layouts load.** See the warning below — this is
