@@ -375,6 +375,7 @@ from there and passes it to Inno Setup, so the two never disagree.
 |---|---|
 | `Python was not found on PATH` | Python not installed, or installed without the PATH option. Reinstall and tick "Add python.exe to PATH". |
 | `build.ps1 cannot be loaded` | Execution policy. Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`. |
+| Hangs at *Preparing the virtual environment* | Cloud sync or antivirus, not a crash. Move the project off OneDrive-backed Desktop/Documents, or pass `-VenvPath C:\venvs\401k`. Wait 5 minutes before interrupting. |
 | Application opens, first search errors about a missing form year | The layouts were dropped from the package. Confirm the `datas` entry in the spec file and rebuild with `-Clean`. |
 | `ImportError: DLL load failed` for PySide6 | A mismatched or partial PySide6 install. Delete `.venv` and rebuild. |
 | Window opens then closes immediately | Run `401KFinderPro.exe` from a terminal to see the error, or read `%LOCALAPPDATA%\401K Finder Pro\logs\application.log`. |

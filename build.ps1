@@ -17,6 +17,12 @@
 .PARAMETER Clean
     Delete build/ and dist/ before building.
 
+.PARAMETER VenvPath
+    Where to create the build virtual environment. Defaults to .venv inside the
+    project. Point this at a plain local folder when the project itself lives in
+    OneDrive, Dropbox or a network drive -- creating a virtual environment
+    inside a synced folder is extremely slow and often appears to hang.
+
 .EXAMPLE
     .\build.ps1
     Builds dist\401K Finder Pro\401KFinderPro.exe
@@ -24,20 +30,30 @@
 .EXAMPLE
     .\build.ps1 -Clean -Installer
     Full clean release build, ending with a setup executable.
+
+.EXAMPLE
+    .\build.ps1 -VenvPath C:\venvs\401k
+    Keeps the virtual environment off a synced folder.
 #>
 
 [CmdletBinding()]
 param(
     [switch]$SkipTests,
     [switch]$Installer,
-    [switch]$Clean
+    [switch]$Clean,
+    [string]$VenvPath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = $PSScriptRoot
-$VenvPath    = Join-Path $ProjectRoot '.venv'
+
+# Only default the environment location when -VenvPath was not supplied.
+if ([string]::IsNullOrWhiteSpace($VenvPath)) {
+    $VenvPath = Join-Path $ProjectRoot '.venv'
+}
+
 $VenvPython  = Join-Path $VenvPath 'Scripts\python.exe'
 $DistPath    = Join-Path $ProjectRoot 'dist'
 $BuildPath   = Join-Path $ProjectRoot 'build'
@@ -102,12 +118,50 @@ if ($Clean) {
 
 Write-Step 'Preparing the virtual environment'
 
+# Creating a virtual environment writes several thousand small files. Two things
+# on Windows make that pathologically slow, to the point where it looks frozen:
+# a cloud-synced folder (OneDrive redirects Desktop and Documents by default),
+# and real-time antivirus scanning each extracted file. Warn before it happens
+# rather than leaving the user staring at a stationary cursor.
+$SyncedRoots = @('OneDrive', 'Dropbox', 'Google Drive', 'Creative Cloud Files')
+$MatchedSync = $SyncedRoots | Where-Object { $VenvPath -like "*\$_\*" } | Select-Object -First 1
+
+if ($MatchedSync) {
+    Write-Warning @"
+The virtual environment would be created inside a $MatchedSync folder:
+    $VenvPath
+
+Cloud sync makes this extremely slow and it often looks like a hang. Either
+move the project to a plain local folder such as C:\dev\401k-finder, or keep
+just the environment out of sync:
+
+    .\build.ps1 -VenvPath C:\venvs\401k
+"@
+}
+
 if (-not (Test-Path $VenvPython)) {
+    Write-Host '    Creating the environment. This normally takes 30-60 seconds,'
+    Write-Host '    but can take several minutes behind antivirus or cloud sync.'
+    Write-Host '    Press Ctrl+C only if nothing happens for more than 5 minutes.'
+
     & python -m venv $VenvPath
-    if ($LASTEXITCODE -ne 0) { throw 'Failed to create the virtual environment.' }
+
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $VenvPython)) {
+        throw @"
+Failed to create the virtual environment at $VenvPath.
+
+The usual causes, in order of likelihood:
+  * The project is in a OneDrive or Dropbox folder. Move it to C:\dev\, or
+    pass -VenvPath C:\venvs\401k to keep the environment out of sync.
+  * Antivirus is scanning every extracted file. Add an exclusion for the
+    project folder, or try again -- the second run is usually faster.
+  * A previous attempt left a half-built .venv behind. Delete it and re-run.
+"@
+    }
+
     Write-Ok "Created $VenvPath"
 } else {
-    Write-Ok 'Reusing the existing virtual environment'
+    Write-Ok "Reusing the existing environment at $VenvPath"
 }
 
 & $VenvPython -m pip install --upgrade pip --quiet
