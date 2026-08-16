@@ -16,6 +16,7 @@ CREATE TABLE evidence (
 	confidence VARCHAR(10), 
 	created_at DATETIME NOT NULL, 
 	PRIMARY KEY (id), 
+	CONSTRAINT uq_evidence_source_field UNIQUE (ack_id, dataset, source_row, field_name), 
 	FOREIGN KEY(plan_id) REFERENCES plans (id) ON DELETE CASCADE, 
 	FOREIGN KEY(filing_id) REFERENCES filings (id) ON DELETE CASCADE, 
 	FOREIGN KEY(party_id) REFERENCES plan_parties (id) ON DELETE CASCADE
@@ -226,6 +227,8 @@ CREATE INDEX ix_evidence_party_id ON evidence (party_id);
 
 CREATE INDEX ix_evidence_plan_id ON evidence (plan_id);
 
+CREATE INDEX ix_evidence_plan_year ON evidence (plan_id, form_year);
+
 CREATE INDEX ix_evidence_schedule_code ON evidence (schedule_code);
 
 CREATE INDEX ix_filing_plan_year ON filings (plan_id, form_year);
@@ -333,3 +336,7 @@ CREATE INDEX ix_schedule_records_plan_id ON schedule_records (plan_id);
 CREATE INDEX ix_schedule_records_schedule_code ON schedule_records (schedule_code);
 
 CREATE INDEX ix_schedule_year_dataset ON schedule_records (form_year, dataset);
+
+CREATE UNIQUE INDEX uq_evidence_source_field
+        ON evidence (ack_id, dataset, source_row, field_name)
+        ;

@@ -145,8 +145,6 @@ class DOLImporter:
         self._filing_ids: dict[str, tuple[int, int]] = {}
         # provider name key -> provider id
         self._provider_ids: dict[str, int] = {}
-        # Party rows already written, to honour the unique constraint in-process.
-        self._party_keys: set[tuple[int, int, str, int, str]] = set()
 
         self._caches_loaded = False
 
@@ -183,16 +181,11 @@ class DOLImporter:
         ):
             self._provider_ids[name_key] = provider_id
 
-        for plan_id, provider_id, role, form_year, schedule_code in self.session.execute(
-            select(
-                PlanParty.plan_id,
-                PlanParty.provider_id,
-                PlanParty.role,
-                PlanParty.form_year,
-                PlanParty.schedule_code,
-            )
-        ):
-            self._party_keys.add((plan_id, provider_id, role, form_year, schedule_code or ""))
+        # Engagements are deliberately not cached. There is one row per
+        # plan-provider-role-year-schedule, which across a full form year runs
+        # into the millions -- holding them all in a set costs more memory than
+        # the rest of the import put together. The table's unique constraint
+        # does the same job, enforced by INSERT OR IGNORE at write time.
 
         self._caches_loaded = True
 
@@ -643,6 +636,13 @@ class DOLImporter:
                 self._flush_schedule_records(record_buffer, stats)
                 self._flush_filing_updates(filing_updates)
                 self._flush_providers(pending_providers, form_year, source_file, stats)
+
+                # Scoped to the batch, not the file. A duplicate spanning two
+                # batches is caught by the existence check in the flush, and a
+                # file-wide set would grow to one entry per row -- hundreds of
+                # megabytes on the larger schedules.
+                seen_records.clear()
+
                 self._report(
                     stats.rows_read,
                     row_estimate,
@@ -769,6 +769,7 @@ class DOLImporter:
 
         party_rows: list[dict[str, Any]] = []
         evidence_rows: list[dict[str, Any]] = []
+        batch_party_keys: set[tuple[int, int, str, int, str]] = set()
 
         for ack_id, candidates, row_number, dataset in buffer:
             link = self._filing_ids.get(ack_id)
@@ -785,10 +786,12 @@ class DOLImporter:
                 if provider_id is None:
                     continue
 
+                # Deduplicate within this batch; the unique constraint plus
+                # INSERT OR IGNORE handles collisions with rows already stored.
                 party_key = (plan_id, provider_id, candidate.role, form_year, schedule_code)
-                if party_key in self._party_keys:
+                if party_key in batch_party_keys:
                     continue
-                self._party_keys.add(party_key)
+                batch_party_keys.add(party_key)
 
                 party_rows.append(
                     {
@@ -829,18 +832,39 @@ class DOLImporter:
                     }
                 )
 
+        # OR IGNORE lets a re-run skip rows already recorded without needing
+        # every existing key held in memory first.
         if party_rows:
-            self.session.execute(insert(PlanParty), party_rows)
-            stats.parties_created += len(party_rows)
+            stats.parties_created += self._insert_ignoring_duplicates(PlanParty, party_rows)
 
         if evidence_rows:
-            self.session.execute(insert(Evidence), evidence_rows)
-            stats.evidence_created += len(evidence_rows)
+            stats.evidence_created += self._insert_ignoring_duplicates(Evidence, evidence_rows)
 
         if party_rows or evidence_rows:
             self.session.flush()
 
         buffer.clear()
+
+    def _insert_ignoring_duplicates(self, model, rows: list[dict[str, Any]]) -> int:
+        """
+        Bulk-insert rows, skipping any that violate a unique constraint.
+
+        Returns how many rows were actually written. An executemany result does
+        not carry a usable rowcount, so SQLite's own change counter is read
+        either side of the statement; where that is unavailable the count falls
+        back to the number offered.
+        """
+
+        raw = getattr(self.session.connection().connection, "dbapi_connection", None)
+        before = getattr(raw, "total_changes", None)
+
+        self.session.execute(insert(model).prefix_with("OR IGNORE"), rows)
+
+        after = getattr(raw, "total_changes", None)
+        if before is None or after is None:
+            return len(rows)
+
+        return max(after - before, 0)
 
     def _ensure_providers(
         self,

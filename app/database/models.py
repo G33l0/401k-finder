@@ -367,6 +367,20 @@ class Evidence(Base):
     plan: Mapped[Plan] = relationship(back_populates="evidence")
     filing: Mapped[Filing | None] = relationship(back_populates="evidence")
 
+    __table_args__ = (
+        # One record per field of a source row. Without this, re-importing a
+        # dataset appends a second copy of every citation, inflating the
+        # evidence trail while telling the user nothing new.
+        UniqueConstraint(
+            "ack_id",
+            "dataset",
+            "source_row",
+            "field_name",
+            name="uq_evidence_source_field",
+        ),
+        Index("ix_evidence_plan_year", "plan_id", "form_year"),
+    )
+
 
 class ImportedDataset(Base):
     """

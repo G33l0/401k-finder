@@ -34,7 +34,7 @@ with get_engine().connect() as c:
         \"SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type DESC, name\"
     ))
     print(';\n\n'.join(r[0] for r in rows) + ';')
-" > database/migrations/schema_v3.sql
+" > database/migrations/schema_v4.sql
 ```
 
 ## If the schema is ahead of the application

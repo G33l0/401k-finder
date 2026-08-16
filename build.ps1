@@ -47,6 +47,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# PowerShell 7.3+ can turn a non-zero exit from a native command into a
+# terminating error, which would pre-empt this script's own checks and report
+# them less usefully. Exit codes are inspected explicitly throughout.
+if (Test-Path Variable:\PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
 $ProjectRoot = $PSScriptRoot
 
 # Only default the environment location when -VenvPath was not supplied.
@@ -89,7 +96,21 @@ if (-not $python) {
     throw 'Python was not found on PATH. Install Python 3.11-3.13 from python.org and tick "Add python.exe to PATH".'
 }
 
-$versionText = (& python -c "import sys; print('%d.%d' % sys.version_info[:2])").Trim()
+$versionRaw = & python -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+$versionText = ($versionRaw | Out-String).Trim()
+
+if ([string]::IsNullOrWhiteSpace($versionText)) {
+    throw @"
+'python' was found on PATH but produced no version output.
+
+This is almost always the Microsoft Store stub, which does nothing except open
+the Store. Install Python from python.org, ticking "Add python.exe to PATH",
+then disable the stub under
+  Settings > Apps > Advanced app settings > App execution aliases
+by switching off "python.exe" and "python3.exe".
+"@
+}
+
 $version = [version]$versionText
 
 if ($version -lt [version]'3.11' -or $version -ge [version]'3.14') {
@@ -108,7 +129,20 @@ if ($Clean) {
 
     foreach ($path in @($BuildPath, $DistPath)) {
         if (Test-Path $path) {
-            Remove-Item $path -Recurse -Force
+            try {
+                Remove-Item $path -Recurse -Force
+            }
+            catch {
+                throw @"
+Could not delete $path
+
+Something is holding a file open in there. The usual causes are a running
+401KFinderPro.exe or 401k-finder.exe from a previous build, an Explorer window
+sitting in that folder, or an antivirus scan still in progress.
+
+Close them and try again.
+"@
+            }
             Write-Ok "Removed $path"
         }
     }
@@ -169,21 +203,64 @@ if ($LASTEXITCODE -ne 0) { throw 'Failed to upgrade pip.' }
 
 Write-Step 'Installing dependencies'
 
-& $VenvPython -m pip install -r (Join-Path $ProjectRoot 'requirements.txt') --quiet
-if ($LASTEXITCODE -ne 0) { throw 'Failed to install dependencies.' }
+$Requirements    = Join-Path $ProjectRoot 'requirements.txt'
+$DevRequirements = Join-Path $ProjectRoot 'requirements-dev.txt'
 
-& $VenvPython -m pip install pyinstaller --quiet
-if ($LASTEXITCODE -ne 0) { throw 'Failed to install PyInstaller.' }
+& $VenvPython -m pip install -r $Requirements --quiet
+if ($LASTEXITCODE -ne 0) { throw 'Failed to install the runtime dependencies.' }
 
-Write-Ok 'Dependencies installed'
+# requirements.txt holds only what the application needs at runtime. The build
+# additionally needs PyInstaller, and the test suite needs pytest -- both live
+# in requirements-dev.txt, which itself includes requirements.txt.
+if (Test-Path $DevRequirements) {
+    & $VenvPython -m pip install -r $DevRequirements --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install the build and test dependencies.' }
+} else {
+    & $VenvPython -m pip install pyinstaller pytest --quiet
+    if ($LASTEXITCODE -ne 0) { throw 'Failed to install PyInstaller and pytest.' }
+}
+
+# Confirm the tools this script is about to invoke are actually importable,
+# so a missing one is reported here rather than as a bare "No module named X"
+# from a later step.
+$RequiredModules = @('PySide6', 'sqlalchemy', 'PyInstaller')
+if (-not $SkipTests) { $RequiredModules += 'pytest' }
+
+foreach ($module in $RequiredModules) {
+    & $VenvPython -c "import $module" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw @"
+'$module' is missing from the build environment at $VenvPath.
+
+Try deleting that folder and re-running, which forces a clean install. If it
+persists, install it directly to see the real error:
+
+    & '$VenvPython' -m pip install $module
+"@
+    }
+}
+
+Write-Ok "Dependencies installed ($($RequiredModules -join ', ') verified)"
 
 # ---------------------------------------------------------------------------
 
 if (-not $SkipTests) {
     Write-Step 'Running the test suite'
 
-    & $VenvPython -m pytest (Join-Path $ProjectRoot 'tests') -q
-    if ($LASTEXITCODE -ne 0) {
+    # Run from the project root: the project is not pip-installed into the
+    # environment, so `import app` resolves through the working directory.
+    $testsFailed = $false
+
+    Push-Location $ProjectRoot
+    try {
+        & $VenvPython -m pytest 'tests' -q
+        $testsFailed = $LASTEXITCODE -ne 0
+    }
+    finally {
+        Pop-Location
+    }
+
+    if ($testsFailed) {
         throw 'Tests failed. Fix them, or pass -SkipTests to build anyway.'
     }
 
@@ -211,7 +288,9 @@ finally {
     Pop-Location
 }
 
-Write-Ok "$($layoutCheck.Trim()) form year(s) of DOL layouts available in the source tree"
+# Out-String collapses the result whether Python emitted one line or several.
+$layoutYears = ($layoutCheck | Out-String).Trim()
+Write-Ok "$layoutYears form year(s) of DOL layouts available in the source tree"
 
 # ---------------------------------------------------------------------------
 
@@ -236,7 +315,10 @@ foreach ($required in @($AppExe, $CliExe)) {
     }
 }
 
-$sizeMb = [math]::Round((Get-ChildItem $AppDir -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
+# -File matters: directories have no Length, and asking for it raises an error
+# that ErrorActionPreference=Stop would turn into an aborted build.
+$sizeMb = [math]::Round(
+    (Get-ChildItem $AppDir -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
 Write-Ok "Built $AppExe ($sizeMb MB)"
 Write-Ok "Built $CliExe"
 
@@ -272,7 +354,10 @@ try {
     & $CliExe init | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'The packaged CLI failed to create a database.' }
 
-    if ($datasets -notmatch 'F_5500') {
+    # $datasets is an array of output lines. Applying -notmatch to an array
+    # filters it rather than returning a boolean, and the filtered result is
+    # truthy whenever any single line lacks the text -- so join it first.
+    if (($datasets -join "`n") -notmatch 'F_5500') {
         throw 'The packaged CLI did not report the expected datasets for 2023.'
     }
 
@@ -310,9 +395,12 @@ if ($Installer) {
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed.' }
 
     $setupExe = Join-Path $DistPath "installer\401KFinderPro-Setup-$AppVersion.exe"
-    if (Test-Path $setupExe) {
-        Write-Ok "Built $setupExe"
+    if (-not (Test-Path $setupExe)) {
+        throw "Inno Setup reported success but $setupExe is missing."
     }
+
+    $setupMb = [math]::Round((Get-Item $setupExe).Length / 1MB, 1)
+    Write-Ok "Built $setupExe ($setupMb MB)"
 }
 
 # ---------------------------------------------------------------------------
@@ -321,7 +409,7 @@ Write-Step 'Done'
 Write-Host ''
 Write-Host "  Application: $AppExe"
 if ($Installer) {
-    Write-Host "  Installer:   $(Join-Path $DistPath "installer\401KFinderPro-Setup-$AppVersion.exe")"
+    Write-Host "  Installer:   $setupExe"
 }
 Write-Host ''
 Write-Host '  The application starts with an empty database. Open the Data tab'
