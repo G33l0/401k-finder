@@ -9,5 +9,9 @@ pytest-qt>=4.4,<5
 pytest-cov>=6,<7
 ruff>=0.8
 
+# Generates the application mark (scripts/make_logo.py). Not a runtime
+# dependency — the icons it produces are committed.
+pillow>=11
+
 # Windows packaging. Only needed to run build.ps1.
 pyinstaller>=6.11

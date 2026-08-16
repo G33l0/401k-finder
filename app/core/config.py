@@ -92,6 +92,10 @@ class Settings:
     download_timeout: float = 120.0
     #: Exclude welfare-only plans from search results.
     retirement_plans_only: bool = True
+    #: Colour scheme: "light", "dark" or "hacker". An unknown value falls back
+    #: to the default rather than failing, so hand-edited settings cannot stop
+    #: the application starting.
+    theme: str = "light"
 
     @classmethod
     def load(cls, path: Path | None = None) -> Settings:

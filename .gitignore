@@ -23,6 +23,9 @@ htmlcov/
 # Generated test fixtures (regenerate with: python -m scripts.make_test_data)
 test_data/*.csv
 
+# Logo contact sheet (regenerate with: python -m scripts.make_logo --preview)
+app/ui/logo_preview.png
+
 # Local databases and downloaded DOL data, if a developer points the app here
 *.sqlite3
 *.sqlite3-wal

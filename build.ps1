@@ -294,6 +294,37 @@ Write-Ok "$layoutYears form year(s) of DOL layouts available in the source tree"
 
 # ---------------------------------------------------------------------------
 
+Write-Step 'Checking the licence configuration'
+
+# A release built with licensing switched off gives itself away, and the
+# mistake is invisible until someone notices nobody is being asked for a key.
+Push-Location $ProjectRoot
+try {
+    $licenseMode = & $VenvPython -c "from app.licensing.config import get_config; c = get_config(); print('enforced' if c.enforced else 'open')"
+    if ($LASTEXITCODE -ne 0) { throw 'Could not read the licence configuration.' }
+}
+finally {
+    Pop-Location
+}
+
+if (($licenseMode | Out-String).Trim() -eq 'enforced') {
+    Write-Ok 'Licensing is configured; this build will require activation'
+} else {
+    Write-Warning @"
+This build does NOT require a licence key.
+
+That is correct for development and for builds you give away. If you intend to
+sell this one, create a signing keypair and paste the public key into
+app\licensing\config.py first:
+
+    python -m scripts.issue_license --new-keypair
+
+-- see docs\SELLING.md, section 3.
+"@
+}
+
+# ---------------------------------------------------------------------------
+
 Write-Step 'Building the application with PyInstaller'
 
 Push-Location $ProjectRoot

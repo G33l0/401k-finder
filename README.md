@@ -176,6 +176,27 @@ provider list and full evidence), **Providers** (which firms hold the most
 plans, and drill into their book), and **Data** (download years, import local
 files, see what is loaded).
 
+#### Themes
+
+**View → Theme** offers three schemes, and the choice is remembered:
+
+| | |
+|---|---|
+| **Light** | The default. A plain, bright document look. |
+| **Dark** | Neutral greys with a blue accent, for low light. |
+| **Hacker** | Near-black with a phosphor-green monospace treatment. |
+
+They are defined in [`app/ui/theme.py`](app/ui/theme.py) as palettes of
+semantic roles — `accent`, `text_muted`, `danger` — rather than as separate
+style sheets, so adding a fourth means adding one `Palette` and nothing else.
+A test asserts that no colour appears in a generated style sheet unless the
+palette supplied it, which is what stops a stray literal turning into the one
+panel that never goes dark.
+
+To adjust the look without editing the source, drop an `app.qss` into
+`app/ui/resources/` — it is appended after whichever theme is active, so its
+rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
+
 ### Command line
 
 ```bash
@@ -278,6 +299,7 @@ app/
     validator.py         Files checked against their published layouts
     schedules/           What each dataset's columns mean
   database/              Models, engine, sessions, versioned schema
+  licensing/             Signed offline licence keys, bound to one machine
   providers/             Name normalisation, brand table, fuzzy matching
   search/                Query objects and the FTS5-backed search engine
   evidence/              Evidence trail assembly
@@ -286,7 +308,7 @@ app/
 database/
   migrations/            Schema snapshots (migrations live in code)
   seeds/                 Extra provider brands you can add without editing code
-docs/                    Deployment walkthrough and packaging reference
+docs/                    Deployment, packaging and selling guides
 installer/               PyInstaller spec and Inno Setup script
 scripts/                 Layout refresh, test-data generation
 tests/                   Test suite

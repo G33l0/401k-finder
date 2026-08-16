@@ -11,6 +11,8 @@ requires you to understand Python.
 
 - [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md) — the reference on how the
   packaging works, what the spec file does, and how to troubleshoot it.
+- [`SELLING.md`](SELLING.md) — putting the installer online, taking payment, and
+  licence keys issued by email and tied to the buyer's computer.
 - [`../README.md`](../README.md) — what the application does and how to use it.
 
 ---
@@ -152,9 +154,10 @@ it. It does not change your machine's settings.
 
 ## 4. Add your icon and logo
 
-**This step is optional.** With an empty resources folder the application builds
-and runs using the default Qt icon. Add these files when you want your own
-branding.
+**This step is optional.** The repository already ships a mark — a stepped
+trace climbing to a solid node, in deep teal and amber — and the build picks it
+up with no work from you. Read this section when you want to replace it with
+your own branding, or when you want to change the one that is there.
 
 Everything goes in one folder:
 
@@ -162,7 +165,34 @@ Everything goes in one folder:
 app\ui\resources\
 ```
 
-The build picks up whatever is there and ignores what is not.
+The build picks up whatever is there and ignores what is not. Delete the lot
+and the application still builds, falling back to Qt's default icon.
+
+### 4.0 Changing the mark that ships
+
+The shipped files are generated from
+[`scripts/make_logo.py`](../scripts/make_logo.py) rather than drawn by hand.
+To adjust the colours or the geometry, edit the constants at the top of that
+file and regenerate:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install pillow
+.\.venv\Scripts\python.exe -m scripts.make_logo --preview
+```
+
+That rewrites `app.ico`, `app.png`, `logo.png` and `logo.svg`, and with
+`--preview` also writes `app\ui\logo_preview.png` — every icon size on a light
+and a dark background, which is the only reliable way to tell whether a change
+still reads at 16 px. The preview file is not shipped and is git-ignored.
+
+The script sizes and positions the mark itself: it scales the artwork until it
+clears the badge's rounded corners by the stated margin, so changing a stroke
+weight cannot silently push part of the design outside the icon's silhouette.
+
+If you replace the images by hand instead, delete the
+`test_the_mark_is_reproducible_from_its_source` test — it exists to catch the
+committed files and the script drifting apart and cannot tell that apart from
+a deliberate replacement.
 
 ### 4.1 The files
 
@@ -170,8 +200,9 @@ The build picks up whatever is there and ignores what is not.
 |---|---|---|
 | `app.ico` | The `.exe` icon in Explorer and the taskbar, the installer, and Start-menu shortcuts | Windows ICO, **must** contain 16, 32, 48 and 256 px; 64 and 128 px recommended. 32-bit colour with alpha. |
 | `logo.png` | The About dialog, and the window icon on macOS and Linux | PNG with transparency, square, **512×512 px** recommended (256 minimum) |
-| `app.png` | Optional. Window icon fallback where `.ico` cannot be read | PNG with transparency, square, 512×512 px |
-| `app.qss` | Optional. A Qt style sheet, if you want to restyle the UI | UTF-8 text, [Qt Style Sheets syntax](https://doc.qt.io/qt-6/stylesheet-syntax.html) |
+| `app.png` | Window icon fallback where `.ico` cannot be read | PNG with transparency, square, 512×512 px |
+| `logo.svg` | Not used at runtime. The vector original, for your store page and print | SVG |
+| `app.qss` | Optional. Extra Qt style sheet rules, applied *after* the active theme | UTF-8 text, [Qt Style Sheets syntax](https://doc.qt.io/qt-6/stylesheet-syntax.html) |
 
 Names are exact and case-sensitive on some systems — use lower case.
 

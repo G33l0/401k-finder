@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -25,6 +27,7 @@ from app.core.logging import get_logger
 from app.database.init_db import initialize_database, reset_database
 from app.search.query import PlanQuery, ProviderQuery, QueryOptions
 from app.services import export as export_service
+from app.ui import theme
 from app.ui.widgets.data_manager import DataManagerPanel
 from app.ui.widgets.plan_detail import PlanDetailPanel
 from app.ui.widgets.provider_panel import ProviderPanel
@@ -51,16 +54,27 @@ class MainWindow(QMainWindow):
     background never blocks a search in the foreground.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         super().__init__()
 
-        self.settings = Settings.load()
+        # The entry point loads settings before the window exists, so it can
+        # apply the theme to the activation dialog too. Take what it loaded
+        # rather than reading the file twice and risking two views of it.
+        self.settings = settings if settings is not None else Settings.load()
 
         self.search_runner = TaskRunner(self)
         self.detail_runner = TaskRunner(self)
         self.provider_runner = TaskRunner(self)
         self.data_runner = TaskRunner(self)
         self.summary_runner = TaskRunner(self)
+
+        # The entry point applies the theme before this window exists, so the
+        # activation dialog is already in the right scheme. Doing it again here
+        # is idempotent, and keeps the window correct when it is constructed
+        # directly — from a test, or an embedder — rather than through app.main.
+        application = QApplication.instance()
+        if application is not None:
+            theme.apply(application, self.settings.theme)
 
         self.setWindowTitle(f"401K Finder Pro {__version__}")
         self.resize(1500, 900)
@@ -88,7 +102,7 @@ class MainWindow(QMainWindow):
         self.search_panel.search_requested.connect(self.run_search)
         self.search_panel.clear_requested.connect(self.clear_results)
         self.search_panel.setMinimumWidth(300)
-        self.search_panel.setMaximumWidth(430)
+        self.search_panel.setMaximumWidth(480)
         outer.addWidget(self.search_panel)
 
         inner = QSplitter(Qt.Vertical)
@@ -169,6 +183,25 @@ class MainWindow(QMainWindow):
         clear = QAction("&Clear filters", self)
         clear.triggered.connect(self.search_panel.clear)
         search_menu.addAction(clear)
+
+        view_menu = self.menuBar().addMenu("&View")
+        theme_menu = view_menu.addMenu("&Theme")
+
+        # An action group makes the three mutually exclusive and gives the menu
+        # its radio marks, so the current theme is visible without opening a
+        # settings dialog.
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+
+        active = theme.resolve(self.settings.theme).key
+        for palette in theme.available():
+            action = QAction(f"&{palette.label}", self)
+            action.setCheckable(True)
+            action.setChecked(palette.key == active)
+            action.setData(palette.key)
+            action.triggered.connect(partial(self.apply_theme, palette.key))
+            self._theme_group.addAction(action)
+            theme_menu.addAction(action)
 
         data_menu = self.menuBar().addMenu("&Data")
 
@@ -511,6 +544,35 @@ class MainWindow(QMainWindow):
         self.clear_results()
         self.provider_panel.set_results([])
         self.refresh_status()
+
+    def apply_theme(self, name: str) -> None:
+        """
+        Switch colour scheme, and persist the choice.
+
+        Ordinary widgets repaint themselves when the application style sheet
+        changes. The detail panel does not — its content is HTML with the
+        colours already baked in — so it is told to render itself again.
+
+        The setting is saved here rather than only on exit, so a theme picked
+        just before a crash or a forced shutdown still survives.
+        """
+
+        palette = theme.apply(QApplication.instance(), name)
+
+        # Keep the menu marks honest when this is called from anywhere other
+        # than the menu itself.
+        for action in self._theme_group.actions():
+            action.setChecked(action.data() == palette.key)
+
+        self.settings.theme = palette.key
+        try:
+            self.settings.save()
+        except OSError as exc:  # noqa: BLE001
+            # Not worth a dialog: the theme is applied either way, and the
+            # only loss is that it will not be remembered next time.
+            logger.warning("Could not save the theme setting: %s", exc)
+
+        self.detail_panel.retheme()
 
     def show_about(self) -> None:
         from app.ui import resources

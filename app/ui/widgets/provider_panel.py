@@ -104,7 +104,7 @@ class ProviderPanel(QWidget):
 
         footer = QHBoxLayout()
         self.count_label = QLabel()
-        self.count_label.setStyleSheet("color:#666")
+        self.count_label.setProperty("role", "muted")
         footer.addWidget(self.count_label)
         footer.addStretch(1)
 

@@ -97,7 +97,7 @@ class DataManagerPanel(QWidget):
 
         self.estimate_label = QLabel()
         self.estimate_label.setWordWrap(True)
-        self.estimate_label.setStyleSheet("color:#666")
+        self.estimate_label.setProperty("role", "muted")
         download_layout.addWidget(self.estimate_label)
 
         layout.addWidget(download)

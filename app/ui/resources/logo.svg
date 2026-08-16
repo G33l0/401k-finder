@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title">
+  <title id="title">401K Finder Pro</title>
+  <desc>A stepped trace climbing from a hollow origin node to a solid terminal node.</desc>
+  <rect width="512" height="512" rx="102.4" fill="#0B3A4A"/>
+  <path d="M72.8 439.2 L184.6 439.2 L184.6 327.4 L296.4 327.4 L296.4 215.6 L408.2 215.6 L408.2 103.8" fill="none" stroke="#F2F7F8" stroke-width="46.6"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="72.8" cy="439.2" r="19.3"
+          fill="none" stroke="#F2F7F8" stroke-width="21.0"/>
+  <circle cx="408.2" cy="103.8" r="60.9"
+          fill="#F5A524"/>
+</svg>
