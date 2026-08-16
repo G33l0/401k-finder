@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from app import __version__
 from app.licensing import LicenseGate, LicenseState, machine_fingerprint
 from app.licensing.models import ActivationResult
-from app.ui import resources
+from app.ui import resources, theme
 
 
 class _ActivationWorker(QThread):
@@ -139,7 +139,7 @@ class ActivationDialog(QDialog):
         )
         support.setTextFormat(Qt.RichText)
         support.setOpenExternalLinks(True)
-        support.setStyleSheet("color:#666")
+        support.setProperty("role", "muted")
         layout.addWidget(support)
 
         self.buttons = QDialogButtonBox()
@@ -158,7 +158,8 @@ class ActivationDialog(QDialog):
         self.activate_button.setEnabled(len(text.strip()) >= 8)
 
     def _show_message(self, text: str, ok: bool) -> None:
-        colour = "#1a7f37" if ok else "#b3261e"
+        palette = theme.current()
+        colour = palette.success if ok else palette.danger
         self.message.setStyleSheet(f"color:{colour}")
         self.message.setText(text)
         self.message.setVisible(True)

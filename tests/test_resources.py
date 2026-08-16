@@ -62,3 +62,53 @@ def test_icon_falls_back_to_png(monkeypatch, tmp_path):
 
     found = resources.icon_path()
     assert found is not None and found.name == "logo.png"
+
+
+# ----------------------------------------------------------------------
+# The shipped mark
+# ----------------------------------------------------------------------
+
+
+def test_the_mark_is_present_and_loadable():
+    """
+    The repository ships a real icon now, so the optional-asset paths above
+    are no longer the only ones that matter.
+    """
+
+    from PIL import Image
+
+    path = resources.icon_path()
+    assert path is not None and path.name == "app.ico"
+
+    with Image.open(path) as icon:
+        sizes = set(icon.info.get("sizes", ()))
+
+    # Windows picks a frame per context: 16 in the title bar, 32 in the task
+    # bar, 256 for large tiles. Missing one makes it scale another and blur.
+    assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= sizes
+
+
+def test_the_logo_is_square_and_large_enough_for_the_about_dialog():
+    from PIL import Image
+
+    path = resources.logo_path()
+    assert path is not None
+
+    with Image.open(path) as logo:
+        assert logo.size == (512, 512)
+        assert logo.mode == "RGBA"
+
+
+def test_the_mark_is_reproducible_from_its_source():
+    """
+    The assets are generated, not hand-drawn. If the script and the committed
+    files disagree, one of them was edited by hand and the other will silently
+    win the next time anyone runs it.
+    """
+
+    from PIL import Image
+
+    from scripts.make_logo import render
+
+    with Image.open(resources.logo_path()) as committed:
+        assert committed.convert("RGBA").tobytes() == render(512).tobytes()

@@ -18,6 +18,7 @@ from app.core.codes import describe_characteristic, describe_service_code
 from app.core.constants import EFAST_FILING_URL
 from app.evidence.trail import PlanEvidence
 from app.search.engine import PlanResult
+from app.ui import theme
 from app.ui.widgets.results_table import format_count, format_money
 
 #: Roles shown under "Who holds this account", in order.
@@ -86,32 +87,35 @@ class PlanDetailPanel(QWidget):
 
     # ------------------------------------------------------------------
 
+    def _placeholder(self, heading: str, message: str) -> str:
+        return (
+            f"{self._style()}<div class='empty'>"
+            f"<h3>{heading}</h3><p>{message}</p></div>"
+        )
+
+    def _empty_html(self) -> str:
+        return self._placeholder(
+            "No plan selected",
+            "Select a plan in the results list to see who holds and administers it, "
+            "and the exact DOL filing field each answer comes from.",
+        )
+
+    def _loading_html(self) -> str:
+        return self._placeholder("Loading…", "Reading the filings for this plan.")
+
     def clear(self) -> None:
         self._plan = None
         self._evidence = None
         self.export_button.setEnabled(False)
 
-        placeholder = (
-            "<div style='padding:24px;color:#666'>"
-            "<h3>No plan selected</h3>"
-            "<p>Select a plan in the results list to see who holds and administers it, "
-            "and the exact DOL filing field each answer comes from.</p>"
-            "</div>"
-        )
+        placeholder = self._empty_html()
         for view in (self.overview, self.providers, self.evidence_view, self.filings_view):
             view.setHtml(placeholder)
 
     def set_summary(self, plan: PlanResult | None) -> None:
         """Render what is already known, before the full detail loads."""
 
-        self._plan = plan
-
-        if plan is None:
-            self.clear()
-            return
-
-        self.overview.setHtml(self._overview_html(plan))
-        self.providers.setHtml(self._providers_html(plan))
+        self.set_detail(plan, None)
 
     def set_detail(self, plan: PlanResult | None, evidence: PlanEvidence | None) -> None:
         """Render the full detail once the background load finishes."""
@@ -130,32 +134,39 @@ class PlanDetailPanel(QWidget):
         if evidence is not None:
             self.evidence_view.setHtml(self._evidence_html(evidence))
             self.filings_view.setHtml(self._filings_html(evidence))
+        else:
+            # Still loading, or the load failed. Repainting these rather than
+            # leaving them is what stops a theme change from stranding two tabs
+            # in the previous scheme.
+            loading = self._loading_html()
+            self.evidence_view.setHtml(loading)
+            self.filings_view.setHtml(loading)
+
+    def retheme(self) -> None:
+        """
+        Re-render after a theme change.
+
+        The colours are baked into the HTML at render time, so unlike an
+        ordinary widget these views do not update themselves when the
+        application style sheet changes — they have to be drawn again.
+        """
+
+        self.set_detail(self._plan, self._evidence)
 
     # ------------------------------------------------------------------
 
     @staticmethod
     def _style() -> str:
-        return (
-            "<style>"
-            "body{font-family:'Segoe UI',system-ui,sans-serif;font-size:10pt;}"
-            "h2{margin:0 0 4px 0;font-size:14pt;}"
-            "h3{margin:16px 0 6px 0;font-size:11pt;color:#1a4f8a;"
-            "border-bottom:1px solid #d6dde5;padding-bottom:3px;}"
-            "table{border-collapse:collapse;width:100%;margin:4px 0;}"
-            "td{padding:3px 8px 3px 0;vertical-align:top;}"
-            "td.k{color:#555;width:170px;}"
-            ".sub{color:#666;margin:0 0 10px 0;}"
-            ".tag{background:#eaf1f8;color:#1a4f8a;padding:1px 7px;"
-            "border-radius:9px;margin-right:4px;font-size:9pt;}"
-            ".role{font-weight:bold;color:#1a4f8a;}"
-            ".src{color:#777;font-size:9pt;}"
-            ".hi{color:#1a7f37;font-weight:bold;}"
-            ".med{color:#9a6700;}"
-            ".low{color:#888;}"
-            ".card{border:1px solid #dde3ea;border-radius:5px;"
-            "padding:8px 10px;margin:6px 0;background:#fbfcfd;}"
-            "</style>"
-        )
+        """
+        The CSS every view on this panel is rendered with.
+
+        Read from the active theme rather than written inline, because these
+        panels are ``QTextBrowser`` widgets: Qt's rich-text engine ignores the
+        application style sheet, so hard-coded colours here would paint white
+        cards onto a dark window.
+        """
+
+        return theme.document_css(theme.current())
 
     @staticmethod
     def _confidence_class(confidence: str | None) -> str:
@@ -163,7 +174,8 @@ class PlanDetailPanel(QWidget):
 
     def _overview_html(self, plan: PlanResult) -> str:
         features = "".join(
-            f"<span class='tag'>{escape(_title(feature))}</span>" for feature in plan.features
+            f"<span class='tag'>&nbsp;{escape(_title(feature))}&nbsp;</span>&nbsp; "
+            for feature in plan.features
         )
 
         codes = "".join(
@@ -249,7 +261,7 @@ class PlanDetailPanel(QWidget):
                 reported = f"<div class='src'>Filed as: {escape(party.reported_name)}</div>"
 
             cards.append(
-                f"<div class='card'>"
+                f"<table class='card'><tr><td>"
                 f"<span class='role'>{escape(_title(party.role))}</span> &nbsp;"
                 f"<a href='provider:{escape(party.display_name)}'>{escape(party.display_name)}</a>"
                 f"<span class='{self._confidence_class(party.confidence)}'> "
@@ -257,7 +269,7 @@ class PlanDetailPanel(QWidget):
                 f"{reported}{services}{compensation}"
                 f"<div class='src'>Source: schedule {escape(party.schedule_code or '?')}, "
                 f"field {escape(party.source_field or '?')}, form year {party.form_year}</div>"
-                f"</div>"
+                f"</td></tr></table>"
             )
 
         return (
@@ -280,13 +292,13 @@ class PlanDetailPanel(QWidget):
             sources = items or "<div class='src'>No source record was stored.</div>"
 
             blocks.append(
-                f"<div class='card'>"
+                f"<table class='card'><tr><td>"
                 f"<span class='role'>{escape(_title(finding.role))}</span> "
                 f"{escape(finding.display_name)} "
                 f"<span class='{self._confidence_class(finding.confidence)}'>"
                 f"{escape(finding.confidence or '')}</span>"
                 f"{sources}"
-                f"</div>"
+                f"</td></tr></table>"
             )
 
         return f"""{self._style()}

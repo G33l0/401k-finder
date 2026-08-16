@@ -165,7 +165,10 @@ class SearchPanel(QWidget):
             self.sort_combo.addItem(label, value)
         form.addRow("Sort by:", self.sort_combo)
 
-        self.retirement_only = QCheckBox("Retirement plans only (exclude health and welfare plans)")
+        # Short label, full explanation on hover: the panel is narrow, and the
+        # long form was being clipped mid-word rather than wrapped.
+        self.retirement_only = QCheckBox("Retirement plans only")
+        self.retirement_only.setToolTip("Exclude health and welfare plans from results.")
         self.retirement_only.setChecked(True)
         form.addRow("", self.retirement_only)
 

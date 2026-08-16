@@ -21,7 +21,7 @@ from app.core.config import Settings, get_app_data_dir, get_database_path
 from app.core.constants import LATEST_FORM_YEAR, ProviderRole
 from app.core.exceptions import FinderError, ImportCancelled
 from app.core.logging import configure_logging
-from app.database.init_db import initialize_database, reset_database
+from app.database.init_db import database_exists, initialize_database, reset_database
 from app.database.schema import rebuild_fts
 from app.database.session import read_session, session_scope
 from app.dol.catalog import (
@@ -368,6 +368,15 @@ def cmd_status(args: argparse.Namespace) -> int:
         for slot in ("icon", "logo", "stylesheet"):
             print(f"  {slot + ':':12} {found[slot] or 'not set (using Qt default)'}")
         print()
+
+    # On a machine where the application has never been opened there is no
+    # database yet, and every count below would fail on a missing table. This
+    # is the first command a new installation runs — reporting "nothing yet" is
+    # the answer, not a traceback.
+    if not database_exists():
+        print(f"Database: {get_database_path()}")
+        print("  Not created yet. Run 'init', or open the application once.")
+        return 0
 
     with read_session() as session:
         summary = database_summary(session)

@@ -23,11 +23,32 @@ __all__ = (
     "SCHEMA_VERSION",
     "analyze",
     "current_version",
+    "database_exists",
     "has_fts",
     "initialize_database",
     "rebuild_fts",
     "reset_database",
 )
+
+
+def database_exists(path: Path | None = None) -> bool:
+    """
+    Whether there is a usable database, without creating one.
+
+    Merely opening a SQLite file creates it, so a caller that wants to *ask*
+    rather than *ensure* has to check the file itself. An empty or truncated
+    file counts as absent: the tables would be missing and every query against
+    it would fail.
+    """
+
+    from app.core.config import get_database_path
+
+    target = path or get_database_path()
+
+    try:
+        return target.is_file() and target.stat().st_size > 0
+    except OSError:
+        return False
 
 
 def initialize_database(engine: Engine | None = None) -> int:

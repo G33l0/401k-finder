@@ -283,3 +283,42 @@ def test_migration_removes_pre_existing_duplicate_evidence(tmp_path):
 
     assert remaining == 1, "duplicates were not collapsed before the index was added"
     assert version >= 4
+
+
+def test_status_does_not_crash_before_the_database_exists(tmp_path, capsys, monkeypatch):
+    """
+    'status' is the first command a fresh installation runs — the deployment
+    guide says to run it to confirm the branding was picked up. It used to
+    query the plans table straight away and fail with a SQLAlchemy traceback on
+    a machine where the application had never been opened.
+    """
+
+    import argparse
+
+    from app.cli import cmd_status
+    from app.core import config
+
+    monkeypatch.setattr(config, "get_app_data_dir", lambda: tmp_path)
+    monkeypatch.setattr("app.cli.get_database_path", lambda: tmp_path / "absent.sqlite3")
+    monkeypatch.setattr("app.cli.database_exists", lambda: False)
+
+    assert cmd_status(argparse.Namespace(branding=True, year=None)) == 0
+
+    printed = capsys.readouterr().out
+    assert "Not created yet" in printed
+    assert "Resource folder" in printed
+
+
+def test_database_exists_is_false_for_an_absent_or_empty_file(tmp_path):
+    """Opening a SQLite file creates it, so the check has to be on the file."""
+
+    from app.database.init_db import database_exists
+
+    assert not database_exists(tmp_path / "nothing-here.sqlite3")
+
+    empty = tmp_path / "empty.sqlite3"
+    empty.touch()
+    assert not database_exists(empty), "a zero-byte file has no tables in it"
+
+    empty.write_bytes(b"SQLite format 3\x00")
+    assert database_exists(empty)

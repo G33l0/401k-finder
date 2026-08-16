@@ -176,6 +176,27 @@ provider list and full evidence), **Providers** (which firms hold the most
 plans, and drill into their book), and **Data** (download years, import local
 files, see what is loaded).
 
+#### Themes
+
+**View → Theme** offers three schemes, and the choice is remembered:
+
+| | |
+|---|---|
+| **Light** | The default. A plain, bright document look. |
+| **Dark** | Neutral greys with a blue accent, for low light. |
+| **Hacker** | Near-black with a phosphor-green monospace treatment. |
+
+They are defined in [`app/ui/theme.py`](app/ui/theme.py) as palettes of
+semantic roles — `accent`, `text_muted`, `danger` — rather than as separate
+style sheets, so adding a fourth means adding one `Palette` and nothing else.
+A test asserts that no colour appears in a generated style sheet unless the
+palette supplied it, which is what stops a stray literal turning into the one
+panel that never goes dark.
+
+To adjust the look without editing the source, drop an `app.qss` into
+`app/ui/resources/` — it is appended after whichever theme is active, so its
+rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
+
 ### Command line
 
 ```bash
