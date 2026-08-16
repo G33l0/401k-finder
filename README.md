@@ -299,7 +299,7 @@ app/
     validator.py         Files checked against their published layouts
     schedules/           What each dataset's columns mean
   database/              Models, engine, sessions, versioned schema
-  licensing/             Activation, machine binding, offline grace period
+  licensing/             Signed offline licence keys, bound to one machine
   providers/             Name normalisation, brand table, fuzzy matching
   search/                Query objects and the FTS5-backed search engine
   evidence/              Evidence trail assembly

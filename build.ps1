@@ -314,8 +314,12 @@ if (($licenseMode | Out-String).Trim() -eq 'enforced') {
 This build does NOT require a licence key.
 
 That is correct for development and for builds you give away. If you intend to
-sell this one, set a provider and product id in app\licensing\config.py first
--- see docs\SELLING.md, section 4.
+sell this one, create a signing keypair and paste the public key into
+app\licensing\config.py first:
+
+    python -m scripts.issue_license --new-keypair
+
+-- see docs\SELLING.md, section 3.
 "@
 }
 

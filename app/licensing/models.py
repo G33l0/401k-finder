@@ -2,33 +2,28 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 
 class LicenseState(StrEnum):
     """What the application may do right now."""
 
-    #: Activated and confirmed by the store within the revalidation window.
+    #: A valid key for this machine is installed.
     ACTIVE = "ACTIVE"
-    #: Activated, but the store has not been reachable recently. Still usable
-    #: until the grace period runs out — a customer must never be locked out
-    #: because the seller's infrastructure is unreachable.
-    GRACE = "GRACE"
-    #: No licence has been activated on this machine.
+    #: No licence key has been entered on this machine.
     UNLICENSED = "UNLICENSED"
-    #: The store says this key is no longer valid: refunded, charged back or
-    #: revoked by hand.
-    REVOKED = "REVOKED"
-    #: The key is valid but already activated on as many machines as allowed.
-    SEAT_LIMIT = "SEAT_LIMIT"
-    #: Offline for longer than the grace period allows.
-    EXPIRED_GRACE = "EXPIRED_GRACE"
+    #: The text is not a key, or its signature does not check out.
+    INVALID = "INVALID"
+    #: A genuine key, issued for a different computer.
+    WRONG_MACHINE = "WRONG_MACHINE"
+    #: A genuine key for this computer, past its expiry date.
+    EXPIRED = "EXPIRED"
 
     @property
     def allows_use(self) -> bool:
-        return self in {LicenseState.ACTIVE, LicenseState.GRACE}
+        return self is LicenseState.ACTIVE
 
 
 @dataclass(slots=True)
@@ -38,39 +33,30 @@ class LicenseStatus:
     state: LicenseState
     message: str = ""
 
-    key_suffix: str | None = None
-    customer_email: str | None = None
-    activation_limit: int | None = None
-    activation_count: int | None = None
-    last_validated: datetime | None = None
-    grace_days_remaining: int | None = None
+    label: str | None = None
+    expires: date | None = None
+    days_remaining: int | None = None
+    activated_at: datetime | None = None
 
     @property
     def allows_use(self) -> bool:
         return self.state.allows_use
-
-    @property
-    def is_activated(self) -> bool:
-        return self.state not in {LicenseState.UNLICENSED, LicenseState.REVOKED}
 
     def headline(self) -> str:
         """A single line suitable for a status bar or `license status`."""
 
         match self.state:
             case LicenseState.ACTIVE:
-                return f"Licensed to {self.customer_email or 'this machine'}"
-            case LicenseState.GRACE:
-                days = self.grace_days_remaining
-                return (
-                    "Licensed — could not reach the licence server"
-                    + (f", {days} day(s) of offline use remaining" if days is not None else "")
-                )
-            case LicenseState.SEAT_LIMIT:
-                return "This licence is already in use on the maximum number of machines"
-            case LicenseState.REVOKED:
-                return "This licence is no longer valid"
-            case LicenseState.EXPIRED_GRACE:
-                return "Offline for too long — reconnect to confirm the licence"
+                who = f"Licensed to {self.label}" if self.label else "Licensed"
+                if self.expires is None:
+                    return who
+                return f"{who} — expires {self.expires:%d %B %Y}"
+            case LicenseState.WRONG_MACHINE:
+                return "This licence key belongs to a different computer"
+            case LicenseState.EXPIRED:
+                return "This licence has expired"
+            case LicenseState.INVALID:
+                return "This licence key is not valid"
             case _:
                 return "Not activated"
 
@@ -82,25 +68,12 @@ class ActivationResult:
     ok: bool
     state: LicenseState
     message: str
-    instance_id: str | None = None
-    customer_email: str | None = None
-    activation_limit: int | None = None
-    activation_count: int | None = None
-    raw: dict = field(default_factory=dict)
+    label: str | None = None
+    expires: date | None = None
 
 
 class LicenseError(Exception):
     """Raised when the licence layer cannot complete an operation."""
-
-
-class LicenseNetworkError(LicenseError):
-    """
-    The licence server could not be reached.
-
-    Kept separate from other failures because it must never be treated as "not
-    licensed" — that is the difference between a grace period and locking a
-    paying customer out.
-    """
 
 
 def utcnow() -> datetime:

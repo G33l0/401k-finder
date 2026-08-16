@@ -1,116 +1,82 @@
 """
-Which store issues licences, and how strictly they are enforced.
+Whether this build requires a licence, and who to contact for one.
 
-**Set these before building a release.** Until a provider is configured the
-application runs unlicensed, which is what you want while developing and is
-never what you want in a build you sell — ``is_configured`` exists so the build
-can refuse to ship a release that would give itself away.
+**Set these before building a release.** Until a public key is configured the
+application runs unlicensed, which is what you want while developing and never
+what you want in a build you sell — ``enforced`` exists so the build script can
+refuse to ship a release that would give itself away.
 
-The values are compiled into the executable rather than read from a settings
-file, because a settings file is one a customer could point at a server of
-their own. That is deterrence, not security: see ``docs/SELLING.md`` for an
-honest account of what this does and does not prevent.
+There is no licence server and no payment provider. Keys are issued by the
+owner, by hand, in reply to an email; see ``docs/SELLING.md``. The values are
+compiled into the executable rather than read from a settings file, because a
+settings file is one a customer could edit.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from enum import StrEnum
 
-
-class Provider(StrEnum):
-    """The store whose licence API is in use."""
-
-    #: No licensing. Every check passes. Development default.
-    NONE = "none"
-    LEMON_SQUEEZY = "lemonsqueezy"
-    GUMROAD = "gumroad"
+#: Where customers write to buy a licence or get help. One address: the whole
+#: purchase flow is a conversation, so splitting sales from support would only
+#: create a wrong door to knock on.
+SUPPORT_EMAIL = "aliennyx@aol.com"
 
 
 @dataclass(frozen=True, slots=True)
 class LicenseConfig:
-    provider: Provider = Provider.NONE
+    #: The Ed25519 public key, hex-encoded, whose private half signs keys.
+    #: Empty means licensing is off.
+    public_key: str = ""
 
-    #: Identifies the product within the store, so a key for a different
-    #: product of yours cannot activate this one.
-    #: Lemon Squeezy: the numeric store product id. Gumroad: the product's
-    #: permalink.
-    product_id: str = ""
+    #: Shown wherever a customer needs to get in touch.
+    support_email: str = SUPPORT_EMAIL
 
-    #: Where buyers go. Shown on the activation dialog.
-    purchase_url: str = "https://example.com/buy"
-
-    #: Where customers manage their activations, if the store offers it.
-    account_url: str = ""
-
-    #: Shown when someone needs help with a key.
-    support_email: str = "support@example.com"
-
-    #: Days the application keeps working when the licence server cannot be
-    #: reached. Generous on purpose: an outage on your side, a flight, or a
-    #: corporate proxy must not stop someone who has paid.
-    grace_days: int = 30
-
-    #: How often to re-confirm with the store while online.
-    revalidate_days: int = 7
-
-    #: Seconds before a licence request is abandoned. Short: this runs at
-    #: start-up, and a hanging request would look like a frozen application.
-    timeout: float = 10.0
-
-    @property
-    def is_configured(self) -> bool:
-        return self.provider is not Provider.NONE and bool(self.product_id)
+    #: Named in the activation dialog and the email it drafts.
+    product_name: str = "401K Finder Pro"
 
     @property
     def enforced(self) -> bool:
-        """Whether the application should gate on a licence at all."""
+        """Whether the application should require a licence at all."""
 
-        return self.is_configured
+        return bool(self.public_key.strip())
 
 
 #: ---------------------------------------------------------------------------
 #: Edit this before a release build.
+#:
+#: Generate the pair with:
+#:
+#:     python -m scripts.issue_license --new-keypair
+#:
+#: Paste the *public* key here. Keep the private key off this machine and out
+#: of this repository — anyone holding it can issue licences for your product.
 #: ---------------------------------------------------------------------------
 LICENSE_CONFIG = LicenseConfig(
-    provider=Provider.NONE,
-    product_id="",
-    purchase_url="https://example.com/buy",
-    account_url="",
-    support_email="support@example.com",
+    public_key="",
+    support_email=SUPPORT_EMAIL,
 )
 
 
-#: Environment overrides, for testing an activation flow without rebuilding.
-#: Deliberately read only when the compiled config leaves licensing off, so a
-#: released build cannot have its licensing switched off by an environment
-#: variable.
-_ENV_PROVIDER = "FINDER_401K_LICENSE_PROVIDER"
-_ENV_PRODUCT = "FINDER_401K_LICENSE_PRODUCT"
+#: Environment override, for exercising the activation flow without rebuilding.
+#: Read only when the compiled configuration leaves licensing off, so a
+#: released build cannot have its licensing switched off by setting a variable.
+_ENV_PUBLIC_KEY = "FINDER_401K_LICENSE_PUBKEY"
 
 
 def get_config() -> LicenseConfig:
     """Return the active licence configuration."""
 
-    if LICENSE_CONFIG.is_configured:
+    if LICENSE_CONFIG.enforced:
         return LICENSE_CONFIG
 
-    raw_provider = os.environ.get(_ENV_PROVIDER, "").strip().lower()
-    product = os.environ.get(_ENV_PRODUCT, "").strip()
+    override = os.environ.get(_ENV_PUBLIC_KEY, "").strip()
 
-    if not raw_provider or not product:
-        return LICENSE_CONFIG
-
-    try:
-        provider = Provider(raw_provider)
-    except ValueError:
+    if not override:
         return LICENSE_CONFIG
 
     return LicenseConfig(
-        provider=provider,
-        product_id=product,
-        purchase_url=LICENSE_CONFIG.purchase_url,
-        account_url=LICENSE_CONFIG.account_url,
+        public_key=override,
         support_email=LICENSE_CONFIG.support_email,
+        product_name=LICENSE_CONFIG.product_name,
     )

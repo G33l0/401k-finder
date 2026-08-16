@@ -1,27 +1,28 @@
 # Selling 401K Finder Pro
 
-How to put the installer online, take payment, and issue a licence that is tied
-to one customer's machines.
+How to put the installer online, take payment your own way, and issue a licence
+key that only works on the buyer's computer.
 
-The application already has the client half built: activation, machine binding,
-an offline grace period and the management commands. What remains is choosing a
-store, configuring three values, and the paperwork.
+There is no store integration, no payment provider and no licence server. A
+buyer emails you, you agree a price and a payment method between you, and you
+reply with a key. The application checks that key entirely on the customer's
+machine.
 
-> **Verify before you commit.** Vendor pricing, features and ownership in this
-> space change frequently — Lemon Squeezy was acquired by Stripe, for instance.
-> Treat every fee and feature below as a starting point to check, not as
-> current fact.
+That is a deliberate trade. You give up automated checkout; you get no monthly
+fees, no platform that can suspend your account, no server to keep running, and
+nothing that can be down when a customer is trying to work. It suits a product
+sold in small numbers at a considered price. It does not suit volume.
 
 ---
 
 ## Contents
 
-1. [Start here: what you are actually selling](#1-start-here-what-you-are-actually-selling)
-2. [Choosing a store](#2-choosing-a-store)
-3. [Setting up Lemon Squeezy](#3-setting-up-lemon-squeezy)
-4. [Configuring the application](#4-configuring-the-application)
-5. [Hosting the installer](#5-hosting-the-installer)
-6. [How the licensing works](#6-how-the-licensing-works)
+1. [What you are actually selling](#1-what-you-are-actually-selling)
+2. [How the licensing works](#2-how-the-licensing-works)
+3. [One-time setup: your signing key](#3-one-time-setup-your-signing-key)
+4. [Hosting the installer](#4-hosting-the-installer)
+5. [Selling one: the whole flow](#5-selling-one-the-whole-flow)
+6. [Taking payment](#6-taking-payment)
 7. [What this does not prevent](#7-what-this-does-not-prevent)
 8. [Legal requirements](#8-legal-requirements)
 9. [Supporting customers](#9-supporting-customers)
@@ -29,7 +30,7 @@ store, configuring three values, and the paperwork.
 
 ---
 
-## 1. Start here: what you are actually selling
+## 1. What you are actually selling
 
 Be precise about this, because it shapes your marketing and protects you.
 
@@ -49,76 +50,63 @@ not, and invites a complaint you do not need.
 
 ---
 
-## 2. Choosing a store
+## 2. How the licensing works
 
-The decision that matters is not the checkout page. It is **who is the legal
-seller of record**, because that determines who owes sales tax.
+```
+buyer opens the app     it shows a Machine ID and your email address
+buyer emails you        with that Machine ID
+you agree a price       however you like — the software is not involved
+you issue a key         signed with your private key, for that Machine ID
+buyer pastes the key    checked on the spot, offline, and stored
+every launch after      re-checked against the same machine. No network.
+```
 
-### Merchant of Record
+A key is a small signed record: the machine it was issued for, an optional
+expiry, and the customer's name, all covered by an **Ed25519 signature**.
 
-The platform sells to your customer; you sell to the platform. They register
-for, collect and remit VAT and sales tax in every jurisdiction.
+The application carries only the **public** half of your signing key. That is
+what makes this safe to ship: the public key verifies licences and cannot
+create them. Someone who unpacks the executable finds nothing they can use to
+issue a key.
 
-| | |
-|---|---|
-| **Examples** | Paddle, FastSpring, Lemon Squeezy, Gumroad |
-| **Fees** | Roughly 5% + a fixed amount per transaction |
-| **You handle** | Making the software |
-| **They handle** | Payment, tax registration, filing, invoices, refunds, fraud |
+### Why it is bound to a machine
 
-### Payment processor
+The Machine ID is derived from the Windows `MachineGuid` and the system volume
+serial, then hashed. **It never leaves the customer's computer except when they
+choose to email it to you**, and it is a hash, not a hardware serial — so this
+is not hardware inventory collection and your privacy policy stays short.
 
-| | |
-|---|---|
-| **Examples** | Stripe, PayPal |
-| **Fees** | Roughly 2.9% + 30¢ |
-| **You handle** | Tax registration and filing in every jurisdiction you sell into |
+Because the key names one machine, handing it to a colleague does nothing. So
+does copying `license.json` between computers: the key inside it still names the
+first machine.
 
-### The recommendation
+### Expiring keys
 
-**Use a merchant of record.** The EU charges VAT on digital goods from the first
-sale with no threshold, and roughly a hundred jurisdictions have their own
-rules. The extra ~2% buys you out of a compliance problem that will otherwise
-consume more of your time than the software does.
-
-Of those, **Lemon Squeezy** is the default this guide assumes, because its
-licence API does exactly what "cannot be shared" requires: it issues keys and
-counts machine activations against a limit you set. Gumroad's API counts uses
-but cannot release a seat, so a customer changing laptops needs you to intervene
-by hand.
-
----
-
-## 3. Setting up Lemon Squeezy
-
-1. **Create a store** and complete the payout details.
-2. **Create a product** — "401K Finder Pro", one-time payment, your price.
-3. **Enable licence keys** on the product. Set:
-   - **Activation limit: 2** — enough for a desktop and a laptop. One is
-     technically stricter but generates constant support mail from people who
-     bought a new machine.
-   - **Expiry: never**, for a one-time purchase.
-4. **Upload the installer** as the deliverable, or point the delivery at your own
-   signed URL (see below).
-5. Note the **product ID** — you need it in the next step.
-
-Customers receive their key by email on purchase. The application asks for it
-on first launch.
+Keys are perpetual by default. Pass `--days 365` to issue an annual licence, and
+the application refuses to start the day after it lapses. Use this if you want
+to sell subscriptions — it is the only leverage you have, because **there is no
+revocation**. See section 7.
 
 ---
 
-## 4. Configuring the application
+## 3. One-time setup: your signing key
 
-Open [`app/licensing/config.py`](../app/licensing/config.py) and edit the block
-marked *"Edit this before a release build"*:
+Do this once, before your first release.
+
+```powershell
+python -m scripts.issue_license --new-keypair
+```
+
+It writes a private key to `%USERPROFILE%\.401k-finder\signing-key.hex` and
+prints the matching public key.
+
+Paste the public key into
+[`app/licensing/config.py`](../app/licensing/config.py):
 
 ```python
 LICENSE_CONFIG = LicenseConfig(
-    provider=Provider.LEMON_SQUEEZY,
-    product_id="123456",                          # from your store
-    purchase_url="https://yourstore.lemonsqueezy.com/checkout/...",
-    account_url="https://app.lemonsqueezy.com/my-orders",
-    support_email="support@yourdomain.com",
+    public_key="d4646994930056ecfc3e18bf29cca4a01830e66e963b9064c4ecdcda6563bec0",
+    support_email="aliennyx@aol.com",
 )
 ```
 
@@ -128,40 +116,49 @@ Then rebuild:
 .\build.ps1 -Clean -Installer
 ```
 
-**Until you set a provider, licensing is off and the application runs
+> ### The signing key is the business
+>
+> Anyone holding it can issue licences for your product, for free, forever.
+>
+> - **Back it up.** Lose it and every future key needs a new keypair, which
+>   means a new build and a new key for every existing customer.
+> - **Never commit it.** It is stored outside the repository on purpose.
+> - **Keep it off the build machine** if you can. Issue keys from a laptop, or
+>   pass it through `$env:FINDER_401K_LICENSE_SEED` from a password manager.
+
+**Until you set a public key, licensing is off and the application runs
 unlicensed.** That is the right default for development and for anyone building
 from source, but it means a release built without this step gives itself away.
-Check before you publish:
+`build.ps1` warns you, and you can check directly:
 
 ```powershell
 401k-finder.exe license status
 ```
 
 A build ready to sell says *"Not activated"*. One that is not says *"This build
-has no licence server configured"*.
+has no licence key configured"*.
 
 ### Testing without rebuilding
 
-Environment variables override the compiled configuration, but **only when the
-compiled configuration has licensing switched off** — so a released build cannot
-have its licensing disabled by setting a variable:
+An environment variable overrides the compiled configuration, but **only when
+the compiled configuration has licensing switched off** — so a released build
+cannot have its licensing disabled by setting a variable:
 
 ```powershell
-$env:FINDER_401K_LICENSE_PROVIDER = "lemonsqueezy"
-$env:FINDER_401K_LICENSE_PRODUCT  = "123456"
-python -m app.cli license activate YOUR-TEST-KEY
+$env:FINDER_401K_LICENSE_PUBKEY = "d46469949300..."
+python -m app.cli license status
 ```
 
 ---
 
-## 5. Hosting the installer
+## 4. Hosting the installer
 
 The installer is around 200 MB, so this is a real bandwidth cost at volume.
 
-**Do not put it behind a plain public link.** Anyone who finds the URL skips
-your checkout entirely. Serve it through **expiring signed URLs** issued after
-purchase — most stores do this for you if you upload the file as the
-deliverable.
+Because payment happens by email, you have a choice the automated route does
+not give you: **send the download link only to people who have paid.** A plain
+public link is fine if you would rather let anyone download it and gate on the
+licence instead — an unlicensed copy will not start.
 
 If you host it yourself:
 
@@ -183,49 +180,65 @@ opens with *"Windows protected your PC"* will bleed refunds. See
 
 ---
 
-## 6. How the licensing works
+## 5. Selling one: the whole flow
 
-```
-purchase          store issues a licence key, emails it to the buyer
-first launch      application shows the activation dialog
-activation        POST {key, machine fingerprint} to the store
-                  store checks: valid key? under the activation limit?
-                  yes -> records this machine, returns an instance id
-                  no  -> refused, with the reason
-stored locally    %LOCALAPPDATA%\401K Finder Pro\license.json
-                  signed with a key derived from the machine fingerprint
-every launch      record is fresh (under 7 days) -> start, no network call
-                  record is stale -> re-confirm with the store
-```
+**1. They install and open it.** The activation window shows their Machine ID,
+your email address, and an *"Email us for a licence…"* button that opens a
+message with the Machine ID already in it.
 
-### The machine fingerprint
+**2. They email you.** You will get something like:
 
-Derived from the Windows `MachineGuid` and the system volume serial, then
-hashed. **The store only ever sees the hash**, never a hardware serial — which
-keeps a licence check from becoming hardware inventory collection, and keeps
-your privacy policy short and honest.
+> 401K Finder Pro 2.0.0
+> Machine ID: 2580db0d3f7e83ff3759d14a76731aa2
 
-Customers can see their own with `401k-finder.exe license status`, which is the
-first thing to ask for when someone reports an activation problem.
+**3. You agree a price and take payment.** See the next section.
 
-### Deliberate choices that will save you support mail
-
-| Behaviour | Why |
-|---|---|
-| **30-day offline grace period** | If your store has an outage, or the customer is on a plane or behind a corporate proxy, the application keeps working. Locking out someone who paid because *your* infrastructure is unreachable is the worst possible failure. |
-| **Re-checks only every 7 days** | Ordinary launches cost nothing and work offline. |
-| **Refusal to activate is reported as a network problem when it is one** | Blaming the key for your outage sends confused customers to support. |
-| **Self-service deactivation** | `license deactivate` frees the seat so people can move machines without emailing you. |
-| **Two activations by default** | One is stricter and generates constant mail from people who replaced a laptop. |
-
-### The commands
+**4. You issue the key:**
 
 ```powershell
-401k-finder.exe license status              # what is active, and this machine's ID
-401k-finder.exe license status --check      # force a re-check with the store
-401k-finder.exe license activate KEY        # activate
-401k-finder.exe license deactivate          # release this machine
+python -m scripts.issue_license `
+    --machine 2580db0d3f7e83ff3759d14a76731aa2 `
+    --label "Acme Corp" `
+    --email
 ```
+
+`--email` prints a complete reply — key, activation instructions and the terms —
+ready to paste into your mail client. Without it you get just the key.
+
+Add `--days 365` for an annual licence, or `--expires 2027-03-31` for a fixed
+date.
+
+**5. They paste it in and click Activate.** Done — offline, instantly, and it
+keeps working with no further contact.
+
+### Moving a customer to a new computer
+
+They send the new Machine ID; you issue a new key. There is no seat to release
+and nothing to revoke, so decide your own policy — most people simply reissue.
+If that worries you, sell annual keys, which bound how long a duplicate is
+useful.
+
+---
+
+## 6. Taking payment
+
+The software is not involved, so use whatever you and the buyer agree. Common
+choices, with the thing that actually matters about each:
+
+| Method | Watch out for |
+|---|---|
+| **Bank transfer / invoice** | Best for business buyers, who often prefer it. No fees. Slow to clear. |
+| **PayPal invoice** | Fast and familiar. Buyer-friendly chargeback rules — and you cannot revoke a key after a reversal. |
+| **Stripe payment link** | A link you paste into an email. Around 2.9% + 30¢. You handle your own tax. |
+| **Wise / Revolut** | Good for cross-border, low FX cost. |
+
+**You are the seller of record.** Nobody is collecting VAT or sales tax for you.
+If you sell to consumers in the EU or UK, VAT on digital goods is due from the
+first sale with no threshold. Selling business-to-business inside the EU usually
+shifts that to the buyer under the reverse charge, but you need their VAT
+number on the invoice.
+
+**Take payment before you issue the key.** You cannot take it back afterwards.
 
 ---
 
@@ -235,22 +248,29 @@ Say this to yourself once, clearly: **you cannot make this uncrackable, and any
 vendor who claims otherwise is selling obfuscation theatre.**
 
 The application runs on hardware the customer controls. They can attach a
-debugger, patch the binary, or block the licence server in their hosts file.
-**A PyInstaller build is softer than most** — the Python bytecode sits in the
+debugger, patch the binary, or replace the public key with their own. **A
+PyInstaller build is softer than most** — the Python bytecode sits in the
 archive and can be extracted and decompiled, so someone competent can find and
 remove the check in an afternoon.
 
-What this system actually achieves:
+Be clear about the one real gap in this design:
 
-- Handing a key to a colleague **fails** once the activation limit is reached.
-- Copying `license.json` to another machine **fails** — the signature is bound
-  to the fingerprint.
-- Refunds and chargebacks **end access** at the next re-check.
+> **There is no revocation.** A key, once issued, works on that machine forever
+> (or until its expiry date). If someone pays and reverses the payment, you
+> cannot switch them off. Your only real controls are taking payment first, and
+> issuing keys that expire.
+
+What this system does achieve:
+
+- Handing a key to a colleague **fails** — it names one machine.
+- Copying `license.json` to another machine **fails**, for the same reason.
+- Nobody can build a key generator from the shipped application, because it
+  holds no secret capable of signing.
 - A casual user has no route to sharing that works.
 
-That is the realistic goal, and it is what commercial desktop software actually
-delivers. The people who would crack it were never going to pay; the people who
-would pay are not going to crack it. Spend your effort on the product.
+That is what commercial desktop software actually delivers. The people who would
+crack it were never going to pay; the people who would pay are not going to
+crack it. Spend your effort on the product.
 
 If you later want stronger protection, the meaningful step is not more
 obfuscation — it is **moving something valuable server-side**, so a cracked
@@ -266,13 +286,16 @@ Not optional, and cheap to get right at the start.
 
 1. **EULA / licence terms** — what the customer may do with the software, how
    many machines, no warranty, limitation of liability.
-2. **Privacy policy** — you collect an email address (via the store) and a
-   hashed machine identifier. Both must be disclosed, with a retention period
-   and a contact for deletion requests. The hashed fingerprint is still personal
-   data under GDPR.
-3. **Refund policy** — a merchant of record will require one. EU consumers have
-   a 14-day right of withdrawal for digital goods unless they explicitly waive
-   it at purchase, which the store's checkout normally handles.
+2. **Privacy policy** — you receive an email address and a hashed machine
+   identifier. Both must be disclosed, with a retention period and a contact for
+   deletion requests. The hashed Machine ID is still personal data under GDPR.
+3. **Refund policy** — state it plainly. EU consumers have a 14-day right of
+   withdrawal for digital goods unless they explicitly waive it, and since you
+   are selling directly, getting that waiver in writing before you send the key
+   is on you.
+
+Selling by email means every one of these has to be linked from your site or
+quoted in your reply, because there is no checkout page to carry them.
 
 ### Say what the tool is not
 
@@ -283,12 +306,11 @@ otherwise:
 > financial, legal, tax or investment advice, and it does not evaluate fees,
 > fiduciary conduct or plan health.
 
-### One more
+### Keep a record of what you issued
 
-If you sell into the EU or UK you are processing personal data as a controller.
-That means a lawful basis, a retention period, and honouring deletion requests.
-Keeping the licensing data minimal — an email and a hash — makes this
-straightforward, which is exactly why the fingerprint is hashed.
+The application keeps none. Keep your own list — Machine ID, customer, date,
+expiry, what they paid — or you will not be able to answer "did this person
+buy?" when they email you in two years. A spreadsheet is enough.
 
 ---
 
@@ -297,47 +319,42 @@ straightforward, which is exactly why the fingerprint is hashed.
 Four situations account for nearly all licence mail.
 
 **"My key does not work."** Ask for the output of
-`401k-finder.exe license status`. It shows the machine ID and the last
-confirmation, which is usually enough to see the problem.
+`401k-finder.exe license status`. If it says *"issued for a different
+computer"*, the Machine ID changed — reissue. If it says *"not valid"*, the key
+was truncated in copying; send it again.
 
-**"I have used all my activations."** Look up the key in your store and release
-the stale instance. This is the common case for someone who replaced a machine
-without deactivating first — which is why the limit is 2 rather than 1.
-
-**"It says my licence is not valid."** Check for a refund or chargeback on the
-order. If neither, the store may have been unreachable past the grace period —
-have them run `license status --check` while online.
+**"I have a new computer."** They send the new Machine ID; you issue a new key.
 
 **"I reinstalled Windows and now it will not activate."** A Windows reinstall
-changes `MachineGuid`, so it looks like a new machine. Release the old seat.
+changes `MachineGuid`, so it looks like a new machine. Reissue.
 
-Consider a short **support page** covering these four, and link it from the
-activation dialog's support address. Most customers will solve their own problem
-if you let them.
+**"Nothing happens when I click Email us."** They have no mail client
+configured. The application copies the address and Machine ID to the clipboard
+and says so, so they can write from webmail.
+
+Consider a short **support page** covering these four, and link it from your
+site. Most customers will solve their own problem if you let them.
 
 ---
 
 ## 10. Testing the whole flow
 
-Before announcing anything, buy your own product on a clean machine.
+Before announcing anything, do this on a clean machine.
 
-1. **Configure and build** with your real product ID.
-2. **Confirm licensing is on**: `401k-finder.exe license status` should say
-   *"Not activated"*.
-3. **Buy it yourself**, with a real card, through the real checkout. Use the
-   store's test mode first, then do it live once — the live path is the one
-   your customers take.
-4. **Check the email** arrives, reads clearly, and contains the key.
-5. **Activate** on a clean VM with no Python installed.
-6. **Verify the seat limit**: activate on a second machine (should work), then a
-   third (should be refused with a clear message).
-7. **Verify deactivation** frees the seat.
-8. **Verify offline use**: disconnect and confirm the application still starts.
-9. **Refund yourself**, then run `license status --check` and confirm access
-   ends.
+1. **Create your keypair** and paste the public key into `config.py`.
+2. **Build**, and confirm licensing is on: `401k-finder.exe license status`
+   should say *"Not activated"* and print a Machine ID.
+3. **Install on a clean VM** with no Python.
+4. **Check the activation window**: the Machine ID is visible, Copy works, and
+   *Email us for a licence…* opens a message with the ID already in it.
+5. **Issue a key** with `--email` and check the reply reads well.
+6. **Paste and activate.** It should succeed instantly, with no network.
+7. **Restart, offline.** It must still start.
+8. **Try the same key on a second machine.** It must be refused, naming the
+   reason.
+9. **Issue an expiring key** with `--days 1`, set the machine clock forward, and
+   confirm the application refuses to start and says why.
 10. **Confirm the data still works** — download a form year and run a search.
     Licensing must not have broken the actual product.
 
-Step 9 is the one people skip, and it is the one that determines whether a
-chargeback costs you a sale or costs you a customer who keeps using the
-software for free.
+Step 8 is the one that decides whether you have a product or a giveaway.

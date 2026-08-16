@@ -1,54 +1,36 @@
 """
 The policy layer: may this installation be used right now?
 
-Everything else in this package reports facts. This decides what to do with
-them, and the decisions are deliberately biased towards letting a paying
-customer work:
-
-* An unreachable licence server never blocks use. It starts a grace period.
-* A revoked key does block use, because that is a refund or a chargeback.
-* A seat limit blocks activation, not an activation already granted.
-
-The reasoning is simple: wrongly blocking someone who paid costs a refund and a
-bad review, while wrongly allowing someone for a few more days costs almost
-nothing.
+The whole check is local. A key is a signature over the machine it was issued
+for, so verifying it needs nothing but the public key compiled into the build —
+no network, no account, no server to keep running. That removes the failure
+this layer used to have to work around entirely: there is no outage that can
+lock out someone who has paid, because there is nothing to be down.
 """
 
 from __future__ import annotations
 
+from datetime import date
+
 from app.core.logging import get_logger
-from app.licensing import storage
+from app.licensing import keys, storage
 from app.licensing.config import LicenseConfig, get_config
-from app.licensing.fingerprint import machine_fingerprint, machine_label
-from app.licensing.models import (
-    ActivationResult,
-    LicenseNetworkError,
-    LicenseState,
-    LicenseStatus,
-    utcnow,
-)
-from app.licensing.providers import build_provider
-from app.licensing.storage import ActivationRecord
+from app.licensing.fingerprint import machine_fingerprint
+from app.licensing.models import ActivationResult, LicenseState, LicenseStatus
 
 logger = get_logger(__name__)
 
 
 class LicenseGate:
-    """Answers whether the application is licensed, and activates it."""
+    """Answers whether the application is licensed, and installs a key."""
 
     def __init__(self, config: LicenseConfig | None = None) -> None:
         self.config = config or get_config()
-        self.provider = build_provider(self.config)
 
     # ------------------------------------------------------------------
 
-    def status(self, force_check: bool = False) -> LicenseStatus:
-        """
-        Report the current licensing position.
-
-        The store is only contacted when the local record is stale, so ordinary
-        start-ups cost nothing and work offline.
-        """
+    def status(self, today: date | None = None) -> LicenseStatus:
+        """Report the current licensing position."""
 
         if not self.config.enforced:
             return LicenseStatus(
@@ -56,162 +38,77 @@ class LicenseGate:
                 message="Licensing is not enabled in this build.",
             )
 
-        record = storage.load()
+        stored = storage.load()
 
-        if record is None:
+        if stored is None:
             return LicenseStatus(
                 state=LicenseState.UNLICENSED,
-                message="No licence has been activated on this machine.",
+                message="No licence key has been entered on this computer.",
             )
 
-        age = record.days_since_validation()
+        outcome = keys.check(
+            stored.key, self.config.public_key, machine_fingerprint(), today=today
+        )
 
-        if not force_check and age < self.config.revalidate_days:
-            return self._status_from(record, LicenseState.ACTIVE)
-
-        try:
-            result = self.provider.validate(record.key, record.instance_id)
-        except LicenseNetworkError as exc:
-            logger.info("Licence server unreachable (%s); continuing on the grace period.", exc)
-            return self._grace_status(record)
-
-        if result.state is LicenseState.REVOKED:
-            # Stop trusting a key the store has disowned, but keep the record so
-            # the customer sees which key was refused rather than a bare prompt.
-            return self._status_from(record, LicenseState.REVOKED, result.message)
-
-        if not result.ok:
-            return self._status_from(record, LicenseState.UNLICENSED, result.message)
-
-        record.touch()
-        if result.customer_email:
-            record.customer_email = result.customer_email
-        if result.activation_limit is not None:
-            record.activation_limit = result.activation_limit
-        if result.activation_count is not None:
-            record.activation_count = result.activation_count
-
-        storage.save(record)
-
-        return self._status_from(record, LicenseState.ACTIVE)
+        return LicenseStatus(
+            state=outcome.state,
+            message=outcome.message,
+            label=outcome.key.label or None if outcome.key else None,
+            expires=outcome.key.expires if outcome.key else None,
+            days_remaining=outcome.key.days_remaining(today) if outcome.key else None,
+            activated_at=stored.activated(),
+        )
 
     def allows_use(self) -> bool:
         return self.status().allows_use
 
     # ------------------------------------------------------------------
 
-    def activate(self, key: str) -> ActivationResult:
-        """Activate a licence key on this machine."""
+    def activate(self, key: str, today: date | None = None) -> ActivationResult:
+        """
+        Install a licence key on this machine.
 
-        key = key.strip()
+        The key is stored only if it checks out, so a bad paste cannot leave
+        the application in a state where it refuses to start and offers no way
+        back in.
+        """
 
-        if not key:
-            return ActivationResult(False, LicenseState.UNLICENSED, "Enter a licence key.")
+        if not key.strip():
+            return ActivationResult(False, LicenseState.UNLICENSED, "Enter your licence key.")
 
         if not self.config.enforced:
             return ActivationResult(
                 True, LicenseState.ACTIVE, "Licensing is not enabled in this build."
             )
 
-        fingerprint = machine_fingerprint()
+        outcome = keys.check(key, self.config.public_key, machine_fingerprint(), today=today)
 
-        try:
-            result = self.provider.activate(key, fingerprint, machine_label())
-        except LicenseNetworkError as exc:
-            # Activation genuinely needs the network — there is nothing stored
-            # yet to fall back on — so say so plainly rather than blaming the key.
-            return ActivationResult(
-                False,
-                LicenseState.UNLICENSED,
-                f"Could not reach the licence server. Check your connection and try again. ({exc})",
-            )
+        if not outcome.ok:
+            return ActivationResult(False, outcome.state, outcome.message)
 
-        if not result.ok:
-            return result
+        storage.save(key)
+        logger.info("Licence key accepted on this machine.")
 
-        now = utcnow().isoformat()
-        storage.save(
-            ActivationRecord(
-                key=key,
-                fingerprint=fingerprint,
-                activated_at=now,
-                last_validated=now,
-                instance_id=result.instance_id,
-                customer_email=result.customer_email,
-                activation_limit=result.activation_limit,
-                activation_count=result.activation_count,
-            )
+        return ActivationResult(
+            True,
+            LicenseState.ACTIVE,
+            "Licence activated.",
+            label=outcome.key.label or None if outcome.key else None,
+            expires=outcome.key.expires if outcome.key else None,
         )
-
-        logger.info("Licence activated on this machine.")
-        return result
 
     def deactivate(self) -> ActivationResult:
-        """
-        Release this machine's activation so the licence can be used elsewhere.
+        """Remove the stored key from this machine."""
 
-        The local record is removed even when the store cannot be reached: the
-        customer asked to stop using it here, and refusing would leave them
-        unable to move machines while offline.
-        """
-
-        record = storage.load()
-
-        if record is None:
+        if storage.load() is None:
             return ActivationResult(
-                True, LicenseState.UNLICENSED, "No licence is active on this machine."
+                True, LicenseState.UNLICENSED, "No licence is installed on this computer."
             )
-
-        message = "Licence released from this machine."
-
-        if self.config.enforced and record.instance_id:
-            try:
-                result = self.provider.deactivate(record.key, record.instance_id)
-                message = result.message
-            except LicenseNetworkError:
-                message = (
-                    "Removed from this machine, but the licence server could not be "
-                    "reached — the seat may still show as in use until it is checked again."
-                )
 
         storage.clear()
-        return ActivationResult(True, LicenseState.UNLICENSED, message)
-
-    # ------------------------------------------------------------------
-
-    def _status_from(
-        self,
-        record: ActivationRecord,
-        state: LicenseState,
-        message: str = "",
-    ) -> LicenseStatus:
-        return LicenseStatus(
-            state=state,
-            message=message,
-            key_suffix=record.key_suffix,
-            customer_email=record.customer_email,
-            activation_limit=record.activation_limit,
-            activation_count=record.activation_count,
-            last_validated=record.validated_at(),
+        return ActivationResult(
+            True, LicenseState.UNLICENSED, "Licence removed from this computer."
         )
-
-    def _grace_status(self, record: ActivationRecord) -> LicenseStatus:
-        age = record.days_since_validation()
-        remaining = self.config.grace_days - age
-
-        if remaining <= 0:
-            return self._status_from(
-                record,
-                LicenseState.EXPIRED_GRACE,
-                (
-                    f"This licence has not been confirmed for {int(age)} days. "
-                    f"Connect to the internet to continue."
-                ),
-            )
-
-        status = self._status_from(record, LicenseState.GRACE)
-        status.grace_days_remaining = max(int(remaining), 0)
-        return status
 
 
 _gate: LicenseGate | None = None

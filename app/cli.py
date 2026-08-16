@@ -308,17 +308,16 @@ def cmd_license(args: argparse.Namespace) -> int:
     if args.license_action == "activate":
         result = gate.activate(args.key)
         print(result.message)
-        if result.activation_limit is not None:
-            print(
-                f"  Machines used: {result.activation_count or '?'} "
-                f"of {result.activation_limit}"
-            )
+
+        if result.ok and result.expires is not None:
+            print(f"  Valid until:  {result.expires:%d %B %Y}")
+
         return 0 if result.ok else 1
 
     if args.license_action == "deactivate":
         if not args.yes:
-            print("This releases the licence from this computer so it can be used elsewhere.")
-            if input("Type 'release' to confirm: ").strip().lower() != "release":
+            print("This removes the licence key from this computer.")
+            if input("Type 'remove' to confirm: ").strip().lower() != "remove":
                 print("Cancelled.")
                 return 1
 
@@ -327,30 +326,32 @@ def cmd_license(args: argparse.Namespace) -> int:
         return 0 if result.ok else 1
 
     # Default: report the current position.
-    status = gate.status(force_check=args.check)
+    status = gate.status()
 
     print(status.headline())
 
     if status.message and status.message != status.headline():
         print(f"  {status.message}")
 
-    if status.key_suffix:
-        print(f"  Key:            ...{status.key_suffix}")
-    if status.customer_email:
-        print(f"  Licensed to:    {status.customer_email}")
-    if status.activation_limit is not None:
-        print(
-            f"  Machines used:  {status.activation_count if status.activation_count is not None else '?'}"
-            f" of {status.activation_limit}"
-        )
-    if status.last_validated:
-        print(f"  Last confirmed: {status.last_validated:%Y-%m-%d %H:%M} UTC")
+    if status.label:
+        print(f"  Licensed to:  {status.label}")
+    if status.expires is not None:
+        remaining = status.days_remaining
+        suffix = f" ({remaining} days)" if remaining is not None and remaining >= 0 else ""
+        print(f"  Valid until:  {status.expires:%d %B %Y}{suffix}")
+    if status.activated_at:
+        print(f"  Activated:    {status.activated_at:%Y-%m-%d %H:%M} UTC")
 
-    print(f"  Machine ID:     {machine_fingerprint()}")
-    print(f"  Machine:        {machine_label()}")
+    # The Machine ID is what a customer sends to buy or move a licence, so it
+    # is printed whether or not anything is activated.
+    print(f"  Machine ID:   {machine_fingerprint()}")
+    print(f"  Machine:      {machine_label()}")
 
     if not gate.config.enforced:
-        print("\n  This build has no licence server configured, so no key is required.")
+        print("\n  This build has no licence key configured, so none is required.")
+    elif not status.allows_use:
+        print(f"\n  To get a licence, email {gate.config.support_email}")
+        print("  with the Machine ID above.")
 
     return 0 if status.allows_use else 1
 
@@ -559,23 +560,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     license_parser = sub.add_parser("license", help="Activate or inspect the licence.")
     license_sub = license_parser.add_subparsers(dest="license_action")
-    license_parser.set_defaults(func=cmd_license, license_action="status", key=None, check=False, yes=False)
+    license_parser.set_defaults(
+        func=cmd_license, license_action="status", key=None, yes=False
+    )
 
-    license_status = license_sub.add_parser("status", help="Show the current licence.")
-    license_status.add_argument(
-        "--check", action="store_true", help="Re-confirm with the licence server now."
+    license_status = license_sub.add_parser(
+        "status", help="Show the current licence and this computer's Machine ID."
     )
     license_status.set_defaults(func=cmd_license, key=None, yes=False)
 
-    license_activate = license_sub.add_parser("activate", help="Activate a licence key.")
-    license_activate.add_argument("key", help="The key from your purchase email.")
-    license_activate.set_defaults(func=cmd_license, check=False, yes=False)
+    license_activate = license_sub.add_parser("activate", help="Install a licence key.")
+    license_activate.add_argument("key", help="The key from your licence email.")
+    license_activate.set_defaults(func=cmd_license, yes=False)
 
     license_deactivate = license_sub.add_parser(
-        "deactivate", help="Release the licence from this computer."
+        "deactivate", help="Remove the licence key from this computer."
     )
     license_deactivate.add_argument("--yes", action="store_true", help="Skip the confirmation.")
-    license_deactivate.set_defaults(func=cmd_license, key=None, check=False)
+    license_deactivate.set_defaults(func=cmd_license, key=None)
 
     reset = sub.add_parser("reset", help="Delete and rebuild the local database.")
     reset.add_argument("--yes", action="store_true", help="Skip the confirmation prompt.")

@@ -12,7 +12,7 @@ requires you to understand Python.
 - [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md) — the reference on how the
   packaging works, what the spec file does, and how to troubleshoot it.
 - [`SELLING.md`](SELLING.md) — putting the installer online, taking payment, and
-  licence keys tied to a customer's machines.
+  licence keys issued by email and tied to the buyer's computer.
 - [`../README.md`](../README.md) — what the application does and how to use it.
 
 ---

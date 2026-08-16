@@ -2,17 +2,22 @@
 The activation window shown when a build requires a licence.
 
 This is the first thing a paying customer sees, and often the first thing they
-see when something has gone wrong, so it aims to be a place where every route
-forward is visible: buy, activate, get help, or copy the details support will
-ask for.
+see when something has gone wrong, so every route forward is on it: get a key,
+enter a key, or copy the details needed to ask for help.
 
-Activation runs on a worker thread. It is a network call, and freezing the
-window while it completes would make a slow connection look like a crash.
+Licences are issued by email rather than through a store, which makes the
+customer's **Machine ID** the thing this window exists to hand over. It is
+shown in full, selectable, with one button that copies it and another that
+opens a pre-addressed email containing it. Someone who cannot find their
+Machine ID cannot buy the product.
+
+There is no network call here — a key is checked against the public key
+compiled into the build — so activation is instant and works offline.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QDialog,
@@ -22,6 +27,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -29,45 +35,32 @@ from PySide6.QtWidgets import (
 
 from app import __version__
 from app.licensing import LicenseGate, LicenseState, machine_fingerprint
-from app.licensing.models import ActivationResult
 from app.ui import resources, theme
 
 
-class _ActivationWorker(QThread):
-    """Runs one activation attempt off the UI thread."""
+def _mailto(gate: LicenseGate, subject: str, body: str) -> str:
+    """Build a mailto: link with the machine details already filled in."""
 
-    completed = Signal(object)
+    from urllib.parse import quote
 
-    def __init__(self, gate: LicenseGate, key: str, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._gate = gate
-        self._key = key
-
-    def run(self) -> None:
-        try:
-            result = self._gate.activate(self._key)
-        except Exception as exc:  # noqa: BLE001 - surfaced in the dialog
-            result = ActivationResult(
-                ok=False,
-                state=LicenseState.UNLICENSED,
-                message=f"Activation failed: {exc}",
-            )
-
-        self.completed.emit(result)
+    return (
+        f"mailto:{gate.config.support_email}"
+        f"?subject={quote(subject)}&body={quote(body)}"
+    )
 
 
 class ActivationDialog(QDialog):
-    """Collects a licence key and activates it."""
+    """Collects a licence key and installs it."""
 
     def __init__(self, gate: LicenseGate, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self.gate = gate
-        self._worker: _ActivationWorker | None = None
         self.activated = False
+        self.fingerprint = machine_fingerprint()
 
-        self.setWindowTitle("Activate 401K Finder Pro")
-        self.setMinimumWidth(520)
+        self.setWindowTitle(f"Activate {gate.config.product_name}")
+        self.setMinimumWidth(560)
 
         icon = resources.app_icon()
         if icon is not None:
@@ -82,56 +75,80 @@ class ActivationDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 16)
         layout.setSpacing(12)
 
-        heading = QLabel(f"<h2 style='margin:0'>401K Finder Pro {__version__}</h2>")
+        heading = QLabel(
+            f"<h2 style='margin:0'>{self.gate.config.product_name} {__version__}</h2>"
+        )
         heading.setTextFormat(Qt.RichText)
         layout.addWidget(heading)
 
         intro = QLabel(
-            "Enter the licence key from your purchase confirmation email.<br>"
-            "The key is tied to this computer once activated."
+            "Licences are issued by email. Send us the Machine ID below and we will "
+            f"reply with a key for this computer.<br><br>"
+            f"<b>To buy a licence or ask a question, email "
+            f"<a href='mailto:{self.gate.config.support_email}'>"
+            f"{self.gate.config.support_email}</a></b>"
         )
         intro.setTextFormat(Qt.RichText)
+        intro.setOpenExternalLinks(True)
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX")
-        self.key_input.textChanged.connect(self._on_key_changed)
-        self.key_input.returnPressed.connect(self._activate)
-        layout.addWidget(self.key_input)
+        # --- The Machine ID ------------------------------------------
+        # Read-only rather than a label so it can be selected and copied by
+        # hand, which is what people do when a Copy button does not seem to
+        # have worked.
+        machine_row = QHBoxLayout()
 
-        self.message = QLabel()
-        self.message.setWordWrap(True)
-        self.message.setVisible(False)
-        layout.addWidget(self.message)
+        machine_label = QLabel("Machine ID:")
+        machine_label.setProperty("role", "muted")
+        machine_row.addWidget(machine_label)
+
+        self.machine_field = QLineEdit(self.fingerprint)
+        self.machine_field.setReadOnly(True)
+        self.machine_field.setCursorPosition(0)
+        machine_row.addWidget(self.machine_field, 1)
+
+        layout.addLayout(machine_row)
+
+        buy = QHBoxLayout()
+
+        email_button = QPushButton("Email us for a licence…")
+        email_button.setToolTip(
+            f"Opens your email program with a message to {self.gate.config.support_email}."
+        )
+        email_button.clicked.connect(self._request_licence)
+        buy.addWidget(email_button)
+
+        copy_button = QPushButton("Copy Machine ID")
+        copy_button.clicked.connect(self._copy_machine_id)
+        buy.addWidget(copy_button)
+
+        buy.addStretch(1)
+        layout.addLayout(buy)
 
         rule = QFrame()
         rule.setFrameShape(QFrame.HLine)
         rule.setFrameShadow(QFrame.Sunken)
         layout.addWidget(rule)
 
-        # Buying and support are given equal weight to activating: someone who
-        # arrived here without a key needs a route forward, not a dead end.
-        links = QHBoxLayout()
+        # --- The key ---------------------------------------------------
+        entry_label = QLabel("Paste your licence key here:")
+        layout.addWidget(entry_label)
 
-        buy = QPushButton("Buy a licence…")
-        buy.clicked.connect(lambda: self._open(self.gate.config.purchase_url))
-        links.addWidget(buy)
-
-        if self.gate.config.account_url:
-            manage = QPushButton("Manage my licences…")
-            manage.clicked.connect(lambda: self._open(self.gate.config.account_url))
-            links.addWidget(manage)
-
-        copy_details = QPushButton("Copy support details")
-        copy_details.setToolTip(
-            "Copies this machine's identifier and version, which support may ask for."
+        # A multi-line box, because the key is long and arrives wrapped across
+        # several lines in an email. Pasting it as-is has to work.
+        self.key_input = QPlainTextEdit()
+        self.key_input.setPlaceholderText(
+            "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX…"
         )
-        copy_details.clicked.connect(self._copy_details)
-        links.addWidget(copy_details)
+        self.key_input.setFixedHeight(76)
+        self.key_input.textChanged.connect(self._on_key_changed)
+        layout.addWidget(self.key_input)
 
-        links.addStretch(1)
-        layout.addLayout(links)
+        self.message = QLabel()
+        self.message.setWordWrap(True)
+        self.message.setVisible(False)
+        layout.addWidget(self.message)
 
         support = QLabel(
             f"Need help? <a href='mailto:{self.gate.config.support_email}'>"
@@ -154,8 +171,11 @@ class ActivationDialog(QDialog):
 
     # ------------------------------------------------------------------
 
-    def _on_key_changed(self, text: str) -> None:
-        self.activate_button.setEnabled(len(text.strip()) >= 8)
+    def _key_text(self) -> str:
+        return self.key_input.toPlainText().strip()
+
+    def _on_key_changed(self) -> None:
+        self.activate_button.setEnabled(len(self._key_text()) >= 32)
 
     def _show_message(self, text: str, ok: bool) -> None:
         palette = theme.current()
@@ -164,69 +184,78 @@ class ActivationDialog(QDialog):
         self.message.setText(text)
         self.message.setVisible(True)
 
-    def _open(self, url: str) -> None:
-        if url:
-            QDesktopServices.openUrl(QUrl(url))
-
-    def _copy_details(self) -> None:
-        details = (
-            f"401K Finder Pro {__version__}\n"
-            f"Machine ID: {machine_fingerprint()}\n"
+    def _details(self) -> str:
+        return (
+            f"{self.gate.config.product_name} {__version__}\n"
+            f"Machine ID: {self.fingerprint}\n"
         )
-        QGuiApplication.clipboard().setText(details)
-        self._show_message("Support details copied to the clipboard.", ok=True)
+
+    def _copy_machine_id(self) -> None:
+        QGuiApplication.clipboard().setText(self.fingerprint)
+        self._show_message("Machine ID copied to the clipboard.", ok=True)
+
+    def _request_licence(self) -> None:
+        opened = QDesktopServices.openUrl(
+            QUrl(
+                _mailto(
+                    self.gate,
+                    f"Licence request — {self.gate.config.product_name}",
+                    "Hello,\n\nI would like to buy a licence for "
+                    f"{self.gate.config.product_name}.\n\n{self._details()}\n"
+                    "Thank you.\n",
+                )
+            )
+        )
+
+        if opened:
+            return
+
+        # No mail client configured is common on a fresh Windows install. Put
+        # everything on the clipboard so the customer can still write to us.
+        QGuiApplication.clipboard().setText(
+            f"To: {self.gate.config.support_email}\n\n{self._details()}"
+        )
+        self._show_message(
+            f"No email program is set up on this computer. The address and your "
+            f"Machine ID have been copied to the clipboard — email them to "
+            f"{self.gate.config.support_email} from anywhere.",
+            ok=True,
+        )
 
     # ------------------------------------------------------------------
 
     def _activate(self) -> None:
-        key = self.key_input.text().strip()
+        result = self.gate.activate(self._key_text())
 
-        if len(key) < 8:
-            return
-
-        self.activate_button.setEnabled(False)
-        self.key_input.setEnabled(False)
-        self._show_message("Contacting the licence server…", ok=True)
-
-        worker = _ActivationWorker(self.gate, key, self)
-        worker.completed.connect(self._on_completed)
-        worker.finished.connect(self._clear_worker)
-
-        self._worker = worker
-        worker.start()
-
-    def _clear_worker(self) -> None:
-        self._worker = None
-
-    def _on_completed(self, result: object) -> None:
-        outcome: ActivationResult = result  # type: ignore[assignment]
-
-        self.key_input.setEnabled(True)
-        self.activate_button.setEnabled(True)
-
-        if outcome.ok:
+        if result.ok:
             self.activated = True
+            expiry = (
+                ""
+                if result.expires is None
+                else f"\n\nThis licence is valid until {result.expires:%d %B %Y}."
+            )
             QMessageBox.information(
                 self,
                 "Activated",
-                "Thank you — 401K Finder Pro is activated on this computer.",
+                f"Thank you — {self.gate.config.product_name} is activated on this "
+                f"computer.{expiry}",
             )
             self.accept()
             return
 
-        if outcome.state is LicenseState.SEAT_LIMIT:
+        if result.state is LicenseState.WRONG_MACHINE:
             self._show_message(
-                f"{outcome.message}\n\nRelease a machine you no longer use, "
-                f"or contact {self.gate.config.support_email}.",
+                f"{result.message}\n\nEmail {self.gate.config.support_email} with the "
+                f"Machine ID above and we will issue a key for this one.",
+                ok=False,
+            )
+        elif result.state is LicenseState.EXPIRED:
+            self._show_message(
+                f"{result.message}\n\nEmail {self.gate.config.support_email} to renew.",
                 ok=False,
             )
         else:
-            self._show_message(outcome.message, ok=False)
-
-    def closeEvent(self, event) -> None:  # noqa: ANN001, N802
-        if self._worker is not None and self._worker.isRunning():
-            self._worker.wait(5000)
-        event.accept()
+            self._show_message(result.message, ok=False)
 
 
 def require_license(gate: LicenseGate, parent: QWidget | None = None) -> bool:
@@ -242,15 +271,13 @@ def require_license(gate: LicenseGate, parent: QWidget | None = None) -> bool:
     if status.allows_use:
         return True
 
-    if status.state is LicenseState.REVOKED:
-        QMessageBox.warning(
-            parent,
-            "Licence no longer valid",
-            f"{status.message}\n\nIf you believe this is a mistake, contact "
-            f"{gate.config.support_email}.",
-        )
-
     dialog = ActivationDialog(gate, parent)
+
+    # An expired or foreign key is already stored, so say why the window has
+    # appeared rather than letting it look like a first run.
+    if status.state in {LicenseState.EXPIRED, LicenseState.WRONG_MACHINE}:
+        dialog._show_message(status.message, ok=False)
+
     dialog.exec()
 
     return dialog.activated
