@@ -47,6 +47,13 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# PowerShell 7.3+ can turn a non-zero exit from a native command into a
+# terminating error, which would pre-empt this script's own checks and report
+# them less usefully. Exit codes are inspected explicitly throughout.
+if (Test-Path Variable:\PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
 $ProjectRoot = $PSScriptRoot
 
 # Only default the environment location when -VenvPath was not supplied.
@@ -89,7 +96,21 @@ if (-not $python) {
     throw 'Python was not found on PATH. Install Python 3.11-3.13 from python.org and tick "Add python.exe to PATH".'
 }
 
-$versionText = (& python -c "import sys; print('%d.%d' % sys.version_info[:2])").Trim()
+$versionRaw = & python -c "import sys; print('%d.%d' % sys.version_info[:2])" 2>$null
+$versionText = ($versionRaw | Out-String).Trim()
+
+if ([string]::IsNullOrWhiteSpace($versionText)) {
+    throw @"
+'python' was found on PATH but produced no version output.
+
+This is almost always the Microsoft Store stub, which does nothing except open
+the Store. Install Python from python.org, ticking "Add python.exe to PATH",
+then disable the stub under
+  Settings > Apps > Advanced app settings > App execution aliases
+by switching off "python.exe" and "python3.exe".
+"@
+}
+
 $version = [version]$versionText
 
 if ($version -lt [version]'3.11' -or $version -ge [version]'3.14') {
@@ -108,7 +129,20 @@ if ($Clean) {
 
     foreach ($path in @($BuildPath, $DistPath)) {
         if (Test-Path $path) {
-            Remove-Item $path -Recurse -Force
+            try {
+                Remove-Item $path -Recurse -Force
+            }
+            catch {
+                throw @"
+Could not delete $path
+
+Something is holding a file open in there. The usual causes are a running
+401KFinderPro.exe or 401k-finder.exe from a previous build, an Explorer window
+sitting in that folder, or an antivirus scan still in progress.
+
+Close them and try again.
+"@
+            }
             Write-Ok "Removed $path"
         }
     }
@@ -215,6 +249,8 @@ if (-not $SkipTests) {
 
     # Run from the project root: the project is not pip-installed into the
     # environment, so `import app` resolves through the working directory.
+    $testsFailed = $false
+
     Push-Location $ProjectRoot
     try {
         & $VenvPython -m pytest 'tests' -q
@@ -279,7 +315,10 @@ foreach ($required in @($AppExe, $CliExe)) {
     }
 }
 
-$sizeMb = [math]::Round((Get-ChildItem $AppDir -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
+# -File matters: directories have no Length, and asking for it raises an error
+# that ErrorActionPreference=Stop would turn into an aborted build.
+$sizeMb = [math]::Round(
+    (Get-ChildItem $AppDir -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
 Write-Ok "Built $AppExe ($sizeMb MB)"
 Write-Ok "Built $CliExe"
 
@@ -356,9 +395,12 @@ if ($Installer) {
     if ($LASTEXITCODE -ne 0) { throw 'Inno Setup failed.' }
 
     $setupExe = Join-Path $DistPath "installer\401KFinderPro-Setup-$AppVersion.exe"
-    if (Test-Path $setupExe) {
-        Write-Ok "Built $setupExe"
+    if (-not (Test-Path $setupExe)) {
+        throw "Inno Setup reported success but $setupExe is missing."
     }
+
+    $setupMb = [math]::Round((Get-Item $setupExe).Length / 1MB, 1)
+    Write-Ok "Built $setupExe ($setupMb MB)"
 }
 
 # ---------------------------------------------------------------------------
@@ -367,7 +409,7 @@ Write-Step 'Done'
 Write-Host ''
 Write-Host "  Application: $AppExe"
 if ($Installer) {
-    Write-Host "  Installer:   $(Join-Path $DistPath "installer\401KFinderPro-Setup-$AppVersion.exe")"
+    Write-Host "  Installer:   $setupExe"
 }
 Write-Host ''
 Write-Host '  The application starts with an empty database. Open the Data tab'

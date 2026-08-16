@@ -26,7 +26,7 @@ from app.database.base import Base
 logger = get_logger(__name__)
 
 #: Bumped whenever the physical schema changes.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 #: Columns fed into the full-text index, in the order they are searched.
 FTS_TABLE = "plan_fts"
@@ -131,10 +131,40 @@ def _step_indexes(connection: Connection) -> None:
         connection.exec_driver_sql(statement)
 
 
+def _step_evidence_uniqueness(connection: Connection) -> None:
+    """
+    Make evidence rows unique per source field.
+
+    Databases written before this step may already hold duplicates from a
+    repeated import, so they are collapsed first -- keeping the earliest row of
+    each group -- before the index that forbids them is created.
+    """
+
+    connection.exec_driver_sql(
+        """
+        DELETE FROM evidence
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM evidence
+            GROUP BY ack_id, dataset, source_row, field_name
+        )
+        """
+    )
+    connection.exec_driver_sql(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_evidence_source_field
+        ON evidence (ack_id, dataset, source_row, field_name)
+        """
+    )
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS ix_evidence_plan_year ON evidence (plan_id, form_year)"
+    )
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(1, "Create base tables", _step_initial),
     MigrationStep(2, "Create full-text search indexes", _step_fts),
     MigrationStep(3, "Create search support indexes", _step_indexes),
+    MigrationStep(4, "Deduplicate evidence and enforce uniqueness", _step_evidence_uniqueness),
 )
 
 

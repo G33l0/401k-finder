@@ -174,7 +174,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
     with read_session() as session:
         engine = SearchEngine(session)
-        total = engine.count_plans(query)
+        total, capped = engine.count_plans_detailed(query)
         results = engine.search_plans(query, QueryOptions(include_parties=True, max_parties=40))
 
         if not results:
@@ -182,7 +182,8 @@ def cmd_search(args: argparse.Namespace) -> int:
             print("Run '401k-finder status' to check which years have been imported.")
             return 1
 
-        print(f"{total:,} plan(s) matched; showing {len(results)}.\n")
+        # "+" marks a floor: a broad text search stops counting at the cap.
+        print(f"{total:,}{'+' if capped else ''} plan(s) matched; showing {len(results)}.\n")
 
         for result in results:
             print(f"{result.plan_name}")

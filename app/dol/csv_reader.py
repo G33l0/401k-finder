@@ -41,8 +41,12 @@ def detect_encoding(path: Path, sample_bytes: int = 1 << 20) -> str:
     cp1252 from UTF-8 in these files while staying fast on multi-gigabyte CSVs.
     """
 
+    # The handle is closed before returning. Windows refuses to delete a file
+    # that is still open, and the sync service deletes these CSVs once the
+    # import finishes.
     try:
-        raw = path.open("rb").read(sample_bytes)
+        with path.open("rb") as handle:
+            raw = handle.read(sample_bytes)
     except OSError as exc:
         raise CSVReadError(f"Unable to open CSV file: {path}") from exc
 

@@ -234,7 +234,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_search_finished(self, payload: object) -> None:
-        total, results = payload  # type: ignore[misc]
+        total, capped, results = payload  # type: ignore[misc]
 
         self.plan_table.set_results(results)
 
@@ -245,8 +245,11 @@ class MainWindow(QMainWindow):
             self.detail_panel.clear()
         else:
             shown = len(results)
+            # A capped text search knows only a floor, so say so rather than
+            # presenting a number that is simply wrong.
+            count = f"{total:,}+" if capped else f"{total:,}"
             self.status_message.setText(
-                f"{total:,} plan(s) matched"
+                f"{count} plan(s) matched"
                 + (f"; showing the first {shown:,}." if total > shown else ".")
             )
 
@@ -497,7 +500,7 @@ class MainWindow(QMainWindow):
             self.data_runner,
             self.summary_runner,
         ):
-            runner.stop()
+            runner.shutdown()
 
         try:
             reset_database()
@@ -558,7 +561,7 @@ class MainWindow(QMainWindow):
             self.data_runner,
             self.summary_runner,
         ):
-            runner.stop()
+            runner.shutdown()
 
         self.settings.save()
         event.accept()

@@ -8,7 +8,6 @@ from pathlib import Path
 from platformdirs import user_data_dir
 
 APP_NAME = "401K Finder Pro"
-APP_AUTHOR = "401K Finder Pro"
 
 #: Set this to run against a scratch directory, which is how the test suite and
 #: the portable Windows build keep their data beside the executable.
@@ -19,7 +18,16 @@ def get_app_data_dir() -> Path:
     """Return the application data directory, creating it on first use."""
 
     override = os.environ.get(DATA_DIR_ENV_VAR)
-    path = Path(override).expanduser() if override else Path(user_data_dir(APP_NAME, APP_AUTHOR))
+
+    # appauthor=False matters on Windows: passing an author name nests the data
+    # under %LOCALAPPDATA%\<author>\<appname>, which with an author equal to the
+    # application name produced "401K Finder Pro\401K Finder Pro". Every
+    # document refers to a single folder, so keep it that way.
+    path = (
+        Path(override).expanduser()
+        if override
+        else Path(user_data_dir(APP_NAME, appauthor=False))
+    )
     path.mkdir(parents=True, exist_ok=True)
     return path
 

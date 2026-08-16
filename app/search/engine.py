@@ -25,6 +25,12 @@ logger = get_logger(__name__)
 #: FTS5 treats these as operators, so a user typing them must not break the query.
 _FTS_SPECIALS = re.compile(r'[":\^\*\(\)\-]+')
 
+#: Most text matches this many rows are fetched before filters are applied.
+#: A broad term such as "retirement" matches far more than anyone will read;
+#: the cap keeps the query bounded, and callers are told when it was reached so
+#: they can present the total as a lower bound rather than a wrong exact number.
+TEXT_MATCH_CAP = 5000
+
 
 @dataclass(slots=True)
 class PartyResult:
@@ -181,7 +187,7 @@ class SearchEngine:
                 rows = self.session.execute(
                     text(
                         f"SELECT plan_id FROM {FTS_TABLE} "  # noqa: S608 - table name is a constant
-                        f"WHERE {FTS_TABLE} MATCH :q ORDER BY rank LIMIT 5000"
+                        f"WHERE {FTS_TABLE} MATCH :q ORDER BY rank LIMIT {TEXT_MATCH_CAP}"
                     ),
                     {"q": expression},
                 ).scalars()
@@ -199,7 +205,7 @@ class SearchEngine:
                     Plan.sponsor_dba_name.like(pattern),
                 )
             )
-            .limit(5000)
+            .limit(TEXT_MATCH_CAP)
         ).scalars()
         return [int(value) for value in rows]
 
@@ -428,16 +434,29 @@ class SearchEngine:
     def count_plans(self, query: PlanQuery) -> int:
         """Count matches without hydrating them."""
 
+        return self.count_plans_detailed(query)[0]
+
+    def count_plans_detailed(self, query: PlanQuery) -> tuple[int, bool]:
+        """
+        Return ``(count, is_lower_bound)``.
+
+        Text search reads at most ``TEXT_MATCH_CAP`` matches before filtering,
+        so for a broad term the count is a floor rather than a total. Saying
+        "5,000 matched" when the real figure is 60,000 would be simply wrong,
+        so the flag lets callers render it as "5,000+".
+        """
+
         matched_ids = self._text_filtered_ids(query.text)
+        capped = matched_ids is not None and len(matched_ids) >= TEXT_MATCH_CAP
 
         statement = select(func.count(Plan.id))
         if matched_ids is not None:
             if not matched_ids:
-                return 0
+                return 0, False
             statement = statement.where(Plan.id.in_(matched_ids))
 
         statement = self._apply_filters(statement, query)
-        return int(self.session.execute(statement).scalar() or 0)
+        return int(self.session.execute(statement).scalar() or 0), capped
 
     def get_plan(self, plan_id: int, options: QueryOptions | None = None) -> PlanResult | None:
         """Load one plan with everything attached."""

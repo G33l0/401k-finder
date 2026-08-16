@@ -9,6 +9,7 @@ is not safe to share across threads.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -74,17 +75,23 @@ class TaskRunner(QObject):
     """
     Owns a worker and its thread, and keeps them alive until the work is done.
 
-    The references are deliberately *not* cleared when the thread finishes.
     Dropping the last Python reference to a running QThread makes Qt abort with
-    "QThread: Destroyed while thread is still running", and a ``finished``
-    handler runs while the thread is still winding down — so the previous
-    thread is only released once the next ``start`` has waited for it to stop.
+    "QThread: Destroyed while thread is still running", so a thread is only
+    released once it has actually stopped — either during ``stop``, or later
+    from the ``_retiring`` list.
     """
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._thread: QThread | None = None
         self._worker: Worker | None = None
+        # Signals actually connected for the current worker. Disconnecting one
+        # that was never connected makes PySide emit a RuntimeWarning.
+        self._connected: list[str] = []
+        # Threads that were asked to stop but had not finished yet. They are
+        # held here purely to keep a Python reference alive until Qt is done
+        # with them; see _drain.
+        self._retiring: list[QThread] = []
 
     @property
     def busy(self) -> bool:
@@ -113,11 +120,15 @@ class TaskRunner(QObject):
             worker.failed.connect(on_failed)
         worker.failed.connect(thread.quit)
 
+        connected = ["finished", "failed"]
+
         if on_progress is not None:
             worker.progress.connect(on_progress)
+            connected.append("progress")
 
         self._thread = thread
         self._worker = worker
+        self._connected = connected
 
         thread.start()
 
@@ -127,31 +138,65 @@ class TaskRunner(QObject):
         if self._worker is not None:
             self._worker.cancel()
 
-    def stop(self, wait_ms: int = 10_000) -> None:
+    def stop(self, wait_ms: int = 250) -> None:
         """
-        Cancel the current task and block until its thread has actually stopped.
+        Cancel the current task and let it wind down.
 
-        A task that ignores cancellation — a long single query, say — is given
-        ``wait_ms`` and then left to finish on its own rather than being killed,
-        since terminating a thread mid-transaction would risk the database.
+        The wait is deliberately short. This runs on the UI thread, and a search
+        is replaced every time the user types — blocking here for the length of
+        the previous query would freeze the window for exactly as long as that
+        query takes. A task that has not stopped within ``wait_ms`` is moved to
+        ``_retiring`` and finishes in its own time; its result is discarded
+        because the signals were disconnected first.
         """
 
         thread, self._thread = self._thread, None
-        self._worker, worker = None, self._worker
+        worker, self._worker = self._worker, None
 
         if thread is None:
             return
 
+        connected, self._connected = self._connected, []
+
         if worker is not None:
             worker.cancel()
+
+            # Detach the callbacks so a late result cannot overwrite the newer
+            # task's output. Only signals that were connected are touched.
+            for name in connected:
+                # RuntimeError/TypeError here means the C++ object is already
+                # gone, which is exactly the case we no longer need to detach.
+                with contextlib.suppress(RuntimeError, TypeError):
+                    getattr(worker, name).disconnect()
 
         thread.quit()
 
         if not thread.wait(wait_ms):
-            logger.warning("Background task did not stop within %s ms.", wait_ms)
-            # Hold the reference so Qt does not abort on a still-running thread.
-            self._thread = thread
-            self._worker = worker
+            self._retiring.append(thread)
+
+        self._drain()
+
+    def _drain(self) -> None:
+        """Release threads that have since finished."""
+
+        self._retiring = [thread for thread in self._retiring if thread.isRunning()]
+
+    def shutdown(self, wait_ms: int = 10_000) -> None:
+        """
+        Stop everything and wait properly. For application exit only.
+
+        Here a long wait is correct: the process is going away, and killing a
+        thread mid-transaction would risk the database.
+        """
+
+        self.stop(wait_ms=0)
+
+        for thread in self._retiring:
+            thread.quit()
+            if not thread.wait(wait_ms):
+                logger.warning("A background task did not stop before shutdown.")
+
+        self._retiring.clear()
 
 
 # ----------------------------------------------------------------------
@@ -160,9 +205,10 @@ class TaskRunner(QObject):
 
 
 def search_plans_task(query: PlanQuery, options: QueryOptions) -> WorkFunction:
-    def work(session, _worker) -> tuple[int, list[PlanResult]]:  # noqa: ANN001
+    def work(session, _worker) -> tuple[int, bool, list[PlanResult]]:  # noqa: ANN001
         engine = SearchEngine(session)
-        return engine.count_plans(query), engine.search_plans(query, options)
+        total, capped = engine.count_plans_detailed(query)
+        return total, capped, engine.search_plans(query, options)
 
     return work
 

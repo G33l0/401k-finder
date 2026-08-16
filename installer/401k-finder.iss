@@ -32,8 +32,15 @@ OutputBaseFilename=401KFinderPro-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64compatible
+; "x64compatible" only exists from Inno Setup 6.3. On 6.0-6.2 it is an unknown
+; value and aborts the compile, so select the spelling the compiler understands.
+#if Ver >= EncodeVer(6,3,0,0)
 ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+#else
+ArchitecturesAllowed=x64
+ArchitecturesInstallIn64BitMode=x64
+#endif
 
 ; Installing per-user by default means no administrator prompt, which matters
 ; because this is a research tool people often run on managed workstations.
@@ -52,18 +59,22 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Files]
+; Naming the two executables explicitly makes the compile fail early and
+; clearly if PyInstaller did not produce them. The wildcard then brings in
+; _internal and everything else.
 Source: "{#SourceDir}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\{#CliExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}"; DestName: "README.txt"; Flags: ignoreversion
 Source: "..\docs\WINDOWS_APPLICATION.md"; DestDir: "{app}\docs"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\docs\DEPLOY.md"; DestDir: "{app}\docs"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 ; A shortcut that opens a prompt in the install folder, so the bundled
 ; command line is reachable without the user editing PATH.
-Name: "{group}\{#AppName} command line"; Filename: "{cmd}"; Parameters: "/K echo Run 401k-finder --help to get started. && cd /d ""{app}"""; WorkingDir: "{app}"
+Name: "{group}\{#AppName} command line"; Filename: "{cmd}"; Parameters: "/K 401k-finder.exe --help"; WorkingDir: "{app}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]

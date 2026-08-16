@@ -98,12 +98,16 @@ class DOLDownloader:
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                # Resume on the first attempt too. A part file left by an
+                # earlier invocation is the main case worth resuming -- these
+                # archives run to gigabytes, and restarting from zero after a
+                # dropped connection is the behaviour this exists to avoid.
                 self._stream(
                     url=url,
                     temporary=temporary,
                     progress=progress,
                     should_cancel=should_cancel,
-                    resume=resume and attempt > 1,
+                    resume=resume,
                 )
                 break
             except ImportCancelled:
