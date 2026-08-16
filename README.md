@@ -278,6 +278,7 @@ app/
     validator.py         Files checked against their published layouts
     schedules/           What each dataset's columns mean
   database/              Models, engine, sessions, versioned schema
+  licensing/             Activation, machine binding, offline grace period
   providers/             Name normalisation, brand table, fuzzy matching
   search/                Query objects and the FTS5-backed search engine
   evidence/              Evidence trail assembly
@@ -286,7 +287,7 @@ app/
 database/
   migrations/            Schema snapshots (migrations live in code)
   seeds/                 Extra provider brands you can add without editing code
-docs/                    Deployment walkthrough and packaging reference
+docs/                    Deployment, packaging and selling guides
 installer/               PyInstaller spec and Inno Setup script
 scripts/                 Layout refresh, test-data generation
 tests/                   Test suite

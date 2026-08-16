@@ -23,7 +23,9 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from app.core.logging import configure_logging
+    from app.licensing import get_gate
     from app.ui import resources
+    from app.ui.windows.activation_dialog import require_license
     from app.ui.windows.main_window import MainWindow
 
     configure_logging()
@@ -46,6 +48,11 @@ def main() -> int:
     stylesheet = resources.load_stylesheet()
     if stylesheet:
         app.setStyleSheet(stylesheet)
+
+    # Activation runs before the main window is built. A build with no store
+    # configured passes straight through, so development is unaffected.
+    if not require_license(get_gate()):
+        return 1
 
     window = MainWindow()
     window.show()
