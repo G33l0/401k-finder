@@ -228,6 +228,17 @@ def plan_detail_task(plan_id: int) -> WorkFunction:
     return work
 
 
+def trace_task(history) -> WorkFunction:  # noqa: ANN001 - app.trace.WorkHistory
+    """Trace a work history. Imported lazily so the UI module stays light."""
+
+    from app.trace import AccountTracer
+
+    def work(session, _worker):  # noqa: ANN001
+        return AccountTracer(session).trace(history)
+
+    return work
+
+
 def summary_task() -> WorkFunction:
     from app.services.stats import database_summary
 

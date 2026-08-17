@@ -140,3 +140,15 @@ DOL_FILE_BASE_URL = "https://askebsa.dol.gov/FOIA%20Files"
 EFAST_FILING_URL = "https://www.efast.dol.gov/5500search/"
 
 USER_AGENT = "401K-Finder-Pro (DOL public-data research client)"
+
+
+#: The two-letter codes DOL uses in sponsor addresses. Kept here rather than in
+#: the search panel so headless code — the trace matcher, the CLI — can validate
+#: a state without importing Qt.
+US_STATES: tuple[str, ...] = (
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI",
+    "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN",
+    "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH",
+    "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA",
+    "WV", "WI", "WY",
+)

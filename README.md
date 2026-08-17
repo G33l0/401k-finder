@@ -171,10 +171,11 @@ are studying filing behaviour itself.
 401k-finder-gui
 ```
 
-Three tabs: **Find plans** (search, results, and a detail panel with the
-provider list and full evidence), **Providers** (which firms hold the most
-plans, and drill into their book), and **Data** (download years, import local
-files, see what is loaded).
+Four tabs: **Find plans** (search, results, and a detail panel with the
+provider list and full evidence), **Find my accounts** (trace your own old
+401(k) from a work history — see below), **Providers** (which firms hold the
+most plans, and drill into their book), and **Data** (download years, import
+local files, see what is loaded).
 
 #### Themes
 
@@ -224,6 +225,46 @@ rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
 ```
 
 `401k-finder <command> --help` for the full set of options.
+
+---
+
+## Finding your own old 401(k)
+
+If you are trying to recover a retirement account from a previous employer,
+the **Find my accounts** tab (or `401k-finder trace`) works from your work
+history:
+
+```bash
+401k-finder trace \
+    --employer "Acme Manufacturing" --state OH --from 2008 --to 2012 \
+    --letters --output trace.txt
+```
+
+For each employer it reports the plan, its EIN and plan number, and **the firm
+that was holding the money in the years you worked there** — which is often not
+the firm holding it today. It also detects when a plan was wound up, and reads
+the sponsor name *as filed at the time*, so an employer that has since been
+acquired still matches under the name you remember.
+
+The report ends with a letter you can send, with the plan's details already
+filled in.
+
+### What it cannot do, and why
+
+**It cannot take a Social Security number, and no tool built on this data can.**
+Form 5500 is what an employer files about a *plan*. Across all 448 published
+record layouts there is no participant name, no Social Security number and no
+individual balance — every participant field is a count or an aggregate. There
+is nothing for an SSN to match against.
+
+So this tells you *which plan and who to ask*. It cannot confirm an account
+exists in your name; only the plan's recordkeeper or a participant-level
+registry can do that. Both the application and the report link to the ones that
+take an SSN, chief among them the Department of Labor's
+[Retirement Savings Lost and Found](https://lostandfound.dol.gov/).
+
+An SSN typed into the employer box is detected, refused, and never written to
+the database, the log or an exported report.
 
 ---
 
@@ -300,6 +341,7 @@ app/
     schedules/           What each dataset's columns mean
   database/              Models, engine, sessions, versioned schema
   licensing/             Signed offline licence keys, bound to one machine
+  trace/                 Work-history matching for lost-account searches
   providers/             Name normalisation, brand table, fuzzy matching
   search/                Query objects and the FTS5-backed search engine
   evidence/              Evidence trail assembly

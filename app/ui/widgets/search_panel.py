@@ -17,11 +17,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.constants import PlanFeature, ProviderRole
+from app.core.constants import US_STATES, PlanFeature, ProviderRole
 from app.dol.catalog import supported_years
 from app.search.query import PlanQuery, SortOrder
-
-US_STATES = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
 
 #: The account types someone actually searches for, in the order they matter.
 FEATURE_LABELS: tuple[tuple[str, str], ...] = (

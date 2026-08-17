@@ -33,6 +33,7 @@ from app.ui.widgets.plan_detail import PlanDetailPanel
 from app.ui.widgets.provider_panel import ProviderPanel
 from app.ui.widgets.results_table import PlanTable
 from app.ui.widgets.search_panel import SearchPanel
+from app.ui.widgets.trace_panel import TracePanel
 from app.ui.workers import (
     TaskRunner,
     import_task,
@@ -41,6 +42,7 @@ from app.ui.workers import (
     search_providers_task,
     summary_task,
     sync_task,
+    trace_task,
 )
 
 logger = get_logger(__name__)
@@ -67,6 +69,7 @@ class MainWindow(QMainWindow):
         self.provider_runner = TaskRunner(self)
         self.data_runner = TaskRunner(self)
         self.summary_runner = TaskRunner(self)
+        self.trace_runner = TaskRunner(self)
 
         # The entry point applies the theme before this window exists, so the
         # activation dialog is already in the right scheme. Doing it again here
@@ -123,6 +126,14 @@ class MainWindow(QMainWindow):
 
         search_layout.addWidget(outer)
         self.tabs.addTab(search_tab, "Find plans")
+
+        # --- Find my accounts tab -------------------------------------
+        # Placed before Providers: someone opening this to look for their own
+        # money should meet it early, not after two tabs of research tooling.
+        self.trace_panel = TracePanel()
+        self.trace_panel.trace_requested.connect(self.run_trace)
+        self.trace_panel.export_requested.connect(self.export_trace)
+        self.tabs.addTab(self.trace_panel, "Find my accounts")
 
         # --- Providers tab --------------------------------------------
         self.provider_panel = ProviderPanel()
@@ -545,6 +556,61 @@ class MainWindow(QMainWindow):
         self.provider_panel.set_results([])
         self.refresh_status()
 
+    def run_trace(self, history) -> None:  # noqa: ANN001 - app.trace.WorkHistory
+        """Trace a work history for someone looking for their own accounts."""
+
+        self.status_message.setText(f"Searching {len(history)} employer(s)…")
+
+        self.trace_runner.run(
+            trace_task(history),
+            on_result=self._on_trace_finished,
+            on_error=self._on_trace_failed,
+        )
+
+    def _on_trace_finished(self, report) -> None:  # noqa: ANN001
+        self.trace_panel.show_report(report)
+        self.status_message.setText(
+            f"{report.total_matches} plan(s) found across "
+            f"{len(report.jobs_with_matches)} of {len(report.history)} employer(s)."
+        )
+
+    def _on_trace_failed(self, message: str) -> None:
+        self.trace_panel.set_busy(False)
+        self.status_message.setText("The search failed.")
+        QMessageBox.warning(self, "Search failed", message)
+
+    def export_trace(self, report) -> None:  # noqa: ANN001
+        """Save the trace as a report the person can print or send."""
+
+        from app.trace.packet import render_report
+
+        suggested = "retirement-account-trace.txt"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save report", suggested, "Text files (*.txt);;All files (*)"
+        )
+        if not path:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Include letters?",
+            "Add a ready-to-send letter for each plan found, with its name, EIN "
+            "and plan number already filled in?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+
+        try:
+            Path(path).write_text(
+                render_report(report, letters=answer == QMessageBox.Yes),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+
+        self.status_message.setText(f"Wrote {path}")
+
     def apply_theme(self, name: str) -> None:
         """
         Switch colour scheme, and persist the choice.
@@ -573,6 +639,7 @@ class MainWindow(QMainWindow):
             logger.warning("Could not save the theme setting: %s", exc)
 
         self.detail_panel.retheme()
+        self.trace_panel.retheme()
 
     def show_about(self) -> None:
         from app.ui import resources

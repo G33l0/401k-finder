@@ -14,6 +14,7 @@ on a server, in a scheduled job, or over SSH.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
@@ -300,6 +301,92 @@ def cmd_providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_trace(args: argparse.Namespace) -> int:
+    """Trace a work history against the filings, for a lost-account search."""
+
+    from app.trace import AccountTracer, WorkHistory, looks_like_ssn
+    from app.trace.packet import render_report
+
+    # Checked on the raw arguments, before anything is constructed. Employment
+    # redacts on the way in, so by the time a history exists the number is gone
+    # -- which is right for the log and the database, but would leave the person
+    # staring at an empty report with no idea why.
+    raw = " ".join(filter(None, [*(args.employer or []), args.name or ""]))
+    if args.history and args.history.is_file():
+        with contextlib.suppress(OSError):
+            raw += " " + args.history.read_text(encoding="utf-8-sig", errors="replace")
+
+    if looks_like_ssn(raw):
+        print(
+            "That looks like a Social Security number. It has not been searched for, "
+            "logged or saved.\n\n"
+            "Form 5500 is what employers file about their plans: it names plans, not "
+            "people.\nAcross all 448 published record layouts there is no participant "
+            "name, no Social\nSecurity number and no individual balance, so an SSN has "
+            "nothing to match against\nhere.\n\n"
+            "Search by employer instead:\n"
+            "  401k-finder trace --employer 'Acme Manufacturing' --state OH --from 2008 "
+            "--to 2012\n\n"
+            "The report ends with the registries that *can* be searched by Social "
+            "Security\nnumber, including the Department of Labor's Retirement Savings "
+            "Lost and Found.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.history:
+        try:
+            history = WorkHistory.from_csv(args.history, person=args.name or "")
+        except (OSError, ValueError) as exc:
+            print(f"Could not read {args.history}: {exc}", file=sys.stderr)
+            return 1
+    else:
+        if not args.employer:
+            print(
+                "Give at least one --employer, or a --history CSV.\n"
+                "  401k-finder trace --employer 'Acme Manufacturing' --state OH "
+                "--from 2008 --to 2012",
+                file=sys.stderr,
+            )
+            return 2
+
+        history = WorkHistory(person=args.name or "")
+        for employer in args.employer:
+            history.add(
+                employer,
+                state=args.state,
+                city=args.city,
+                start_year=args.from_year,
+                end_year=args.to_year,
+            )
+
+    if not database_exists():
+        print(
+            f"No database yet at {get_database_path()}.\n"
+            f"Run '401k-finder sync --year 2023' to download a form year first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    with read_session() as session:
+        report = AccountTracer(session).trace(history, limit_per_job=args.limit)
+
+    text = render_report(report, letters=args.letters)
+
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding="utf-8")
+        print(f"Wrote {args.output}")
+        print(
+            f"  {report.total_matches} plan(s) across "
+            f"{len(report.jobs_with_matches)} of {len(history)} job(s)."
+        )
+    else:
+        print(text)
+
+    return 0 if report.total_matches else 1
+
+
 def cmd_license(args: argparse.Namespace) -> int:
     from app.licensing import get_gate, machine_fingerprint, machine_label
 
@@ -557,6 +644,41 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--year", type=int)
     validate.add_argument("--verbose", action="store_true")
     validate.set_defaults(func=cmd_validate)
+
+    trace = sub.add_parser(
+        "trace",
+        help="Find retirement plans from a work history (for a lost-account search).",
+        description=(
+            "Matches employers you have worked for against the filed plans, and "
+            "reports who was holding the money. Form 5500 holds no participant "
+            "records, so this identifies the plan and who to ask -- it cannot "
+            "confirm an account exists in your name."
+        ),
+    )
+    trace.add_argument(
+        "--employer",
+        action="append",
+        help="An employer to search for. Repeat for several.",
+    )
+    trace.add_argument(
+        "--history",
+        type=Path,
+        help=(
+            "CSV of employers. Columns: employer (required), city, state, "
+            "start_year, end_year, note."
+        ),
+    )
+    trace.add_argument("--name", help="The person's name, for the report heading.")
+    trace.add_argument("--state", help="Two-letter state, applied to every --employer.")
+    trace.add_argument("--city")
+    trace.add_argument("--from", dest="from_year", type=int, help="First year worked.")
+    trace.add_argument("--to", dest="to_year", type=int, help="Last year worked.")
+    trace.add_argument("--limit", type=int, default=8, help="Plans per employer.")
+    trace.add_argument(
+        "--letters", action="store_true", help="Append a claim letter per employer."
+    )
+    trace.add_argument("--output", type=Path, help="Write the report to a file.")
+    trace.set_defaults(func=cmd_trace)
 
     license_parser = sub.add_parser("license", help="Activate or inspect the licence.")
     license_sub = license_parser.add_subparsers(dest="license_action")
