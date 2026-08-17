@@ -17,7 +17,7 @@ works.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QDesktopServices, QGuiApplication
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.constants import US_STATES
+from app.core.constants import SOURCE_LABEL, US_STATES
 from app.trace import WorkHistory, looks_like_ssn
 from app.trace.matcher import TraceReport
 from app.trace.resources import RESOURCES
@@ -67,10 +67,11 @@ class TracePanel(QWidget):
 
         intro = QLabel(
             "<b>Looking for a retirement account from an old job?</b><br>"
-            "List the employers you have worked for. This searches what each one "
-            "filed with the Department of Labor, and reports the plan they ran and "
-            "the firm that was holding the money — the details you need before a "
-            "recordkeeper will look you up."
+            "List the employers you have worked for. This searches the official "
+            "filings each one made, and reports the plan they ran and the firm "
+            "that was holding the money — the details you need before a "
+            f"recordkeeper will look you up.<br>"
+            f"<span style='font-size:9pt'>Source: <b>{SOURCE_LABEL}</b></span>"
         )
         intro.setTextFormat(Qt.RichText)
         intro.setWordWrap(True)
@@ -137,7 +138,9 @@ class TracePanel(QWidget):
 
         # --- Results --------------------------------------------------
         self.results = QTextBrowser()
-        self.results.setOpenExternalLinks(True)
+        # External links are deliberately not opened from here; every anchor is
+        # an internal action. See _resources_html.
+        self.results.setOpenExternalLinks(False)
         self.results.anchorClicked.connect(self._on_anchor)
         splitter.addWidget(self.results)
 
@@ -298,10 +301,9 @@ class TracePanel(QWidget):
         text = url.toString()
 
         if text.startswith("copy:"):
-            QGuiApplication.clipboard().setText(text.removeprefix("copy:"))
-            return
-
-        QDesktopServices.openUrl(url)
+            value = text.removeprefix("copy:")
+            QGuiApplication.clipboard().setText(value)
+            self.window().statusBar().showMessage(f"Copied {value}", 4000)
 
     # ------------------------------------------------------------------
     # Rendering
@@ -342,16 +344,26 @@ def _style() -> str:
 
 
 def _resources_html() -> str:
+    """
+    The registries, named rather than linked.
+
+    No web address is shown and nothing here opens a browser. "Copy web
+    address" puts it on the clipboard so the person pastes it in themselves,
+    which is the habit worth building anyway: the one reliable defence against
+    a retirement-account scam is never following a link somebody handed you.
+    """
+
     rows = []
     for resource in RESOURCES:
         phone = f"<div class='src'>Telephone: {resource.phone}</div>" if resource.phone else ""
         caveat = f"<div class='src'>{resource.caveat}</div>" if resource.caveat else ""
         rows.append(
             f"<table class='card'><tr><td>"
-            f"<a href='{resource.url}'><b>{resource.name}</b></a>"
+            f"<span class='role'>{resource.name}</span>"
             f"<div class='src'>{resource.holds}</div>"
             f"<div class='src'><b>You need:</b> {resource.needs}</div>"
             f"{phone}{caveat}"
+            f"<div class='src'><a href='copy:{resource.url}'>Copy web address</a></div>"
             f"</td></tr></table>"
         )
 
@@ -365,8 +377,7 @@ def _intro_html() -> str:
 
 <h3>What this can tell you</h3>
 <p>Every employer-sponsored retirement plan covered by ERISA files a Form 5500
-each year, and the Department of Labor publishes them. From your work history
-this finds:</p>
+each year. From your work history this finds:</p>
 <ul>
 <li>the plan your employer ran, with its exact name, EIN and plan number;</li>
 <li>the recordkeeper, trustee or custodian holding the money <b>in the years you
@@ -385,6 +396,7 @@ nothing to match against, and this tool will refuse it.</p>
 <p>Only the plan's own recordkeeper, or one of the registries below, can confirm
 an account in your name. What this gives you is who to ask, and the plan details
 they will want.</p>
+<p class='src'>Source: {SOURCE_LABEL}</p>
 
 <h3>Where a Social Security number does work</h3>
 {_resources_html()}
@@ -460,7 +472,8 @@ def _report_html(report: TraceReport) -> str:
         f"{_style()}<h2>Results</h2>",
         f"<p class='sub'>{report.total_matches} plan(s) found across "
         f"{len(report.jobs_with_matches)} of {len(report.history)} job(s). "
-        f"Form years held locally: {years}.</p>",
+        f"Form years held locally: {years}.<br>"
+        f"Source: <b>{SOURCE_LABEL}</b></p>",
     ]
 
     for trace in report.traces:

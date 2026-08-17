@@ -306,3 +306,50 @@ def test_detail_panel_rerenders_on_a_theme_change(qt_app):
 
     assert panel.overview.toHtml() != light
     theme.apply(qt_app, theme.DEFAULT_THEME)
+
+
+# ----------------------------------------------------------------------
+# Attribution
+# ----------------------------------------------------------------------
+
+
+def test_the_ui_shows_no_web_addresses():
+    """
+    The application names its source rather than linking to it. A URL rendered
+    on screen invites the reader to go and use the website instead, and makes a
+    paid product look like a shim over a free one.
+
+    The addresses still exist in app/core/constants.py and app/dol — the
+    downloader needs them. This guards presentation only.
+    """
+
+    import re
+    from pathlib import Path
+
+    import app.ui
+
+    address = re.compile(r"https?://")
+    allowed = {"doc.qt.io"}  # a comment pointing at Qt's own documentation
+
+    for source in Path(app.ui.__file__).parent.rglob("*.py"):
+        for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
+            if address.search(line) and not any(host in line for host in allowed):
+                raise AssertionError(f"{source.name}:{number} renders a web address: {line.strip()}")
+
+
+def test_exports_name_the_source_rather_than_linking_to_it():
+    import re
+    from pathlib import Path
+
+    import app.services.export as export_module
+
+    text = Path(export_module.__file__).read_text(encoding="utf-8")
+
+    assert "SOURCE_LABEL" in text
+    assert not re.search(r'"https?://', text)
+
+
+def test_the_source_label_is_the_one_the_product_uses():
+    from app.core.constants import SOURCE_LABEL
+
+    assert SOURCE_LABEL == "Department of Labour Database, USA"

@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.constants import DOL_DATASET_PAGE_URL, LATEST_FORM_YEAR
+from app.core.constants import LATEST_FORM_YEAR, SOURCE_LABEL
 from app.dol.catalog import CORE_DATASET_NAMES, dataset_names_for_year, supported_years
 
 
@@ -46,10 +46,9 @@ class DataManagerPanel(QWidget):
         layout.setSpacing(10)
 
         intro = QLabel(
-            "This application works from the U.S. Department of Labor's public "
-            "Form 5500 datasets. Download a form year below, or import files you "
-            "already have.<br><br>"
-            f"Source: <a href='{DOL_DATASET_PAGE_URL}'>{DOL_DATASET_PAGE_URL}</a>"
+            "This application works from the official public Form 5500 filings. "
+            "Download a form year below, or import files you already have."
+            f"<br><br>Source: <b>{SOURCE_LABEL}</b>"
         )
         intro.setWordWrap(True)
         intro.setOpenExternalLinks(True)
@@ -57,7 +56,7 @@ class DataManagerPanel(QWidget):
         layout.addWidget(intro)
 
         # --- Download -------------------------------------------------
-        download = QGroupBox("Download from the Department of Labor")
+        download = QGroupBox("Download a form year")
         download_layout = QVBoxLayout(download)
 
         row = QHBoxLayout()
@@ -106,7 +105,7 @@ class DataManagerPanel(QWidget):
         local = QGroupBox("Import files already on this computer")
         local_layout = QHBoxLayout(local)
         local_layout.addWidget(
-            QLabel("Choose a folder of DOL CSV files (named as DOL publishes them).")
+            QLabel("Choose a folder of source CSV files, named as they are published.")
         )
         local_layout.addStretch(1)
 
@@ -182,8 +181,8 @@ class DataManagerPanel(QWidget):
 
         confirm = QMessageBox.question(
             self,
-            "Download DOL data",
-            f"Download and import form year {year} from the Department of Labor?\n\n"
+            "Download data",
+            f"Download and import form year {year} from the {SOURCE_LABEL}?\n\n"
             f"This transfers a large amount of data and can take a long time. "
             f"You can keep using the application while it runs, and cancel at any point.",
             QMessageBox.Yes | QMessageBox.No,
@@ -194,7 +193,7 @@ class DataManagerPanel(QWidget):
             self.sync_requested.emit(year, self.core_only.isChecked(), self.force.isChecked())
 
     def _on_import(self) -> None:
-        directory = QFileDialog.getExistingDirectory(self, "Choose a folder of DOL CSV files")
+        directory = QFileDialog.getExistingDirectory(self, "Choose a folder of source CSV files")
         if directory:
             self.import_requested.emit(Path(directory), None)
 

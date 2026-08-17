@@ -200,6 +200,13 @@ def test_evidence_package_explains_each_provider(session, engine_for):
 
 
 def test_evidence_report_names_its_source_dataset(session, engine_for, tmp_path):
+    """
+    A report handed to a client has to say where the facts came from, in the
+    product's own words. Asserted against the constant, not a literal, so the
+    attribution can be reworded in one place.
+    """
+
+    from app.core.constants import SOURCE_LABEL
     from app.services.export import export_evidence_report
 
     results = engine_for.search_plans(PlanQuery(text="acme", limit=1))
@@ -208,8 +215,8 @@ def test_evidence_report_names_its_source_dataset(session, engine_for, tmp_path)
     path = export_evidence_report(package, tmp_path / "evidence.txt")
     content = path.read_text(encoding="utf-8")
 
-    assert "Department of Labor" in content
-    assert "form-5500-datasets" in content
+    assert SOURCE_LABEL in content
+    assert "https://" not in content, "exported reports carry no web addresses"
 
 
 def test_csv_export_flattens_providers_into_columns(session, engine_for, tmp_path):

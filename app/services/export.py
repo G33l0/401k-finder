@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.core.config import get_export_dir
-from app.core.constants import DOL_DATASET_PAGE_URL
+from app.core.constants import SOURCE_LABEL
 from app.evidence.trail import PlanEvidence
 from app.search.engine import PlanResult, ProviderResult
 
@@ -112,7 +112,7 @@ def export_plans_json(results: list[PlanResult], path: Path | None = None) -> Pa
 
     payload = {
         "generated_at": datetime.now(UTC).isoformat(),
-        "source": DOL_DATASET_PAGE_URL,
+        "source": SOURCE_LABEL,
         "plan_count": len(results),
         "plans": [
             {
@@ -191,8 +191,7 @@ def export_evidence_report(package: PlanEvidence, path: Path | None = None) -> P
         "RETIREMENT PLAN PROVIDER EVIDENCE REPORT",
         "=" * 78,
         f"Generated: {generated}",
-        "Source: U.S. Department of Labor Form 5500 datasets",
-        f"        {DOL_DATASET_PAGE_URL}",
+        f"Source: {SOURCE_LABEL}",
         "",
         package.explain(),
         "",
@@ -213,10 +212,12 @@ def export_evidence_report(package: PlanEvidence, path: Path | None = None) -> P
         "-" * 78,
         "VERIFYING THIS REPORT",
         "-" * 78,
-        "Every line above cites the DOL dataset, field and row it came from.",
-        "The original filing images can be retrieved from EBSA's public search:",
-        f"  {package.efast_search_url()}",
-        "Search by the plan sponsor's EIN and plan number shown above.",
+        "Every line above cites the dataset, field and row it came from, in the",
+        f"{SOURCE_LABEL}.",
+        "",
+        "The plan is identified by the sponsor EIN and plan number shown above.",
+        "That pair is what any administrator, recordkeeper or regulator will ask",
+        "for, and is enough to retrieve the original filing from the source.",
         "",
     ]
 

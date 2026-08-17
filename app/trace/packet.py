@@ -15,7 +15,7 @@ from __future__ import annotations
 import textwrap
 from datetime import date
 
-from app.core.constants import EFAST_FILING_URL
+from app.core.constants import SOURCE_LABEL
 from app.trace.matcher import PlanMatch, TraceReport
 from app.trace.resources import Audience, Resource, for_audience
 
@@ -83,8 +83,10 @@ def next_steps(match: PlanMatch) -> list[str]:
         )
 
     steps.append(
-        f"To read the filings yourself, search EIN {match.ein or match.plan_name} at "
-        f"{EFAST_FILING_URL}"
+        f"Everything above comes from the {SOURCE_LABEL}. Quote EIN "
+        f"{match.ein or match.plan_name} and plan number "
+        f"{match.plan_number or '(not reported)'} — that pair identifies the plan "
+        f"to anyone who administers it."
     )
 
     return steps

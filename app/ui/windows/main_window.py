@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from app import __version__
 from app.core.config import Settings, get_app_data_dir, get_database_path
-from app.core.constants import DOL_DATASET_PAGE_URL
+from app.core.constants import SOURCE_LABEL
 from app.core.logging import get_logger
 from app.database.init_db import initialize_database, reset_database
 from app.search.query import PlanQuery, ProviderQuery, QueryOptions
@@ -431,7 +431,7 @@ class MainWindow(QMainWindow):
         if summary.is_empty:  # type: ignore[attr-defined]
             self.status_message.setText(
                 "No data imported yet. Open the Data tab to download a form year "
-                "from the Department of Labor."
+                f"from the {SOURCE_LABEL}."
             )
             return
 
@@ -526,7 +526,7 @@ class MainWindow(QMainWindow):
             "Rebuild database",
             "This deletes every plan, provider and filing imported so far and "
             "starts from an empty database.\n\n"
-            "The Department of Labor source files are public and can be "
+            "The source files are public and can be "
             "downloaded again, so nothing is permanently lost — but re-importing "
             "them takes as long as the original import did.\n\n"
             "Rebuild the database now?",
@@ -654,14 +654,14 @@ class MainWindow(QMainWindow):
 
         dialog.setText(
             f"<h3>401K Finder Pro {__version__}</h3>"
-            "<p>Searches U.S. Department of Labor Form 5500 filings to find "
+            "<p>Searches official Form 5500 filings to find "
             "retirement plans — 401(k), 403(b), 457(b), SEP and SIMPLE, ESOP, "
             "profit sharing, money purchase and defined benefit pensions — and "
             "the firms that hold and administer them.</p>"
             "<p>All data comes from EBSA's public Form 5500 datasets and is "
             "stored locally. Every result cites the dataset, field and row it "
             "came from.</p>"
-            f"<p>Source: <a href='{DOL_DATASET_PAGE_URL}'>Form 5500 datasets</a></p>"
+            f"<p>Source: <b>{SOURCE_LABEL}</b></p>"
             f"<p>Data folder: {get_app_data_dir()}</p>"
         )
         dialog.exec()
