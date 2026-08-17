@@ -422,6 +422,13 @@ Get-FileHash "dist\installer\401KFinderPro-Setup-2.0.0.exe" -Algorithm SHA256
 > while it runs.
 >
 > Everything stays on your computer. Nothing is uploaded.
+>
+> Each form year takes 20–60 GB. If you want more than a year or two and your
+> system disk cannot take it, plug in an external drive and use **Data → Where
+> the data is kept → Choose a drive…**. The drive has to be formatted exFAT or
+> NTFS — a FAT32 stick cannot hold a file large enough and will be refused.
+> Connect it before opening the application, and close the application before
+> ejecting it.
 
 Worth flagging to anyone on a managed corporate network: downloads go through
 `HTTPS_PROXY` if it is set, and a TLS-inspecting proxy also needs the corporate

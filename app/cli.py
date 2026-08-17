@@ -18,7 +18,12 @@ import contextlib
 import sys
 from pathlib import Path
 
-from app.core.config import Settings, get_app_data_dir, get_database_path
+from app.core.config import (
+    Settings,
+    StorageUnavailable,
+    get_app_data_dir,
+    get_database_path,
+)
 from app.core.constants import LATEST_FORM_YEAR, ProviderRole
 from app.core.exceptions import FinderError, ImportCancelled
 from app.core.logging import configure_logging
@@ -297,6 +302,111 @@ def cmd_providers(args: argparse.Namespace) -> int:
         if args.csv:
             path = export_service.export_providers_csv(results, args.csv)
             print(f"\nWrote {path}")
+
+    return 0
+
+
+def cmd_storage(args: argparse.Namespace) -> int:
+    """Show or change where the bulk data is kept."""
+
+    from app.core import storage
+    from app.core.config import get_app_data_dir
+    from app.services.relocate import (
+        RelocationError,
+        current_location,
+        plan_move,
+        relocate,
+        revert_to_internal,
+    )
+
+    if args.storage_action == "list":
+        found = storage.candidates()
+        if not found:
+            print("No removable or external drives detected.")
+            return 0
+
+        print("Drives that could hold the data:\n")
+        for info in found:
+            mark = "  " if info.usable else "! "
+            print(f"{mark}{info.describe()}")
+            for finding in info.findings:
+                if finding.severity is not storage.Severity.NOTE:
+                    print(f"      {finding.severity.value}: {finding.message}")
+        return 0
+
+    if args.storage_action in {"set", "reset"}:
+        def report(name: str, position: int, total: int) -> None:
+            print(f"  moving {name} ({position} of {total})…")
+
+        try:
+            if args.storage_action == "reset":
+                result = revert_to_internal(
+                    move_existing=not args.leave_data, progress=report
+                )
+            else:
+                target = Path(args.path).expanduser()
+                info, payload = plan_move(target, move_existing=not args.leave_data)
+
+                for finding in info.findings:
+                    print(f"  {finding.severity.value}: {finding.message}")
+
+                if info.blockers:
+                    return 1
+
+                if payload and not args.yes:
+                    print(
+                        f"\n{storage.format_bytes(payload)} will be moved from "
+                        f"{current_location()}\nto {target}. This can take a long "
+                        f"time and must not be interrupted."
+                    )
+                    if input("Type 'move' to continue: ").strip().lower() != "move":
+                        print("Cancelled. Nothing was changed.")
+                        return 1
+
+                result = relocate(
+                    target, move_existing=not args.leave_data, progress=report
+                )
+        except RelocationError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+
+        print(f"\n{result.summary()}")
+        return 0
+
+    # Default: report where things are.
+    location = current_location()
+    info = storage.inspect(location)
+
+    print(f"Application folder: {get_app_data_dir()}")
+    print("  settings, logs and the licence always stay here")
+    print()
+    print(f"Data folder:        {location}")
+    print("  database, downloads and extracted CSV files")
+
+    if not location.is_dir():
+        print(
+            "\n  NOT AVAILABLE. If this is a removable drive, connect it — the "
+            "drive letter\n  may also have changed. "
+            "'401k-finder storage reset' returns to internal storage.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if info.filesystem:
+        print(f"  Filesystem:       {info.filesystem}")
+    if info.removable:
+        print("  Removable drive")
+    if info.network:
+        print("  Network location")
+
+    print(f"  {info.describe_space()}")
+
+    held = storage.managed_size(location)
+    if held:
+        print(f"  Currently using:  {storage.format_bytes(held)}")
+
+    for finding in info.findings:
+        print(f"\n  {finding.severity.value}: {finding.message}")
 
     return 0
 
@@ -770,6 +880,45 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--verbose", action="store_true")
     validate.set_defaults(func=cmd_validate)
 
+    storage_parser = sub.add_parser(
+        "storage",
+        help="Show or change where the data is kept (e.g. an external drive).",
+        description=(
+            "A full seventeen years runs to hundreds of gigabytes. The database, "
+            "downloads and extracted files can live on any drive; settings, logs "
+            "and the licence always stay with the application."
+        ),
+    )
+    storage_sub = storage_parser.add_subparsers(dest="storage_action")
+    storage_parser.set_defaults(
+        func=cmd_storage, storage_action="status", path=None, leave_data=False, yes=False
+    )
+
+    storage_status = storage_sub.add_parser("status", help="Show the current location.")
+    storage_status.set_defaults(func=cmd_storage, path=None, leave_data=False, yes=False)
+
+    storage_list = storage_sub.add_parser(
+        "list", help="List drives that could hold the data."
+    )
+    storage_list.set_defaults(func=cmd_storage, path=None, leave_data=False, yes=False)
+
+    storage_set = storage_sub.add_parser("set", help="Move the data to another drive.")
+    storage_set.add_argument("path", help="Folder on the drive, e.g. E:\\401k-data")
+    storage_set.add_argument(
+        "--leave-data",
+        action="store_true",
+        help="Point at the new location without moving what is already there.",
+    )
+    storage_set.add_argument("--yes", action="store_true", help="Skip the confirmation.")
+    storage_set.set_defaults(func=cmd_storage)
+
+    storage_reset = storage_sub.add_parser(
+        "reset", help="Move the data back beside the application."
+    )
+    storage_reset.add_argument("--leave-data", action="store_true")
+    storage_reset.add_argument("--yes", action="store_true")
+    storage_reset.set_defaults(func=cmd_storage, path=None)
+
     index = sub.add_parser(
         "index",
         help="Fetch the employer index for every form year (small and fast).",
@@ -895,6 +1044,14 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         return 130
+    except StorageUnavailable as exc:
+        # The data lives on a drive that is not connected. Said plainly,
+        # because the alternative is a stack trace about a missing table for
+        # somebody whose only problem is an unplugged USB stick.
+        print(f"\n{exc}\n", file=sys.stderr)
+        print("  401k-finder storage          show where the data should be", file=sys.stderr)
+        print("  401k-finder storage reset    go back to internal storage", file=sys.stderr)
+        return 2
     except FinderError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

@@ -21,7 +21,7 @@ does not exist, it says so.
 
 ## 1. Shipped
 
-The three that were ahead of everything else are built. Kept here because the
+The items that were ahead of everything else are built. Kept here because the
 reasoning is the useful part, and because each has a limit worth knowing.
 
 ### 1.1 Follow the money when a plan is wound up ✅
@@ -66,6 +66,23 @@ once, but a plan can still rename or a filer spell a firm two ways — so every
 row carries the schedule and field it was read from. Roles appearing and
 disappearing are off by default: that usually means an unimported schedule, and
 reporting it would read as a wave of losses that never happened.
+
+### 1.4 Keep the data on an external drive ✅
+
+Seventeen years is several hundred gigabytes, which was a hard ceiling on how
+much of the archive anyone could actually hold. The database, downloads and
+extracted CSVs now move to any drive — `401k-finder storage set E:\401k-data`,
+or **Data → Where the data is kept**. Settings, logs, the licence and the
+pointer itself stay on the machine, so the application still starts when the
+drive is out.
+
+**Limits.** FAT32 is refused rather than warned about: it caps a file at 4 GB
+and a form year's database passes that, so an import would die half way through
+with a misleading disk-full error. Network shares work but drop to the rollback
+journal, because WAL needs shared memory that SMB and NFS do not implement. A
+missing drive at start-up gets a dialog, never a silently recreated empty
+database — an empty search result is indistinguishable from having lost
+everything.
 
 ---
 

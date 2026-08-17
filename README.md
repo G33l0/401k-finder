@@ -177,6 +177,45 @@ superseded filings removed — this is what you want. **All** includes every
 filing received, including amendments and duplicates, and is useful only if you
 are studying filing behaviour itself.
 
+### Keeping the data on an external drive
+
+A full seventeen years runs to several hundred gigabytes, which most laptops
+cannot give up. The database, the downloads and the extracted CSV files can live
+on any drive — external, USB, or a network share:
+
+```bash
+401k-finder storage              # where the data is now, and how much room is left
+401k-finder storage list         # drives that could hold it
+401k-finder storage set E:\401k-data
+401k-finder storage reset        # move it back to this computer
+```
+
+In the desktop application the same controls are on the **Data** tab, under
+*Where the data is kept*. Setting a new location moves whatever is already
+there, so nothing has to be downloaded twice.
+
+Only the bulk data moves. Settings, logs and the licence stay on the machine,
+along with the small file recording where the data went — a pointer stored on
+the drive it points at would leave with the drive.
+
+Three things about removable media the application handles for you:
+
+- **FAT32 is refused.** It cannot hold a file over 4 GB and a single form year
+  passes that, so an import would die half way through with a disk-full error
+  that is nothing of the kind. Reformat as exFAT or NTFS first. (Reformatting
+  erases the drive — copy anything you need off it beforehand.)
+- **Network shares work, more slowly.** SQLite's write-ahead journal needs
+  shared memory that network filesystems do not provide, so the database drops
+  to the rollback journal there. A directly connected drive keeps the fast path.
+- **An unplugged drive is reported, not worked around.** If the drive is missing
+  at start-up you get a dialog offering to wait, choose another folder, or go
+  back to internal storage. The application will not quietly create an empty
+  database at the mount point, because an empty search result is
+  indistinguishable from having lost everything.
+
+Connect the drive before opening the application, and close the application
+before ejecting it.
+
 ---
 
 ## Using it

@@ -32,6 +32,7 @@ class DataManagerPanel(QWidget):
 
     sync_requested = Signal(int, bool, bool)  # form_year, core_only, force
     index_requested = Signal(bool)  # force
+    storage_change_requested = Signal(object, bool)  # target path, move existing
     import_requested = Signal(object, object)  # directory, form_year
     cancel_requested = Signal()
     refresh_requested = Signal()
@@ -145,6 +146,43 @@ class DataManagerPanel(QWidget):
 
         layout.addWidget(local)
 
+        # --- Where the data is kept -----------------------------------
+        # Seventeen form years do not fit on most laptops, so the database,
+        # the downloads and the extracted files can live on an external drive.
+        # Only these move: settings, logs and the licence stay on this machine
+        # so the application can still start when the drive is unplugged.
+        where = QGroupBox("Where the data is kept")
+        where_layout = QVBoxLayout(where)
+
+        self.storage_label = QLabel()
+        self.storage_label.setWordWrap(True)
+        self.storage_label.setTextFormat(Qt.RichText)
+        where_layout.addWidget(self.storage_label)
+
+        where_hint = QLabel(
+            "A full seventeen years runs to hundreds of gigabytes. Point this at "
+            "an external or USB drive to keep it off the system disk. The drive "
+            "must be connected before the application starts."
+        )
+        where_hint.setWordWrap(True)
+        where_hint.setProperty("role", "muted")
+        where_layout.addWidget(where_hint)
+
+        where_row = QHBoxLayout()
+        where_row.addStretch(1)
+
+        self.storage_reset_button = QPushButton("Move back to this computer")
+        self.storage_reset_button.clicked.connect(self._on_reset_storage)
+        where_row.addWidget(self.storage_reset_button)
+
+        self.storage_button = QPushButton("Choose a drive…")
+        self.storage_button.clicked.connect(self._on_choose_storage)
+        where_row.addWidget(self.storage_button)
+
+        where_layout.addLayout(where_row)
+
+        layout.addWidget(where)
+
         # --- Progress -------------------------------------------------
         self.progress = QProgressBar()
         self.progress.setVisible(False)
@@ -183,6 +221,7 @@ class DataManagerPanel(QWidget):
         layout.addWidget(self.log)
 
         self._update_estimate()
+        self.refresh_storage()
 
     # ------------------------------------------------------------------
 
@@ -222,6 +261,118 @@ class DataManagerPanel(QWidget):
         if confirm == QMessageBox.Yes:
             self.sync_requested.emit(year, self.core_only.isChecked(), self.force.isChecked())
 
+    def refresh_storage(self) -> None:
+        """Redraw the storage summary from what is actually on disk."""
+
+        from app.core import storage
+        from app.services.relocate import current_location
+        from app.ui import theme
+
+        location = current_location()
+
+        if not location.is_dir():
+            self.storage_label.setText(
+                f"<b style='color:{theme.current().danger}'>Not available:</b> "
+                f"{location}<br>"
+                f"Connect the drive, or move the data back to this computer."
+            )
+            self.storage_reset_button.setEnabled(not self._running)
+            return
+
+        info = storage.inspect(location)
+
+        held = storage.managed_size(location)
+        kind = (
+            "removable drive"
+            if info.removable
+            else "network location"
+            if info.network
+            else "this computer"
+        )
+
+        self.storage_label.setText(
+            f"<b>{location}</b><br>"
+            f"{kind} · {info.filesystem or 'unknown filesystem'} · "
+            f"{info.describe_space()}"
+            + (f" · holding {storage.format_bytes(held)}" if held else "")
+        )
+
+        from app.core.config import get_app_data_dir
+
+        self.storage_reset_button.setEnabled(
+            not self._running and location.resolve() != get_app_data_dir().resolve()
+        )
+
+    def _on_choose_storage(self) -> None:
+        from app.core import storage
+        from app.services.relocate import current_location
+
+        selected = QFileDialog.getExistingDirectory(
+            self, "Choose a folder for the data", str(current_location())
+        )
+        if not selected:
+            return
+
+        target = Path(selected)
+        info = storage.inspect(target)
+
+        if info.blockers:
+            QMessageBox.warning(
+                self,
+                "That drive cannot be used",
+                "\n\n".join(item.message for item in info.blockers),
+            )
+            return
+
+        notes = "\n\n".join(
+            item.message for item in info.findings if item.severity is not storage.Severity.NOTE
+        )
+
+        held = storage.managed_size(current_location())
+        payload = (
+            f"\n\n{storage.format_bytes(held)} of existing data will be moved there. "
+            f"This can take a long time and must not be interrupted."
+            if held
+            else ""
+        )
+
+        confirm = QMessageBox.question(
+            self,
+            "Move the data?",
+            f"Keep the database, downloads and extracted files in:\n\n"
+            f"    {target}\n\n"
+            f"{info.describe_space()}{payload}"
+            + (f"\n\n{notes}" if notes else ""),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+
+        if confirm == QMessageBox.Yes:
+            self.storage_change_requested.emit(target, True)
+
+    def _on_reset_storage(self) -> None:
+        from app.core.config import get_app_data_dir
+        from app.services.relocate import current_location
+
+        available = current_location().is_dir()
+
+        confirm = QMessageBox.question(
+            self,
+            "Move the data back",
+            (
+                f"Move the data back to:\n\n    {get_app_data_dir()}"
+                if available
+                else "The current drive is not available, so nothing can be moved.\n\n"
+                "Start fresh on this computer? The data on the other drive is left "
+                "untouched and can be pointed at again later."
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if confirm == QMessageBox.Yes:
+            self.storage_change_requested.emit(get_app_data_dir(), available)
+
     def _on_index(self) -> None:
         confirm = QMessageBox.question(
             self,
@@ -250,6 +401,10 @@ class DataManagerPanel(QWidget):
         self.sync_button.setEnabled(not running)
         self.index_button.setEnabled(not running)
         self.import_button.setEnabled(not running)
+        self.storage_button.setEnabled(not running)
+        # Moving the data out from under a running import is the one way to
+        # actually lose it, so both storage controls go down together.
+        self.storage_reset_button.setEnabled(not running)
         self.year_combo.setEnabled(not running)
         self.core_only.setEnabled(not running)
         self.force.setEnabled(not running)

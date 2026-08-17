@@ -47,8 +47,10 @@ def _apply_pragmas(connection: Connection) -> None:
     larger cache and memory-backed temp store cut import time substantially.
     """
 
+    from app.database.engine import current_journal_mode
+
     for pragma in (
-        "PRAGMA journal_mode = WAL",
+        f"PRAGMA journal_mode = {current_journal_mode()}",
         "PRAGMA synchronous = NORMAL",
         "PRAGMA foreign_keys = ON",
         "PRAGMA temp_store = MEMORY",

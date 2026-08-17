@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self.data_panel = DataManagerPanel()
         self.data_panel.sync_requested.connect(self.run_sync)
         self.data_panel.index_requested.connect(self.run_index)
+        self.data_panel.storage_change_requested.connect(self.change_storage)
         self.data_panel.import_requested.connect(self.run_import)
         self.data_panel.cancel_requested.connect(self.cancel_data_task)
         self.data_panel.refresh_requested.connect(self.refresh_status)
@@ -246,6 +247,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _startup(self) -> None:
+        self.data_panel.refresh_storage()
+
         try:
             version = initialize_database()
         except Exception as exc:  # noqa: BLE001
@@ -567,6 +570,53 @@ class MainWindow(QMainWindow):
         self.clear_results()
         self.provider_panel.set_results([])
         self.refresh_status()
+
+    def change_storage(self, target, move_existing: bool) -> None:  # noqa: ANN001
+        """
+        Move the data to another drive.
+
+        Run on the UI thread deliberately. It closes the database, and letting
+        a search start against a file that is being moved is exactly the race
+        this feature must not have. A long move blocks the window, which is
+        honest — the alternative is a responsive window over a database that
+        is not there.
+        """
+
+        from app.services.relocate import RelocationError, relocate, revert_to_internal
+
+        self.data_panel.set_running(True)
+        self.status_message.setText("Moving data…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+
+        def report(name: str, position: int, total: int) -> None:
+            self.status_message.setText(f"Moving {name} ({position} of {total})…")
+            QApplication.processEvents()
+
+        try:
+            if Path(target).resolve() == get_app_data_dir().resolve():
+                result = revert_to_internal(move_existing=move_existing, progress=report)
+            else:
+                result = relocate(
+                    Path(target), move_existing=move_existing, progress=report
+                )
+        except RelocationError as exc:
+            QApplication.restoreOverrideCursor()
+            self.data_panel.set_running(False)
+            QMessageBox.warning(self, "Could not move the data", str(exc))
+            self.data_panel.refresh_storage()
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self.data_panel.set_running(False)
+        self.data_panel.append_log(result.summary())
+        self.data_panel.refresh_storage()
+
+        # The engine was disposed for the move; everything below reopens
+        # against the new location.
+        self._startup()
+
+        QMessageBox.information(self, "Data moved", result.summary())
 
     def run_index(self, force: bool) -> None:
         """Fetch the employer index for every published form year."""
