@@ -4,6 +4,8 @@ Improvements ranked by what they are worth against what they cost, for the two
 audiences the product serves: an individual hunting their own money, and a
 business that works with plans for a living.
 
+Section 1 is built. Everything from section 2 onwards is open for consideration.
+
 Everything here is grounded in data the application already downloads, or in a
 limitation observed in the code as it stands. Where something needs data that
 does not exist, it says so.
@@ -17,63 +19,53 @@ does not exist, it says so.
 
 ---
 
-## 1. The three that matter most
+## 1. Shipped
 
-These are ahead of everything else. Each removes a limitation a customer will
-hit on their first serious use.
+The three that were ahead of everything else are built. Kept here because the
+reasoning is the useful part, and because each has a limit worth knowing.
 
-### 1.1 Follow the money when a plan is wound up — **S, high**
+### 1.1 Follow the money when a plan is wound up ✅
 
-The trace report currently tells someone whose plan terminated: *"the filings do
-not record where it went."*
+`F_SCH_H_PART1` carries `PLAN_TRANSFER_EIN`, `PLAN_TRANSFER_NAME` and
+`PLAN_TRANSFER_PN` — the plan that received a wound-up plan's assets. It is now
+read as a plan-to-plan link into `plan_transfers` (schema v5) rather than as a
+service provider, and the dataset joined the core download set.
 
-That is not quite true, and the fix is small.
-`F_SCH_H_PART1` carries **`PLAN_TRANSFER_EIN`**, **`PLAN_TRANSFER_NAME`** and
-**`PLAN_TRANSFER_PN`** — the identity of the plan that received the assets.
-Today the application reads that dataset only for the transferee's *name*, as if
-it were a service provider, and the dataset is not in the core download set at
-all, so an ordinary sync never fetches it.
+The trace follows the chain across hops and reports who administers the plan at
+the far end, so *"your plan was wound up in 2016, merged into this one, and
+Empower holds it now"* replaces *"the filings do not record where it went"*.
 
-Three changes turn that into the most valuable answer the product can give:
+**Limits.** A transferee whose year has never been imported stays unresolved —
+its name and EIN are still reported, and the link fills in by itself when that
+year arrives. A plan that split assets across several transfers is followed
+down the traceable one, and the report says so rather than presenting a guess
+as a fact. Chains stop at 8 hops and detect loops, because real filings contain
+both.
 
-1. Add `F_SCH_H_PART1` to `CORE_DATASET_NAMES`.
-2. Store the transfer as a **plan-to-plan link** (`from_plan`, `to_plan_ein`,
-   `to_plan_number`, `form_year`), not a provider row.
-3. Follow the chain in the trace: *"This plan wound up in 2016 and moved its
-   assets to ACME HOLDINGS 401(K) PLAN, EIN 12-3456789 plan 002 — which is
-   still filing, and its recordkeeper is Empower."*
+### 1.2 A lightweight index across every year ✅
 
-"Where did my money go" is the hardest question in a lost-account search, and
-for merged plans the answer is sitting in a file we already know how to parse.
+`401k-finder index` fetches the two filing forms for every published year — the
+identity columns employer matching needs — and the Data tab has **Index every
+year**. Coverage is tracked per year at three depths, and both the trace report
+and `status` say which years are thin, so "no match" in an index-only year
+cannot be read as "no plan".
 
-### 1.2 A lightweight index across every year — **M, high**
+**Limits.** An index-only year can never name a recordkeeper: every asset holder
+lives on a schedule. A 5500-SF filer does name its trustee on the form itself,
+so the labels say "no provider schedules" rather than "no providers".
 
-The trace is only as good as the years imported, and a full year is 20–60 GB and
-up to an hour. Someone who worked somewhere in 2011 needs 2011 data, so in
-practice they must import a decade to search a decade. Most will not.
+### 1.3 Provider changes, year over year ✅
 
-But employer matching needs almost nothing: sponsor name, EIN, plan number,
-plan name, city, state, first/last year. That is a handful of columns from
-`F_5500` and `F_5500_SF` — well under 1% of the bytes.
+`401k-finder changes` and the **Provider changes** tab compare each plan's filed
+provider between adjacent *observed* years, filter by the firm that lost or won
+the plan, aggregate the flows, and export to CSV.
 
-Add an **index-only sync**: fetch the two main forms for every year, keep the
-identity columns, skip the schedules. A user could then trace across 2009–2025
-in minutes and on a laptop, and be told exactly which years to import in full
-for the provider detail on the plans that matched.
-
-This is the single biggest constraint on the feature you just paid for.
-
-### 1.3 Provider changes, year over year — **S, high (business)**
-
-`PlanParty` already stores every engagement with its form year. Diffing
-consecutive years for a plan yields the one thing every recordkeeper,
-third-party administrator and advisory firm wants to buy:
-
-> *These 43 plans changed recordkeeper last year. 19 left you. Here is who
-> they went to, with assets and participant counts.*
-
-No new data, no new parsing — a query and a report. It is the most commercially
-valuable thing in the dataset and the cheapest to build.
+**Limits.** A change means the filings named a different firm. Provider names
+are consolidated first and the same engagement filed on two schedules is counted
+once, but a plan can still rename or a filer spell a firm two ways — so every
+row carries the schedule and field it was read from. Roles appearing and
+disappearing are off by default: that usually means an unimported schedule, and
+reporting it would read as a wave of losses that never happened.
 
 ---
 
@@ -81,8 +73,6 @@ valuable thing in the dataset and the cheapest to build.
 
 | Improvement | Effort | What it changes |
 |---|---|---|
-| **Successor-plan chain** (§1.1) | S | Answers "where did it go" for wound-up plans |
-| **Index-only sync** (§1.2) | M | Makes a whole career searchable, not one year |
 | **PDF output** | S | The claim letter arrives print-ready, not as a .txt. Fewer people give up at "now open this in Notepad" |
 | **A case log** | M | Records who was written to, when, and what came back. Turns a one-off search into something a person can actually see through over the months these take |
 | **Guided first run** | S | Someone opening this to find a lost 401(k) currently lands on an empty research tool. A short "what are you here for" prompt routing to *Find my accounts* would help |
@@ -101,7 +91,6 @@ against all 448 layouts.
 
 | Improvement | Effort | What it changes |
 |---|---|---|
-| **Provider change detection** (§1.3) | S | Win/loss reporting. The flagship business feature |
 | **Fee benchmarking** | M | Schedule C carries `PROVIDER_OTHER_DIRECT_COMP_AMT` and indirect compensation; the forms carry participant counts and assets. Fee per participant, by plan size band and provider, with percentiles. Advisors sell on exactly this number |
 | **Bulk trace** | S | `--history` already takes a CSV. Extend it to EINs, run unattended, write one report per employer. Serves TPAs and benefits consultants doing many at once |
 | **Watchlists and alerts** | M | Track a set of EINs; on the next sync, report new filings, provider changes, large asset moves, terminations. Turns a one-off purchase into something opened weekly |

@@ -36,7 +36,15 @@ from sqlalchemy.orm import Session
 from app.core.constants import PlanCategory, PlanFeature
 from app.core.exceptions import ImportCancelled
 from app.core.logging import get_logger
-from app.database.models import Evidence, Filing, Plan, PlanParty, Provider, ScheduleRecord
+from app.database.models import (
+    Evidence,
+    Filing,
+    Plan,
+    PlanParty,
+    PlanTransfer,
+    Provider,
+    ScheduleRecord,
+)
 from app.dol.catalog import DATASETS_BY_NAME, DatasetKind
 from app.dol.csv_reader import read_csv_rows
 from app.dol.filing_parser import (
@@ -49,6 +57,9 @@ from app.dol.filing_parser import (
 )
 from app.dol.normalizer import normalize_indicator, parse_money
 from app.dol.provider_extractor import ProviderCandidate, extract_providers
+from app.dol.transfers import DATASET as TRANSFER_DATASET
+from app.dol.transfers import extract_transfer
+from app.plans.successor import resolve_transfers
 from app.providers.normalizer import normalize_provider
 
 logger = get_logger(__name__)
@@ -81,6 +92,7 @@ class ImportStats:
     evidence_created: int = 0
 
     unmatched_ack_ids: int = 0
+    transfers_recorded: int = 0
     errors: list[str] = field(default_factory=list)
 
     elapsed_seconds: float = 0.0
@@ -101,6 +113,7 @@ class ImportStats:
         self.parties_created += other.parties_created
         self.evidence_created += other.evidence_created
         self.unmatched_ack_ids += other.unmatched_ack_ids
+        self.transfers_recorded += other.transfers_recorded
         self.errors.extend(other.errors)
         self.elapsed_seconds += other.elapsed_seconds
 
@@ -109,7 +122,8 @@ class ImportStats:
             f"{self.rows_read:,} rows read, {self.rows_imported:,} imported, "
             f"{self.rows_skipped:,} skipped; {self.plans_created:,} plans, "
             f"{self.filings_created:,} filings, {self.parties_created:,} provider "
-            f"engagements in {self.elapsed_seconds:.1f}s "
+            f"engagements, {self.transfers_recorded:,} asset transfers "
+            f"in {self.elapsed_seconds:.1f}s "
             f"({self.rows_per_second:,.0f} rows/s)"
         )
 
@@ -624,6 +638,7 @@ class DOLImporter:
         source_file = str(path)
 
         record_buffer: list[dict[str, Any]] = []
+        transfer_buffer: list[dict[str, Any]] = []
         pending_providers: list[tuple[str, list[ProviderCandidate], int, str]] = []
         filing_updates: list[dict[str, Any]] = []
         seen_records: set[tuple[str, int | None]] = set()
@@ -634,6 +649,7 @@ class DOLImporter:
             if stats.rows_read % self.batch_size == 0:
                 self._check_cancelled()
                 self._flush_schedule_records(record_buffer, stats)
+                self._flush_transfers(transfer_buffer, stats)
                 self._flush_filing_updates(filing_updates)
                 self._flush_providers(pending_providers, form_year, source_file, stats)
 
@@ -696,6 +712,24 @@ class DOLImporter:
             if candidates and plan_id is not None:
                 pending_providers.append((ack_id, candidates, row_number, dataset))
 
+            if dataset == TRANSFER_DATASET and plan_id is not None:
+                target = extract_transfer(row)
+                if target is not None:
+                    transfer_buffer.append(
+                        {
+                            "from_plan_id": plan_id,
+                            "ack_id": ack_id,
+                            "form_year": form_year,
+                            "to_name": target.name,
+                            "to_ein": target.ein,
+                            "to_plan_number": target.plan_number,
+                            "to_plan_id": None,
+                            "source_file": source_file,
+                            "source_row": row_number,
+                            "created_at": _utcnow(),
+                        }
+                    )
+
             if filing_id is not None:
                 enrichment = self._filing_enrichment(row, dataset, filing_id)
                 if enrichment is not None:
@@ -708,6 +742,7 @@ class DOLImporter:
 
         self._check_cancelled()
         self._flush_schedule_records(record_buffer, stats)
+        self._flush_transfers(transfer_buffer, stats)
         self._flush_filing_updates(filing_updates)
         self._flush_providers(pending_providers, form_year, source_file, stats)
         self.session.commit()
@@ -843,6 +878,21 @@ class DOLImporter:
         if party_rows or evidence_rows:
             self.session.flush()
 
+        buffer.clear()
+
+    def _flush_transfers(self, buffer: list[dict[str, Any]], stats: ImportStats) -> None:
+        """
+        Write the plan-to-plan transfers collected from Schedule H Part 1.
+
+        ``INSERT OR IGNORE`` against the unique constraint makes a re-import
+        idempotent, which matters here because a year is commonly re-imported
+        after the matching filing dataset arrives.
+        """
+
+        if not buffer:
+            return
+
+        stats.transfers_recorded += self._insert_ignoring_duplicates(PlanTransfer, buffer)
         buffer.clear()
 
     def _insert_ignoring_duplicates(self, model, rows: list[dict[str, Any]]) -> int:
@@ -1075,6 +1125,52 @@ def refresh_plan_rollups(session: Session) -> int:
     return int(result.rowcount or 0)
 
 
+#: Release label for files imported from disk rather than downloaded. Kept
+#: distinct from DOL's own "Latest" and "All" so a local import never looks like
+#: a completed sync of the published release.
+LOCAL_RELEASE = "Local"
+
+
+def _record_local_import(
+    session: Session, form_year: int, dataset: str, path: Path, stats: ImportStats
+) -> None:
+    """
+    Note that a dataset arrived, however it arrived.
+
+    Without this, importing files from disk left no record, so anything asking
+    "which years do we hold, and how completely" -- the Data tab, the coverage
+    report the trace leans on -- saw nothing at all.
+    """
+
+    from app.database.models import ImportedDataset
+
+    existing = session.execute(
+        select(ImportedDataset).where(
+            ImportedDataset.form_year == form_year,
+            ImportedDataset.dataset == dataset,
+            ImportedDataset.release == LOCAL_RELEASE,
+        )
+    ).scalar_one_or_none()
+
+    record = existing or ImportedDataset(
+        form_year=form_year, dataset=dataset, release=LOCAL_RELEASE
+    )
+
+    record.status = "COMPLETED"
+    record.source_file = str(path)
+    record.rows_read = stats.rows_read
+    record.rows_imported = stats.rows_imported
+    record.rows_skipped = stats.rows_skipped
+    record.parties_created = stats.parties_created
+    record.finished_at = _utcnow()
+    record.error = None
+
+    if existing is None:
+        session.add(record)
+
+    session.commit()
+
+
 def import_directory(
     session: Session,
     directory: Path,
@@ -1120,7 +1216,9 @@ def import_directory(
 
     for path, dataset, year in discovered:
         try:
-            total.merge(importer.import_file(path, dataset, year))
+            stats = importer.import_file(path, dataset, year)
+            total.merge(stats)
+            _record_local_import(session, year, dataset, path, stats)
         except ImportCancelled:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -1128,7 +1226,10 @@ def import_directory(
             logger.exception("Failed to import %s", path)
 
     # Rollups run last: they aggregate over everything just imported, and the
-    # provider figures depend on the plan figures being current.
+    # provider figures depend on the plan figures being current. Transfers are
+    # resolved first because a transfer only links once both plans exist, and
+    # the plan that received the assets may have arrived in this same run.
+    resolve_transfers(session)
     refresh_plan_rollups(session)
     refresh_provider_rollups(session)
 

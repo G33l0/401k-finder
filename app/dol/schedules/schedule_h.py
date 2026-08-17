@@ -37,8 +37,17 @@ def definitions(form_year: int) -> tuple[ScheduleDefinition, ...]:
                 name="Schedule H Part 1 - Transfers to Other Plans",
                 form_year=form_year,
                 dataset="F_SCH_H_PART1",
-                provider_columns=("PLAN_TRANSFER_NAME",),
-                notes="Plans that assets were transferred to during the year.",
+                # Deliberately no provider columns. The name here is another
+                # *plan*, not a firm the plan paid, and filing it as a provider
+                # both polluted the provider list and discarded the EIN and plan
+                # number that make the transferee findable. It is read by
+                # app.dol.transfers into plan_transfers instead.
+                provider_columns=(),
+                notes=(
+                    "Names the plan that assets were transferred to. The only "
+                    "statement in the dataset about where a wound-up plan's "
+                    "money went."
+                ),
                 aliases=("SCH_H_PART1",),
             )
         )

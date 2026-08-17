@@ -9,7 +9,7 @@ a full form year is tens of gigabytes.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,7 +23,7 @@ from app.core.logging import get_logger
 from app.database.models import ImportedDataset
 from app.database.schema import analyze, rebuild_fts
 from app.dol.archive import safe_extract_zip
-from app.dol.catalog import DatasetRelease, Release, plan_sync
+from app.dol.catalog import DatasetRelease, Release, plan_sync, supported_years
 from app.dol.csv_reader import count_rows, find_csv_files
 from app.dol.downloader import DOLDownloader
 from app.dol.importer import (
@@ -33,6 +33,7 @@ from app.dol.importer import (
     refresh_provider_rollups,
 )
 from app.dol.validator import ValidationResult, validate_csv_file
+from app.plans.successor import resolve_transfers
 
 logger = get_logger(__name__)
 
@@ -303,6 +304,7 @@ class SyncService:
         datasets: tuple[str, ...] | None = None,
         core_only: bool | None = None,
         force: bool = False,
+        index_only: bool = False,
     ) -> SyncReport:
         """
         Sync a whole form year.
@@ -319,6 +321,7 @@ class SyncService:
             release=chosen_release,
             datasets=datasets,
             core_only=use_core,
+            index_only=index_only,
         )
 
         if not selected:
@@ -359,21 +362,70 @@ class SyncService:
 
         return report
 
+    def sync_index(
+        self,
+        years: Iterable[int] | None = None,
+        release: Release | None = None,
+        force: bool = False,
+    ) -> list[SyncReport]:
+        """
+        Fetch the employer index for many years.
+
+        This is what makes a whole working life searchable: the two filing
+        forms carry every sponsor name, EIN and plan number, and nothing else
+        is needed to answer "which plan did my employer run". The schedules —
+        which is where the size is — are left for the years that actually
+        matched.
+
+        A year already held at any depth is skipped unless ``force``, so this
+        is safe to re-run and safe to interrupt.
+        """
+
+        wanted = list(years) if years is not None else list(supported_years())
+        reports: list[SyncReport] = []
+
+        for position, form_year in enumerate(wanted, start=1):
+            if self._cancelled():
+                raise ImportCancelled("Sync cancelled.")
+
+            self._report(
+                "year", str(form_year), position, len(wanted),
+                f"Indexing {form_year} ({position} of {len(wanted)})",
+            )
+
+            try:
+                reports.append(
+                    self.sync_year(
+                        form_year, release=release, index_only=True, force=force
+                    )
+                )
+            except DatasetError as exc:
+                # A year DOL has not published is not a failure of the run.
+                logger.info("Skipping %s: %s", form_year, exc)
+
+        return reports
+
     def finalize(self) -> None:
         """Recompute rollups and search indexes after an import."""
 
-        self._report("finalize", "", 0, 3, "Updating plan totals")
+        self._report("finalize", "", 0, 4, "Linking asset transfers")
+        # A transfer only links once both plans exist, and the receiving plan
+        # may have arrived in this run or an earlier one, so this runs on every
+        # sync rather than only when Schedule H Part 1 was fetched.
+        resolve_transfers(self.session)
+
+        self._report("finalize", "", 1, 4, "Updating plan totals")
         refresh_plan_rollups(self.session)
 
-        self._report("finalize", "", 1, 3, "Updating provider totals")
+        self._report("finalize", "", 2, 4, "Updating provider totals")
         refresh_provider_rollups(self.session)
 
-        self._report("finalize", "", 2, 3, "Rebuilding search index")
+        self._report("finalize", "", 3, 4, "Rebuilding search index")
         engine = self.session.get_bind()
         rebuild_fts(engine)
         analyze(engine)
 
-        self._report("finalize", "", 3, 3, "Done")
+        self._report("finalize", "", 4, 4, "Done")
 
     # ------------------------------------------------------------------
 

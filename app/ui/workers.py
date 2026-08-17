@@ -228,6 +228,37 @@ def plan_detail_task(plan_id: int) -> WorkFunction:
     return work
 
 
+def index_task(settings: Settings, force: bool = False) -> WorkFunction:
+    """Fetch the employer index for every published form year."""
+
+    from app.services.sync import SyncService
+
+    def work(session, worker):  # noqa: ANN001
+        def on_progress(stage: str, dataset: str, done: int, total: int, message: str) -> None:
+            worker.progress.emit(done, total, f"{stage}: {message}")
+
+        service = SyncService(
+            session,
+            settings=settings,
+            progress=on_progress,
+            should_cancel=worker.is_cancelled,
+        )
+        return service.sync_index(force=force)
+
+    return work
+
+
+def changes_task(query) -> WorkFunction:  # noqa: ANN001 - providers.ChangeQuery
+    """Find plans that changed provider between filed years."""
+
+    from app.providers.changes import ChangeDetector
+
+    def work(session, _worker):  # noqa: ANN001
+        return ChangeDetector(session).find(query)
+
+    return work
+
+
 def trace_task(history) -> WorkFunction:  # noqa: ANN001 - app.trace.WorkHistory
     """Trace a work history. Imported lazily so the UI module stays light."""
 

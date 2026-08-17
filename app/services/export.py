@@ -178,6 +178,63 @@ def export_providers_csv(results: list[ProviderResult], path: Path | None = None
     return target
 
 
+#: One row per plan that changed hands. Ordered so the columns a reader scans
+#: first -- who left whom, and how big -- come before the provenance.
+CHANGE_COLUMNS: tuple[str, ...] = (
+    "plan_name",
+    "sponsor_name",
+    "ein",
+    "plan_number",
+    "state",
+    "role",
+    "change",
+    "from_year",
+    "to_year",
+    "from_provider",
+    "to_provider",
+    "participants",
+    "total_assets",
+    "schedule_code",
+    "source_field",
+)
+
+
+def export_provider_changes_csv(changes: list, path: Path | None = None) -> Path:
+    """Write provider changes as CSV, for a spreadsheet or a CRM import."""
+
+    target = path or _timestamped("provider-changes", "csv")
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    with target.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(CHANGE_COLUMNS))
+        writer.writeheader()
+
+        for change in changes:
+            writer.writerow(
+                {
+                    "plan_name": change.plan_name,
+                    "sponsor_name": change.sponsor_name or "",
+                    "ein": change.ein or "",
+                    "plan_number": change.plan_number or "",
+                    "state": change.state or "",
+                    "role": change.role,
+                    "change": change.kind.value,
+                    "from_year": change.from_year,
+                    "to_year": change.to_year,
+                    "from_provider": change.from_provider or "",
+                    "to_provider": change.to_provider or "",
+                    "participants": change.participants or "",
+                    "total_assets": (
+                        f"{change.total_assets:.2f}" if change.total_assets else ""
+                    ),
+                    "schedule_code": change.schedule_code or "",
+                    "source_field": change.source_field or "",
+                }
+            )
+
+    return target
+
+
 def export_evidence_report(package: PlanEvidence, path: Path | None = None) -> Path:
     """Write a readable evidence report for one plan."""
 

@@ -301,6 +301,118 @@ def cmd_providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_index(args: argparse.Namespace) -> int:
+    """Fetch the employer index for many years at once."""
+
+    from app.services.coverage import coverage, summarise
+    from app.services.sync import SyncService
+
+    initialize_database()
+    settings = Settings.load()
+
+    years = args.year or list(supported_years())
+
+    print(
+        f"Indexing {len(years)} form year(s): {years[0]}–{years[-1]}.\n"
+        f"This fetches the two filing forms only — enough to match an employer "
+        f"to a plan.\nProvider detail needs a full sync of the years that matter; "
+        f"'401k-finder sync --year N'\ndoes that once you know which they are.\n"
+    )
+
+    with session_scope() as session:
+        service = SyncService(
+            session,
+            settings=settings,
+            progress=None if args.quiet else _print_progress,
+        )
+
+        try:
+            reports = service.sync_index(years, force=args.force)
+        except ImportCancelled:
+            print("\nCancelled.")
+            return 130
+        except FinderError as exc:
+            print(f"\nFailed: {exc}", file=sys.stderr)
+            return 1
+
+    failures = sum(len(report.failed) for report in reports)
+
+    with read_session() as session:
+        print(f"\n{summarise(coverage(session))}")
+
+    if failures:
+        print(f"  {failures} dataset(s) failed; re-run to retry them.", file=sys.stderr)
+
+    return 1 if failures else 0
+
+
+def cmd_changes(args: argparse.Namespace) -> int:
+    """Report plans that changed provider between filed years."""
+
+    from app.providers.changes import ChangeDetector, ChangeQuery
+
+    if not database_exists():
+        print(f"No database yet at {get_database_path()}.", file=sys.stderr)
+        return 1
+
+    query = ChangeQuery(
+        role=args.role,
+        year=args.year,
+        from_provider=args.from_provider,
+        to_provider=args.to_provider,
+        state=args.state,
+        min_participants=args.min_participants,
+        min_assets=args.min_assets,
+        include_gained=args.include_appointments,
+        include_lost=args.include_departures,
+        limit=args.limit,
+    )
+
+    with read_session() as session:
+        report = ChangeDetector(session).find(query)
+
+    if not report.years_compared:
+        print(
+            "Nothing to compare. Provider changes need at least two form years "
+            "imported\nwith the schedules that name providers — see "
+            "'401k-finder status'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    span = f"{report.years_compared[0]}–{report.years_compared[-1]}"
+    print(f"{report.total:,} {args.role.lower().replace('_', ' ')} change(s) across {span}.\n")
+
+    if not report.total:
+        return 1
+
+    for change in report.changes:
+        print(change.describe())
+        print(
+            f"  EIN {change.plan_key}  |  {change.state or '-'}  |  "
+            f"{format(change.participants, ',') if change.participants else '-'} participants"
+            f"  |  {_money(change.total_assets)}"
+        )
+        print(
+            f"  source: schedule {change.schedule_code or '?'}, "
+            f"field {change.source_field or '?'}"
+        )
+        print()
+
+    flows = report.flows()
+    if flows and not args.no_summary:
+        print("Where plans moved:")
+        for source, target, count, assets in flows[:20]:
+            print(f"  {source} -> {target}: {count} plan(s), {_money(assets)}")
+        print()
+
+    if args.csv:
+        path = export_service.export_provider_changes_csv(report.changes, args.csv)
+        print(f"Wrote {path}")
+
+    return 0
+
+
 def cmd_trace(args: argparse.Namespace) -> int:
     """Trace a work history against the filings, for a lost-account search."""
 
@@ -480,6 +592,19 @@ def cmd_status(args: argparse.Namespace) -> int:
         if summary.years:
             print(f"  Form years:       {', '.join(str(year) for year in summary.years)}")
 
+        from app.plans.successor import transfer_counts
+        from app.services.coverage import coverage, summarise
+
+        transfers, resolved = transfer_counts(session)
+        if transfers:
+            print(f"  Asset transfers:  {transfers:,} ({resolved:,} resolved to a plan held here)")
+
+        entries = coverage(session)
+        if entries:
+            print(f"\nCoverage: {summarise(entries)}")
+            for entry in entries:
+                print(f"  {entry.form_year}  {entry.depth.label}")
+
         if summary.by_category:
             print("\nPlans by category:")
             for category, count in summary.by_category:
@@ -644,6 +769,55 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--year", type=int)
     validate.add_argument("--verbose", action="store_true")
     validate.set_defaults(func=cmd_validate)
+
+    index = sub.add_parser(
+        "index",
+        help="Fetch the employer index for every form year (small and fast).",
+        description=(
+            "Downloads the two filing forms for each year -- enough to match an "
+            "employer to a plan, at a fraction of the size of a full sync. Use "
+            "this to make a whole working life searchable, then sync in full "
+            "only the years that matched."
+        ),
+    )
+    index.add_argument("--year", type=int, action="append", help="Limit to these years.")
+    index.add_argument("--force", action="store_true", help="Re-fetch years already held.")
+    index.add_argument("--quiet", action="store_true")
+    index.set_defaults(func=cmd_index)
+
+    changes = sub.add_parser(
+        "changes",
+        help="Plans that changed provider between years.",
+        description=(
+            "Compares each plan's filed provider from one year to the next. "
+            "Needs at least two form years imported with the provider schedules."
+        ),
+    )
+    changes.add_argument(
+        "--role",
+        default=ProviderRole.RECORDKEEPER.value,
+        choices=[role.value for role in ProviderRole],
+    )
+    changes.add_argument("--year", type=int, help="Only changes landing in this year.")
+    changes.add_argument("--from-provider", help="Plans that moved away from this firm.")
+    changes.add_argument("--to-provider", help="Plans that moved to this firm.")
+    changes.add_argument("--state")
+    changes.add_argument("--min-participants", type=int)
+    changes.add_argument("--min-assets", type=float)
+    changes.add_argument(
+        "--include-appointments",
+        action="store_true",
+        help="Also report a role appearing for the first time.",
+    )
+    changes.add_argument(
+        "--include-departures",
+        action="store_true",
+        help="Also report a role no longer filed. Often an unimported schedule.",
+    )
+    changes.add_argument("--no-summary", action="store_true", help="Skip the flow table.")
+    changes.add_argument("--limit", type=int, default=500)
+    changes.add_argument("--csv", type=Path)
+    changes.set_defaults(func=cmd_changes)
 
     trace = sub.add_parser(
         "trace",

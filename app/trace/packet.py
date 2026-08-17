@@ -39,12 +39,51 @@ def next_steps(match: PlanMatch) -> list[str]:
     steps: list[str] = []
     holder = match.best_holder()
 
-    if match.terminated:
+    chain = match.successor
+    final = chain.final if chain else None
+
+    if final is not None:
+        # The filings say where the assets went. This is the whole reason for
+        # reading Schedule H Part 1, and it changes the advice completely --
+        # from "we do not know" to "write to this plan".
+        if match.terminated:
+            steps.append(
+                f"This plan filed a final return for {match.final_year}, and the "
+                f"filings record where its assets went."
+            )
+
+        steps.extend(chain.narrate())
+
+        if match.successor_holders:
+            successor = match.successor_holders[0]
+            steps.append(
+                f"Contact {successor.name} — the "
+                f"{successor.role_label.lower()} of {final.display_name}, the plan "
+                f"that received the assets. Quote EIN {final.to_ein or '?'} and plan "
+                f"number {final.to_plan_number or '?'} ({successor.citation()})."
+            )
+        elif final.resolved:
+            steps.append(
+                f"{final.display_name} is on record here but names no holder in the "
+                f"years imported. Import more form years, or contact its sponsor "
+                f"{final.to_sponsor_name or 'directly'}."
+            )
+        else:
+            steps.append(
+                f"{final.display_name} is not in the data imported on this "
+                f"computer, so nothing more is known about it here. Its EIN "
+                f"({final.to_ein or 'not reported'}) and plan number "
+                f"({final.to_plan_number or 'not reported'}) are enough to write "
+                f"to it, and importing the form years around "
+                f"{final.form_year} may fill in who administers it."
+            )
+
+    elif match.terminated:
         steps.append(
             f"This plan filed a final return for {match.final_year}. It no longer "
-            f"exists, so the money was moved — usually rolled into a successor "
-            f"plan, transferred to an IRA opened in your name, or paid out. The "
-            f"filings do not record where it went."
+            f"exists, and it did not report transferring its assets to another "
+            f"plan — so the money was most likely paid out, or rolled into an IRA "
+            f"opened in your name."
         )
         if holder:
             steps.append(
@@ -171,6 +210,14 @@ def _match_block(match: PlanMatch, index: int) -> list[str]:
     if match.terminated:
         lines.append(f"     ** Plan wound up — final return filed for {match.final_year} **")
 
+    if match.successor:
+        lines.append("")
+        lines.append("     Where the assets went:")
+        for hop in match.successor.narrate():
+            lines.extend(_wrap(f"- {hop}", "       "))
+        for holder in match.successor_holders[:3]:
+            lines.append(f"       - Now held by {holder.role_label}: {holder.name}")
+
     lines.append("")
     lines.append("     Why this matched:")
     for reason in match.reasons:
@@ -268,6 +315,19 @@ def render_report(report: TraceReport, *, letters: bool = False) -> str:
         lines.append(f"Form years held locally: {span}")
     else:
         lines.append("Form years held locally: none — no data has been imported yet")
+
+    if report.index_only_years:
+        thin = report.index_only_years
+        lines.append("")
+        lines.extend(
+            _wrap(
+                f"Note: {len(thin)} of those years ({thin[0]}–{thin[-1]}) hold "
+                f"employer and plan records only. They can tell you which plan "
+                f"your employer ran, but not who was holding the money. Import "
+                f"those years in full to fill that in.",
+                "",
+            )
+        )
 
     lines.append(f"Plans found:    {report.total_matches}")
     lines.append("")

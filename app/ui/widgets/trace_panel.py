@@ -426,10 +426,30 @@ def _match_html(match, index: int) -> str:  # noqa: ANN001
 
     terminated = (
         f"<div class='src'><b>This plan was wound up</b> — a final return was filed "
-        f"for {match.final_year}, so the money was moved elsewhere.</div>"
+        f"for {match.final_year}.</div>"
         if match.terminated
         else ""
     )
+
+    # The chain is the answer for anyone whose plan no longer exists, so it
+    # goes above the provider tables rather than below them.
+    successor = ""
+    if match.successor:
+        hops = "".join(
+            f"<div class='src'>· {escape(line)}</div>" for line in match.successor.narrate()
+        )
+        holders = "".join(
+            f"<tr><td class='k'>{holder.role_label}</td>"
+            f"<td><b>{escape(holder.name)}</b>"
+            f"<div class='src'>{escape(holder.citation())}</div></td></tr>"
+            for holder in match.successor_holders[:4]
+        )
+        now = (
+            f"<div class='sub'><b>Who holds it now</b></div><table>{holders}</table>"
+            if holders
+            else ""
+        )
+        successor = f"<div class='sub'><b>Where the assets went</b></div>{hops}{now}"
 
     renamed = (
         f"<div class='src'>Filed at the time as “{escape(match.matched_as)}”.</div>"
@@ -449,6 +469,7 @@ def _match_html(match, index: int) -> str:  # noqa: ANN001
 &nbsp;·&nbsp; filed {match.first_year or '?'}–{match.last_year or '?'}</div>
 {renamed}{terminated}
 <p><a href='copy:{escape(match.ein or "")}'>Copy EIN</a></p>
+{successor}
 {_holders_html(match.holders_then, "Holding the money while you were there")}
 {_holders_html(
     match.holders_now if match.holders_now != match.holders_then else [],

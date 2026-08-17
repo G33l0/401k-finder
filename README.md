@@ -142,6 +142,22 @@ plans, and imports in about three minutes on a modest machine. Adding the
 Syncs are resumable. Interrupt one and re-run it; completed datasets are
 skipped and a partial download continues where it stopped.
 
+### Index every year first
+
+A full form year is 20–60 GB, so importing a decade to search a decade is not
+realistic. Matching an employer to a plan needs only the two filing forms:
+
+```bash
+401k-finder index                    # every published year, employers only
+401k-finder index --year 2015 --year 2016
+```
+
+That makes **Find my accounts** work across a whole career at a fraction of the
+size. It cannot name a provider — every asset holder is on a schedule — so once
+you know which years matter, `sync` those in full. `401k-finder status` reports
+which years are held at which depth, and the trace report says so too rather
+than letting a thin year read as an empty one.
+
 Already have the files? Import them from disk:
 
 ```bash
@@ -171,11 +187,12 @@ are studying filing behaviour itself.
 401k-finder-gui
 ```
 
-Four tabs: **Find plans** (search, results, and a detail panel with the
+Five tabs: **Find plans** (search, results, and a detail panel with the
 provider list and full evidence), **Find my accounts** (trace your own old
 401(k) from a work history — see below), **Providers** (which firms hold the
-most plans, and drill into their book), and **Data** (download years, import
-local files, see what is loaded).
+most plans, and drill into their book), **Provider changes** (which plans moved
+between firms, and when), and **Data** (download years, import local files, see
+what is loaded).
 
 #### Themes
 
@@ -265,6 +282,27 @@ take an SSN, chief among them the Department of Labor's
 
 An SSN typed into the employer box is detected, refused, and never written to
 the database, the log or an exported report.
+
+---
+
+## Tracking providers over time
+
+Every engagement is stored with the form year it was filed for, so with two or
+more years imported the application can report which plans changed hands:
+
+```bash
+401k-finder changes --role RECORDKEEPER --year 2023
+401k-finder changes --from-provider "Fidelity" --min-assets 10000000 --csv losses.csv
+```
+
+For each plan it gives the firm before, the firm after, the years compared, the
+plan's size, and the schedule and field the later observation was read from — so
+a surprising result can be checked against the filing rather than argued about.
+The **Provider changes** tab is the same thing with filters and a CSV export.
+
+A change means *the filings named a different firm*. That is usually a real
+move, but a plan can rename or a filer can spell a firm two ways, which is why
+provider names are consolidated first and every row carries its source.
 
 ---
 

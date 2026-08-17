@@ -31,6 +31,7 @@ class DataManagerPanel(QWidget):
     """Controls for getting DOL data into the local database."""
 
     sync_requested = Signal(int, bool, bool)  # form_year, core_only, force
+    index_requested = Signal(bool)  # force
     import_requested = Signal(object, object)  # directory, form_year
     cancel_requested = Signal()
     refresh_requested = Signal()
@@ -93,6 +94,35 @@ class DataManagerPanel(QWidget):
         row.addWidget(self.sync_button)
 
         download_layout.addLayout(row)
+
+        # --- Index every year -----------------------------------------
+        # A full year is tens of gigabytes, so most people import one and hope
+        # it is the right one. This fetches the employer index for every
+        # published year instead: enough to find which plan an employer ran, at
+        # a fraction of the size, and it tells you which years to then sync
+        # properly.
+        index_row = QHBoxLayout()
+
+        self.index_button = QPushButton("Index every year")
+        self.index_button.setToolTip(
+            "Downloads the two filing forms for every published form year. Enough "
+            "to match an employer to a plan across a whole career, without the "
+            "schedules that make a full year large."
+        )
+        self.index_button.clicked.connect(self._on_index)
+        index_row.addWidget(self.index_button)
+
+        index_hint = QLabel(
+            "Makes <b>Find my accounts</b> work across every year, not just the "
+            "ones downloaded in full. Providers still need a full download of "
+            "the years that matched."
+        )
+        index_hint.setTextFormat(Qt.RichText)
+        index_hint.setWordWrap(True)
+        index_hint.setProperty("role", "muted")
+        index_row.addWidget(index_hint, 1)
+
+        download_layout.addLayout(index_row)
 
         self.estimate_label = QLabel()
         self.estimate_label.setWordWrap(True)
@@ -192,6 +222,21 @@ class DataManagerPanel(QWidget):
         if confirm == QMessageBox.Yes:
             self.sync_requested.emit(year, self.core_only.isChecked(), self.force.isChecked())
 
+    def _on_index(self) -> None:
+        confirm = QMessageBox.question(
+            self,
+            "Index every year",
+            "Download the employer index for every published form year?\n\n"
+            "This fetches the two filing forms per year — far smaller than a full "
+            "download, but still a substantial transfer the first time. You can "
+            "keep working while it runs, and cancel at any point.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+
+        if confirm == QMessageBox.Yes:
+            self.index_requested.emit(self.force.isChecked())
+
     def _on_import(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Choose a folder of source CSV files")
         if directory:
@@ -203,6 +248,7 @@ class DataManagerPanel(QWidget):
         self._running = running
 
         self.sync_button.setEnabled(not running)
+        self.index_button.setEnabled(not running)
         self.import_button.setEnabled(not running)
         self.year_combo.setEnabled(not running)
         self.core_only.setEnabled(not running)

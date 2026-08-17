@@ -35,6 +35,7 @@ from app.core.constants import ROLE_PRIORITY
 from app.core.logging import get_logger
 from app.database.models import Filing, Plan, PlanParty, Provider
 from app.dol.normalizer import normalize_name_key
+from app.plans.successor import SuccessorChain, follow_chain
 from app.trace.history import Employment, WorkHistory
 
 logger = get_logger(__name__)
@@ -172,6 +173,15 @@ class PlanMatch:
     #: The plan filed a final return in this year, so it no longer exists.
     final_year: int | None = None
 
+    #: Where the assets went, when the filings say. Populated for any plan that
+    #: reported a transfer, not only terminated ones -- a plan can move part of
+    #: its assets and carry on.
+    successor: SuccessorChain | None = None
+
+    #: Who holds the plan at the end of the chain. This is the answer for
+    #: somebody whose own plan no longer exists.
+    successor_holders: list[Holder] = field(default_factory=list)
+
     @property
     def plan_key(self) -> str:
         return f"{self.ein or '?'}-{self.plan_number or '?'}"
@@ -179,6 +189,12 @@ class PlanMatch:
     @property
     def terminated(self) -> bool:
         return self.final_year is not None
+
+    @property
+    def moved(self) -> bool:
+        """Whether the filings say the assets went somewhere else."""
+
+        return bool(self.successor)
 
     @property
     def confidence(self) -> str:
@@ -219,6 +235,11 @@ class TraceReport:
     #: actually searched rather than implying it covered everything.
     years_searched: tuple[int, ...] = ()
 
+    #: How completely each year is held. An index-only year can match an
+    #: employer but can never name a provider, and a reader who is not told
+    #: that reads "no holder named" as "nobody holds it".
+    coverage: list = field(default_factory=list)
+
     @property
     def total_matches(self) -> int:
         return sum(len(trace.matches) for trace in self.traces)
@@ -236,6 +257,12 @@ class TraceReport:
         return any(
             match.terminated for trace in self.traces for match in trace.matches
         )
+
+    @property
+    def index_only_years(self) -> list[int]:
+        """Years searchable by employer but carrying no provider detail."""
+
+        return [entry.form_year for entry in self.coverage if not entry.has_providers]
 
     @property
     def has_defined_benefit(self) -> bool:
@@ -256,7 +283,13 @@ class AccountTracer:
     # ------------------------------------------------------------------
 
     def trace(self, history: WorkHistory, limit_per_job: int = 8) -> TraceReport:
-        report = TraceReport(history=history, years_searched=self._imported_years())
+        from app.services.coverage import coverage
+
+        report = TraceReport(
+            history=history,
+            years_searched=self._imported_years(),
+            coverage=coverage(self.session),
+        )
 
         for job in history:
             report.traces.append(
@@ -293,6 +326,7 @@ class AccountTracer:
         for match in ranked:
             self._attach_holders(match, job)
             self._attach_termination(match)
+            self._attach_successor(match)
 
         return ranked
 
@@ -516,10 +550,12 @@ class AccountTracer:
 
     # ------------------------------------------------------------------
 
-    def _attach_holders(self, match: PlanMatch, job: Employment) -> None:
-        """Who held the money then, and who holds it now."""
+    _PRIORITY = {role: index for index, role in enumerate(ROLE_PRIORITY)}
 
-        rows = list(
+    def _holder_rows(self, plan_id: int) -> list:
+        """Every asset-holding engagement on a plan, newest year first."""
+
+        return list(
             self.session.execute(
                 select(
                     PlanParty.role,
@@ -532,41 +568,60 @@ class AccountTracer:
                 )
                 .join(Provider, Provider.id == PlanParty.provider_id)
                 .where(
-                    PlanParty.plan_id == match.plan_id,
+                    PlanParty.plan_id == plan_id,
                     PlanParty.role.in_(HOLDER_ROLES),
                 )
                 .order_by(PlanParty.form_year.desc())
             )
         )
 
+    @classmethod
+    def _rank(cls, holder: Holder) -> tuple[int, int]:
+        return (cls._PRIORITY.get(holder.role, 99), -holder.form_year)
+
+    @staticmethod
+    def _build_holder(row) -> Holder:  # noqa: ANN001
+        return Holder(
+            name=row.canonical_name or row.name,
+            role=row.role,
+            form_year=row.form_year,
+            schedule_code=row.schedule_code,
+            source_field=row.source_field,
+            confidence=row.confidence,
+        )
+
+    def _holders_for(self, plan_id: int) -> list[Holder]:
+        """Who holds a plan on its most recent filing."""
+
+        rows = self._holder_rows(plan_id)
+        if not rows:
+            return []
+
+        latest = max(row.form_year for row in rows)
+
+        return self._dedupe(
+            sorted(
+                (self._build_holder(row) for row in rows if row.form_year == latest),
+                key=self._rank,
+            )
+        )
+
+    def _attach_holders(self, match: PlanMatch, job: Employment) -> None:
+        """Who held the money then, and who holds it now."""
+
+        rows = self._holder_rows(match.plan_id)
         if not rows:
             return
-
-        priority = {role: index for index, role in enumerate(ROLE_PRIORITY)}
-
-        def build(row) -> Holder:  # noqa: ANN001
-            return Holder(
-                name=row.canonical_name or row.name,
-                role=row.role,
-                form_year=row.form_year,
-                schedule_code=row.schedule_code,
-                source_field=row.source_field,
-                confidence=row.confidence,
-            )
-
-        def rank(holder: Holder) -> tuple[int, int]:
-            return (priority.get(holder.role, 99), -holder.form_year)
 
         wanted = set(job.years(match.first_year or 0, match.last_year or 9999))
 
         match.holders_then = self._dedupe(
-            sorted((build(row) for row in rows if row.form_year in wanted), key=rank)
+            sorted(
+                (self._build_holder(row) for row in rows if row.form_year in wanted),
+                key=self._rank,
+            )
         )
-
-        latest = max(row.form_year for row in rows)
-        match.holders_now = self._dedupe(
-            sorted((build(row) for row in rows if row.form_year == latest), key=rank)
-        )
+        match.holders_now = self._holders_for(match.plan_id)
 
     @staticmethod
     def _dedupe(holders: list[Holder]) -> list[Holder]:
@@ -584,6 +639,33 @@ class AccountTracer:
 
         return kept
 
+    def _attach_successor(self, match: PlanMatch) -> None:
+        """
+        Follow the assets forward, and find who holds them at the far end.
+
+        This is the payoff of reading Schedule H Part 1: a participant whose
+        plan was wound up gets told which plan it became and who administers
+        that one, rather than being left to guess.
+        """
+
+        chain = follow_chain(self.session, match.plan_id)
+        if not chain:
+            return
+
+        match.successor = chain
+
+        final = chain.final
+        if final is None or final.to_plan_id is None:
+            return
+
+        holders = self._holders_for(final.to_plan_id)
+        match.successor_holders = holders
+
+        match.reasons.append(
+            f"Assets were transferred to {final.display_name}"
+            + (f", now administered by {holders[0].name}" if holders else "")
+        )
+
     def _attach_termination(self, match: PlanMatch) -> None:
         """A final filing means the plan no longer exists — the advice changes."""
 
@@ -595,7 +677,8 @@ class AccountTracer:
 
         if final_year is not None:
             match.final_year = int(final_year)
+            # Deliberately says only that it wound up. Whether the destination
+            # is known is decided by _attach_successor, which runs next.
             match.reasons.append(
-                f"The plan filed a final return for {final_year}, so it has been "
-                f"wound up and the money was moved somewhere"
+                f"The plan filed a final return for {final_year} and no longer exists"
             )

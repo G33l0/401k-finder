@@ -26,7 +26,7 @@ from app.database.base import Base
 logger = get_logger(__name__)
 
 #: Bumped whenever the physical schema changes.
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 #: Columns fed into the full-text index, in the order they are searched.
 FTS_TABLE = "plan_fts"
@@ -160,11 +160,25 @@ def _step_evidence_uniqueness(connection: Connection) -> None:
     )
 
 
+def _step_plan_transfers(connection: Connection) -> None:
+    """
+    Record where a wound-up plan's assets went.
+
+    Schedule H Part 1 names the receiving plan, and until now the application
+    read it only for the transferee's name, filed as though it were a service
+    provider. Creating the table is enough here -- the rows arrive on the next
+    import of that dataset, which is why it also joins the core download set.
+    """
+
+    Base.metadata.tables["plan_transfers"].create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(1, "Create base tables", _step_initial),
     MigrationStep(2, "Create full-text search indexes", _step_fts),
     MigrationStep(3, "Create search support indexes", _step_indexes),
     MigrationStep(4, "Deduplicate evidence and enforce uniqueness", _step_evidence_uniqueness),
+    MigrationStep(5, "Record plan-to-plan asset transfers", _step_plan_transfers),
 )
 
 

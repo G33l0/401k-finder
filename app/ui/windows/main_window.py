@@ -28,6 +28,7 @@ from app.database.init_db import initialize_database, reset_database
 from app.search.query import PlanQuery, ProviderQuery, QueryOptions
 from app.services import export as export_service
 from app.ui import theme
+from app.ui.widgets.changes_panel import ChangesPanel
 from app.ui.widgets.data_manager import DataManagerPanel
 from app.ui.widgets.plan_detail import PlanDetailPanel
 from app.ui.widgets.provider_panel import ProviderPanel
@@ -36,7 +37,9 @@ from app.ui.widgets.search_panel import SearchPanel
 from app.ui.widgets.trace_panel import TracePanel
 from app.ui.workers import (
     TaskRunner,
+    changes_task,
     import_task,
+    index_task,
     plan_detail_task,
     search_plans_task,
     search_providers_task,
@@ -70,6 +73,7 @@ class MainWindow(QMainWindow):
         self.data_runner = TaskRunner(self)
         self.summary_runner = TaskRunner(self)
         self.trace_runner = TaskRunner(self)
+        self.changes_runner = TaskRunner(self)
 
         # The entry point applies the theme before this window exists, so the
         # activation dialog is already in the right scheme. Doing it again here
@@ -142,9 +146,17 @@ class MainWindow(QMainWindow):
         self.provider_panel.export_requested.connect(self.export_providers)
         self.tabs.addTab(self.provider_panel, "Providers")
 
+        # --- Provider changes tab -------------------------------------
+        self.changes_panel = ChangesPanel()
+        self.changes_panel.search_requested.connect(self.run_changes)
+        self.changes_panel.export_requested.connect(self.export_changes)
+        self.changes_panel.plan_selected.connect(self.open_plan)
+        self.tabs.addTab(self.changes_panel, "Provider changes")
+
         # --- Data tab -------------------------------------------------
         self.data_panel = DataManagerPanel()
         self.data_panel.sync_requested.connect(self.run_sync)
+        self.data_panel.index_requested.connect(self.run_index)
         self.data_panel.import_requested.connect(self.run_import)
         self.data_panel.cancel_requested.connect(self.cancel_data_task)
         self.data_panel.refresh_requested.connect(self.refresh_status)
@@ -555,6 +567,75 @@ class MainWindow(QMainWindow):
         self.clear_results()
         self.provider_panel.set_results([])
         self.refresh_status()
+
+    def run_index(self, force: bool) -> None:
+        """Fetch the employer index for every published form year."""
+
+        self.data_panel.set_running(True)
+        self.status_message.setText("Indexing every form year…")
+
+        self.data_runner.run(
+            index_task(self.settings, force=force),
+            on_result=self._on_index_finished,
+            on_error=self._on_data_failed,
+            on_progress=self.data_panel.set_progress,
+        )
+
+    def _on_index_finished(self, reports) -> None:  # noqa: ANN001
+        self.data_panel.set_running(False)
+
+        years = sorted({report.form_year for report in reports})
+        failures = sum(len(report.failed) for report in reports)
+
+        message = (
+            f"Indexed {len(years)} form year(s)"
+            + (f", {years[0]}–{years[-1]}" if years else "")
+            + (f"; {failures} dataset(s) failed" if failures else "")
+        )
+        self.data_panel.append_log(message)
+        self.status_message.setText(message)
+        self.refresh_status()
+
+    def run_changes(self, query) -> None:  # noqa: ANN001 - providers.ChangeQuery
+        """Find plans that changed provider."""
+
+        self.status_message.setText("Comparing filed years…")
+
+        self.changes_runner.run(
+            changes_task(query),
+            on_result=self._on_changes_finished,
+            on_error=self._on_changes_failed,
+        )
+
+    def _on_changes_finished(self, report) -> None:  # noqa: ANN001
+        self.changes_panel.show_report(report)
+        self.status_message.setText(f"{report.total:,} provider change(s) found.")
+
+    def _on_changes_failed(self, message: str) -> None:
+        self.changes_panel.set_busy(False)
+        self.status_message.setText("The comparison failed.")
+        QMessageBox.warning(self, "Comparison failed", message)
+
+    def export_changes(self, report) -> None:  # noqa: ANN001
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export provider changes", "provider-changes.csv", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+
+        try:
+            written = export_service.export_provider_changes_csv(report.changes, Path(path))
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+
+        self.status_message.setText(f"Wrote {written}")
+
+    def open_plan(self, plan_id: int) -> None:
+        """Show a plan in the search tab, from wherever it was clicked."""
+
+        self.tabs.setCurrentIndex(0)
+        self.load_plan_detail(plan_id)
 
     def run_trace(self, history) -> None:  # noqa: ANN001 - app.trace.WorkHistory
         """Trace a work history for someone looking for their own accounts."""
