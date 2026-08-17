@@ -360,6 +360,9 @@ tests/                   Test suite
 
 ## Development
 
+Planned and possible improvements, ranked by value against effort, are in
+[docs/ROADMAP.md](docs/ROADMAP.md).
+
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt
 
