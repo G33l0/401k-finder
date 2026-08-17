@@ -32,7 +32,74 @@ def get_app_data_dir() -> Path:
     return path
 
 
+#: Set to keep the bulk data somewhere other than the application folder --
+#: normally an external or USB drive. Overrides the stored pointer, which is
+#: what makes it useful for a portable build or a scripted run.
+STORAGE_DIR_ENV_VAR = "FINDER_401K_STORAGE_DIR"
+
+
+class StorageUnavailable(RuntimeError):
+    """
+    The configured storage location is not there.
+
+    Raised rather than quietly falling back, because the fallback would create
+    an empty database at the mount point and present it as an empty search
+    result -- which to somebody whose external drive is merely unplugged looks
+    exactly like losing everything.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        super().__init__(
+            f"The data folder {path} is not available. If it is on a removable "
+            f"drive, connect it and start the application again. The drive letter "
+            f"may also have changed."
+        )
+
+
+def get_storage_dir(*, require: bool = True) -> Path:
+    """
+    Return where the bulk data lives: database, downloads, extracted CSVs.
+
+    Defaults to the application folder. A seventeen-year archive runs to
+    hundreds of gigabytes, so it can be pointed at another drive instead --
+    see :mod:`app.core.storage`.
+
+    Settings, logs and the licence deliberately do not move. They are tiny,
+    they are per-machine, and they have to be readable before anyone knows
+    whether the other drive is connected.
+    """
+
+    from app.core import storage
+
+    override = os.environ.get(STORAGE_DIR_ENV_VAR)
+    configured = (
+        Path(override).expanduser() if override else storage.read_location(get_app_data_dir())
+    )
+
+    if configured is None:
+        return get_app_data_dir()
+
+    if not configured.is_dir():
+        if require:
+            raise StorageUnavailable(configured)
+        return configured
+
+    try:
+        configured.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise StorageUnavailable(configured) from exc
+
+    return configured
+
+
 def _subdirectory(name: str) -> Path:
+    path = get_storage_dir() / name
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _local_subdirectory(name: str) -> Path:
     path = get_app_data_dir() / name
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -59,7 +126,9 @@ def get_export_dir() -> Path:
 
 
 def get_log_dir() -> Path:
-    return _subdirectory("logs")
+    """Always local: a log about an unreachable drive cannot live on it."""
+
+    return _local_subdirectory("logs")
 
 
 def get_database_path() -> Path:

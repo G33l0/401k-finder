@@ -322,3 +322,36 @@ def test_database_exists_is_false_for_an_absent_or_empty_file(tmp_path):
 
     empty.write_bytes(b"SQLite format 3\x00")
     assert database_exists(empty)
+
+
+def test_an_existing_v4_database_gains_the_transfers_table(tmp_path):
+    """
+    Customers upgrading arrive at schema 4 with no plan_transfers table.
+    Step 1 creates every table in the current metadata, so a database built
+    today already has it — this simulates the real starting point instead.
+    """
+
+    import sqlite3
+
+    from app.database.engine import create_database_engine
+    from app.database.init_db import initialize_database
+
+    path = tmp_path / "v4.sqlite3"
+    initialize_database(create_database_engine(path))
+
+    raw = sqlite3.connect(path)
+    raw.execute("DROP TABLE plan_transfers")
+    raw.execute("DELETE FROM schema_version WHERE version > 4")
+    raw.commit()
+    assert raw.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
+    raw.close()
+
+    assert initialize_database(create_database_engine(path)) == 5
+
+    check = sqlite3.connect(path)
+    present = check.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='plan_transfers'"
+    ).fetchone()
+    check.close()
+
+    assert present is not None

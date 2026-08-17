@@ -22,25 +22,30 @@ from PySide6.QtWidgets import (
 
 from app import __version__
 from app.core.config import Settings, get_app_data_dir, get_database_path
-from app.core.constants import DOL_DATASET_PAGE_URL
+from app.core.constants import SOURCE_LABEL
 from app.core.logging import get_logger
 from app.database.init_db import initialize_database, reset_database
 from app.search.query import PlanQuery, ProviderQuery, QueryOptions
 from app.services import export as export_service
 from app.ui import theme
+from app.ui.widgets.changes_panel import ChangesPanel
 from app.ui.widgets.data_manager import DataManagerPanel
 from app.ui.widgets.plan_detail import PlanDetailPanel
 from app.ui.widgets.provider_panel import ProviderPanel
 from app.ui.widgets.results_table import PlanTable
 from app.ui.widgets.search_panel import SearchPanel
+from app.ui.widgets.trace_panel import TracePanel
 from app.ui.workers import (
     TaskRunner,
+    changes_task,
     import_task,
+    index_task,
     plan_detail_task,
     search_plans_task,
     search_providers_task,
     summary_task,
     sync_task,
+    trace_task,
 )
 
 logger = get_logger(__name__)
@@ -67,6 +72,8 @@ class MainWindow(QMainWindow):
         self.provider_runner = TaskRunner(self)
         self.data_runner = TaskRunner(self)
         self.summary_runner = TaskRunner(self)
+        self.trace_runner = TaskRunner(self)
+        self.changes_runner = TaskRunner(self)
 
         # The entry point applies the theme before this window exists, so the
         # activation dialog is already in the right scheme. Doing it again here
@@ -124,6 +131,14 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(outer)
         self.tabs.addTab(search_tab, "Find plans")
 
+        # --- Find my accounts tab -------------------------------------
+        # Placed before Providers: someone opening this to look for their own
+        # money should meet it early, not after two tabs of research tooling.
+        self.trace_panel = TracePanel()
+        self.trace_panel.trace_requested.connect(self.run_trace)
+        self.trace_panel.export_requested.connect(self.export_trace)
+        self.tabs.addTab(self.trace_panel, "Find my accounts")
+
         # --- Providers tab --------------------------------------------
         self.provider_panel = ProviderPanel()
         self.provider_panel.search_requested.connect(self.run_provider_search)
@@ -131,9 +146,18 @@ class MainWindow(QMainWindow):
         self.provider_panel.export_requested.connect(self.export_providers)
         self.tabs.addTab(self.provider_panel, "Providers")
 
+        # --- Provider changes tab -------------------------------------
+        self.changes_panel = ChangesPanel()
+        self.changes_panel.search_requested.connect(self.run_changes)
+        self.changes_panel.export_requested.connect(self.export_changes)
+        self.changes_panel.plan_selected.connect(self.open_plan)
+        self.tabs.addTab(self.changes_panel, "Provider changes")
+
         # --- Data tab -------------------------------------------------
         self.data_panel = DataManagerPanel()
         self.data_panel.sync_requested.connect(self.run_sync)
+        self.data_panel.index_requested.connect(self.run_index)
+        self.data_panel.storage_change_requested.connect(self.change_storage)
         self.data_panel.import_requested.connect(self.run_import)
         self.data_panel.cancel_requested.connect(self.cancel_data_task)
         self.data_panel.refresh_requested.connect(self.refresh_status)
@@ -223,6 +247,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _startup(self) -> None:
+        self.data_panel.refresh_storage()
+
         try:
             version = initialize_database()
         except Exception as exc:  # noqa: BLE001
@@ -420,7 +446,7 @@ class MainWindow(QMainWindow):
         if summary.is_empty:  # type: ignore[attr-defined]
             self.status_message.setText(
                 "No data imported yet. Open the Data tab to download a form year "
-                "from the Department of Labor."
+                f"from the {SOURCE_LABEL}."
             )
             return
 
@@ -515,7 +541,7 @@ class MainWindow(QMainWindow):
             "Rebuild database",
             "This deletes every plan, provider and filing imported so far and "
             "starts from an empty database.\n\n"
-            "The Department of Labor source files are public and can be "
+            "The source files are public and can be "
             "downloaded again, so nothing is permanently lost — but re-importing "
             "them takes as long as the original import did.\n\n"
             "Rebuild the database now?",
@@ -545,6 +571,177 @@ class MainWindow(QMainWindow):
         self.provider_panel.set_results([])
         self.refresh_status()
 
+    def change_storage(self, target, move_existing: bool) -> None:  # noqa: ANN001
+        """
+        Move the data to another drive.
+
+        Run on the UI thread deliberately. It closes the database, and letting
+        a search start against a file that is being moved is exactly the race
+        this feature must not have. A long move blocks the window, which is
+        honest — the alternative is a responsive window over a database that
+        is not there.
+        """
+
+        from app.services.relocate import RelocationError, relocate, revert_to_internal
+
+        self.data_panel.set_running(True)
+        self.status_message.setText("Moving data…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+
+        def report(name: str, position: int, total: int) -> None:
+            self.status_message.setText(f"Moving {name} ({position} of {total})…")
+            QApplication.processEvents()
+
+        try:
+            if Path(target).resolve() == get_app_data_dir().resolve():
+                result = revert_to_internal(move_existing=move_existing, progress=report)
+            else:
+                result = relocate(
+                    Path(target), move_existing=move_existing, progress=report
+                )
+        except RelocationError as exc:
+            QApplication.restoreOverrideCursor()
+            self.data_panel.set_running(False)
+            QMessageBox.warning(self, "Could not move the data", str(exc))
+            self.data_panel.refresh_storage()
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self.data_panel.set_running(False)
+        self.data_panel.append_log(result.summary())
+        self.data_panel.refresh_storage()
+
+        # The engine was disposed for the move; everything below reopens
+        # against the new location.
+        self._startup()
+
+        QMessageBox.information(self, "Data moved", result.summary())
+
+    def run_index(self, force: bool) -> None:
+        """Fetch the employer index for every published form year."""
+
+        self.data_panel.set_running(True)
+        self.status_message.setText("Indexing every form year…")
+
+        self.data_runner.run(
+            index_task(self.settings, force=force),
+            on_result=self._on_index_finished,
+            on_error=self._on_data_failed,
+            on_progress=self.data_panel.set_progress,
+        )
+
+    def _on_index_finished(self, reports) -> None:  # noqa: ANN001
+        self.data_panel.set_running(False)
+
+        years = sorted({report.form_year for report in reports})
+        failures = sum(len(report.failed) for report in reports)
+
+        message = (
+            f"Indexed {len(years)} form year(s)"
+            + (f", {years[0]}–{years[-1]}" if years else "")
+            + (f"; {failures} dataset(s) failed" if failures else "")
+        )
+        self.data_panel.append_log(message)
+        self.status_message.setText(message)
+        self.refresh_status()
+
+    def run_changes(self, query) -> None:  # noqa: ANN001 - providers.ChangeQuery
+        """Find plans that changed provider."""
+
+        self.status_message.setText("Comparing filed years…")
+
+        self.changes_runner.run(
+            changes_task(query),
+            on_result=self._on_changes_finished,
+            on_error=self._on_changes_failed,
+        )
+
+    def _on_changes_finished(self, report) -> None:  # noqa: ANN001
+        self.changes_panel.show_report(report)
+        self.status_message.setText(f"{report.total:,} provider change(s) found.")
+
+    def _on_changes_failed(self, message: str) -> None:
+        self.changes_panel.set_busy(False)
+        self.status_message.setText("The comparison failed.")
+        QMessageBox.warning(self, "Comparison failed", message)
+
+    def export_changes(self, report) -> None:  # noqa: ANN001
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export provider changes", "provider-changes.csv", "CSV files (*.csv)"
+        )
+        if not path:
+            return
+
+        try:
+            written = export_service.export_provider_changes_csv(report.changes, Path(path))
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+
+        self.status_message.setText(f"Wrote {written}")
+
+    def open_plan(self, plan_id: int) -> None:
+        """Show a plan in the search tab, from wherever it was clicked."""
+
+        self.tabs.setCurrentIndex(0)
+        self.load_plan_detail(plan_id)
+
+    def run_trace(self, history) -> None:  # noqa: ANN001 - app.trace.WorkHistory
+        """Trace a work history for someone looking for their own accounts."""
+
+        self.status_message.setText(f"Searching {len(history)} employer(s)…")
+
+        self.trace_runner.run(
+            trace_task(history),
+            on_result=self._on_trace_finished,
+            on_error=self._on_trace_failed,
+        )
+
+    def _on_trace_finished(self, report) -> None:  # noqa: ANN001
+        self.trace_panel.show_report(report)
+        self.status_message.setText(
+            f"{report.total_matches} plan(s) found across "
+            f"{len(report.jobs_with_matches)} of {len(report.history)} employer(s)."
+        )
+
+    def _on_trace_failed(self, message: str) -> None:
+        self.trace_panel.set_busy(False)
+        self.status_message.setText("The search failed.")
+        QMessageBox.warning(self, "Search failed", message)
+
+    def export_trace(self, report) -> None:  # noqa: ANN001
+        """Save the trace as a report the person can print or send."""
+
+        from app.trace.packet import render_report
+
+        suggested = "retirement-account-trace.txt"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save report", suggested, "Text files (*.txt);;All files (*)"
+        )
+        if not path:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Include letters?",
+            "Add a ready-to-send letter for each plan found, with its name, EIN "
+            "and plan number already filled in?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+
+        try:
+            Path(path).write_text(
+                render_report(report, letters=answer == QMessageBox.Yes),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+
+        self.status_message.setText(f"Wrote {path}")
+
     def apply_theme(self, name: str) -> None:
         """
         Switch colour scheme, and persist the choice.
@@ -573,6 +770,7 @@ class MainWindow(QMainWindow):
             logger.warning("Could not save the theme setting: %s", exc)
 
         self.detail_panel.retheme()
+        self.trace_panel.retheme()
 
     def show_about(self) -> None:
         from app.ui import resources
@@ -587,14 +785,14 @@ class MainWindow(QMainWindow):
 
         dialog.setText(
             f"<h3>401K Finder Pro {__version__}</h3>"
-            "<p>Searches U.S. Department of Labor Form 5500 filings to find "
+            "<p>Searches official Form 5500 filings to find "
             "retirement plans — 401(k), 403(b), 457(b), SEP and SIMPLE, ESOP, "
             "profit sharing, money purchase and defined benefit pensions — and "
             "the firms that hold and administer them.</p>"
             "<p>All data comes from EBSA's public Form 5500 datasets and is "
             "stored locally. Every result cites the dataset, field and row it "
             "came from.</p>"
-            f"<p>Source: <a href='{DOL_DATASET_PAGE_URL}'>Form 5500 datasets</a></p>"
+            f"<p>Source: <b>{SOURCE_LABEL}</b></p>"
             f"<p>Data folder: {get_app_data_dir()}</p>"
         )
         dialog.exec()

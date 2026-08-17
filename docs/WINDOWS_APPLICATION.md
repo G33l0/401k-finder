@@ -172,6 +172,42 @@ archives, the extracted CSVs, and the database built from them. The application
 deletes extracted CSVs after a successful import by default (`keep_extracted`
 in `settings.json`) but keeps the archives so a re-import needs no re-download.
 
+All seventeen published years is several hundred gigabytes, which no ordinary
+system disk will take. See **External and removable drives** below.
+
+### External and removable drives
+
+The bulk data — `database`, `dol_data`, `downloads` and `exports` — can be moved
+to any other drive. The **Data** tab has the controls under *Where the data is
+kept*; the command line is `401k-finder storage set E:\401k-data`, with
+`storage`, `storage list` and `storage reset` alongside it. Changing the
+location moves what is already there rather than starting over.
+
+What deliberately does **not** move: `settings.json`, `logs`, the licence, and
+`storage.json` — the one-line file recording where the data went. All four are
+per-machine, and all four have to be readable before anyone knows whether the
+other drive is connected. A pointer stored on the drive it points at would leave
+with the drive.
+
+Three Windows-specific things the code handles rather than leaving to the user:
+
+| Situation | What happens |
+| --- | --- |
+| Drive formatted FAT32 | **Refused.** FAT32 caps a single file at 4 GB and a form year's database passes that, so the import would fail part-way with a misleading disk-full error. The dialog says to reformat as exFAT or NTFS, and warns that reformatting erases the drive. |
+| Mapped network drive or UNC path | **Allowed, with a warning.** SQLite's write-ahead journal needs a shared-memory file that SMB does not implement, so the database falls back to the rollback journal (`PRAGMA journal_mode = DELETE`). It works; it is slower. |
+| Drive not connected at start-up | **Reported.** A dialog offers *Try again*, *Choose the folder…*, *Use internal storage* or *Quit*, before the main window is built. The application never creates an empty database at the mount point — an empty search result looks exactly like losing everything. |
+
+Drive letters change. If Windows reassigns the stick from `E:` to `F:`, the
+start-up dialog is what you get, and *Choose the folder…* points it at the new
+letter without moving anything.
+
+`PRAGMA busy_timeout` is set to 60 seconds rather than the usual few: a USB
+drive under a long write can leave another connection waiting far longer than an
+internal SSD would.
+
+Tell users to connect the drive before opening the application, and to close the
+application before ejecting it.
+
 ### Portable installs
 
 Set `FINDER_401K_DATA_DIR` to keep everything beside the executable — useful for

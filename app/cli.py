@@ -14,10 +14,16 @@ on a server, in a scheduled job, or over SSH.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import sys
 from pathlib import Path
 
-from app.core.config import Settings, get_app_data_dir, get_database_path
+from app.core.config import (
+    Settings,
+    StorageUnavailable,
+    get_app_data_dir,
+    get_database_path,
+)
 from app.core.constants import LATEST_FORM_YEAR, ProviderRole
 from app.core.exceptions import FinderError, ImportCancelled
 from app.core.logging import configure_logging
@@ -300,6 +306,309 @@ def cmd_providers(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_storage(args: argparse.Namespace) -> int:
+    """Show or change where the bulk data is kept."""
+
+    from app.core import storage
+    from app.core.config import get_app_data_dir
+    from app.services.relocate import (
+        RelocationError,
+        current_location,
+        plan_move,
+        relocate,
+        revert_to_internal,
+    )
+
+    if args.storage_action == "list":
+        found = storage.candidates()
+        if not found:
+            print("No removable or external drives detected.")
+            return 0
+
+        print("Drives that could hold the data:\n")
+        for info in found:
+            mark = "  " if info.usable else "! "
+            print(f"{mark}{info.describe()}")
+            for finding in info.findings:
+                if finding.severity is not storage.Severity.NOTE:
+                    print(f"      {finding.severity.value}: {finding.message}")
+        return 0
+
+    if args.storage_action in {"set", "reset"}:
+        def report(name: str, position: int, total: int) -> None:
+            print(f"  moving {name} ({position} of {total})…")
+
+        try:
+            if args.storage_action == "reset":
+                result = revert_to_internal(
+                    move_existing=not args.leave_data, progress=report
+                )
+            else:
+                target = Path(args.path).expanduser()
+                info, payload = plan_move(target, move_existing=not args.leave_data)
+
+                for finding in info.findings:
+                    print(f"  {finding.severity.value}: {finding.message}")
+
+                if info.blockers:
+                    return 1
+
+                if payload and not args.yes:
+                    print(
+                        f"\n{storage.format_bytes(payload)} will be moved from "
+                        f"{current_location()}\nto {target}. This can take a long "
+                        f"time and must not be interrupted."
+                    )
+                    if input("Type 'move' to continue: ").strip().lower() != "move":
+                        print("Cancelled. Nothing was changed.")
+                        return 1
+
+                result = relocate(
+                    target, move_existing=not args.leave_data, progress=report
+                )
+        except RelocationError as exc:
+            print(f"\n{exc}", file=sys.stderr)
+            return 1
+
+        print(f"\n{result.summary()}")
+        return 0
+
+    # Default: report where things are.
+    location = current_location()
+    info = storage.inspect(location)
+
+    print(f"Application folder: {get_app_data_dir()}")
+    print("  settings, logs and the licence always stay here")
+    print()
+    print(f"Data folder:        {location}")
+    print("  database, downloads and extracted CSV files")
+
+    if not location.is_dir():
+        print(
+            "\n  NOT AVAILABLE. If this is a removable drive, connect it — the "
+            "drive letter\n  may also have changed. "
+            "'401k-finder storage reset' returns to internal storage.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if info.filesystem:
+        print(f"  Filesystem:       {info.filesystem}")
+    if info.removable:
+        print("  Removable drive")
+    if info.network:
+        print("  Network location")
+
+    print(f"  {info.describe_space()}")
+
+    held = storage.managed_size(location)
+    if held:
+        print(f"  Currently using:  {storage.format_bytes(held)}")
+
+    for finding in info.findings:
+        print(f"\n  {finding.severity.value}: {finding.message}")
+
+    return 0
+
+
+def cmd_index(args: argparse.Namespace) -> int:
+    """Fetch the employer index for many years at once."""
+
+    from app.services.coverage import coverage, summarise
+    from app.services.sync import SyncService
+
+    initialize_database()
+    settings = Settings.load()
+
+    years = args.year or list(supported_years())
+
+    print(
+        f"Indexing {len(years)} form year(s): {years[0]}–{years[-1]}.\n"
+        f"This fetches the two filing forms only — enough to match an employer "
+        f"to a plan.\nProvider detail needs a full sync of the years that matter; "
+        f"'401k-finder sync --year N'\ndoes that once you know which they are.\n"
+    )
+
+    with session_scope() as session:
+        service = SyncService(
+            session,
+            settings=settings,
+            progress=None if args.quiet else _print_progress,
+        )
+
+        try:
+            reports = service.sync_index(years, force=args.force)
+        except ImportCancelled:
+            print("\nCancelled.")
+            return 130
+        except FinderError as exc:
+            print(f"\nFailed: {exc}", file=sys.stderr)
+            return 1
+
+    failures = sum(len(report.failed) for report in reports)
+
+    with read_session() as session:
+        print(f"\n{summarise(coverage(session))}")
+
+    if failures:
+        print(f"  {failures} dataset(s) failed; re-run to retry them.", file=sys.stderr)
+
+    return 1 if failures else 0
+
+
+def cmd_changes(args: argparse.Namespace) -> int:
+    """Report plans that changed provider between filed years."""
+
+    from app.providers.changes import ChangeDetector, ChangeQuery
+
+    if not database_exists():
+        print(f"No database yet at {get_database_path()}.", file=sys.stderr)
+        return 1
+
+    query = ChangeQuery(
+        role=args.role,
+        year=args.year,
+        from_provider=args.from_provider,
+        to_provider=args.to_provider,
+        state=args.state,
+        min_participants=args.min_participants,
+        min_assets=args.min_assets,
+        include_gained=args.include_appointments,
+        include_lost=args.include_departures,
+        limit=args.limit,
+    )
+
+    with read_session() as session:
+        report = ChangeDetector(session).find(query)
+
+    if not report.years_compared:
+        print(
+            "Nothing to compare. Provider changes need at least two form years "
+            "imported\nwith the schedules that name providers — see "
+            "'401k-finder status'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    span = f"{report.years_compared[0]}–{report.years_compared[-1]}"
+    print(f"{report.total:,} {args.role.lower().replace('_', ' ')} change(s) across {span}.\n")
+
+    if not report.total:
+        return 1
+
+    for change in report.changes:
+        print(change.describe())
+        print(
+            f"  EIN {change.plan_key}  |  {change.state or '-'}  |  "
+            f"{format(change.participants, ',') if change.participants else '-'} participants"
+            f"  |  {_money(change.total_assets)}"
+        )
+        print(
+            f"  source: schedule {change.schedule_code or '?'}, "
+            f"field {change.source_field or '?'}"
+        )
+        print()
+
+    flows = report.flows()
+    if flows and not args.no_summary:
+        print("Where plans moved:")
+        for source, target, count, assets in flows[:20]:
+            print(f"  {source} -> {target}: {count} plan(s), {_money(assets)}")
+        print()
+
+    if args.csv:
+        path = export_service.export_provider_changes_csv(report.changes, args.csv)
+        print(f"Wrote {path}")
+
+    return 0
+
+
+def cmd_trace(args: argparse.Namespace) -> int:
+    """Trace a work history against the filings, for a lost-account search."""
+
+    from app.trace import AccountTracer, WorkHistory, looks_like_ssn
+    from app.trace.packet import render_report
+
+    # Checked on the raw arguments, before anything is constructed. Employment
+    # redacts on the way in, so by the time a history exists the number is gone
+    # -- which is right for the log and the database, but would leave the person
+    # staring at an empty report with no idea why.
+    raw = " ".join(filter(None, [*(args.employer or []), args.name or ""]))
+    if args.history and args.history.is_file():
+        with contextlib.suppress(OSError):
+            raw += " " + args.history.read_text(encoding="utf-8-sig", errors="replace")
+
+    if looks_like_ssn(raw):
+        print(
+            "That looks like a Social Security number. It has not been searched for, "
+            "logged or saved.\n\n"
+            "Form 5500 is what employers file about their plans: it names plans, not "
+            "people.\nAcross all 448 published record layouts there is no participant "
+            "name, no Social\nSecurity number and no individual balance, so an SSN has "
+            "nothing to match against\nhere.\n\n"
+            "Search by employer instead:\n"
+            "  401k-finder trace --employer 'Acme Manufacturing' --state OH --from 2008 "
+            "--to 2012\n\n"
+            "The report ends with the registries that *can* be searched by Social "
+            "Security\nnumber, including the Department of Labor's Retirement Savings "
+            "Lost and Found.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.history:
+        try:
+            history = WorkHistory.from_csv(args.history, person=args.name or "")
+        except (OSError, ValueError) as exc:
+            print(f"Could not read {args.history}: {exc}", file=sys.stderr)
+            return 1
+    else:
+        if not args.employer:
+            print(
+                "Give at least one --employer, or a --history CSV.\n"
+                "  401k-finder trace --employer 'Acme Manufacturing' --state OH "
+                "--from 2008 --to 2012",
+                file=sys.stderr,
+            )
+            return 2
+
+        history = WorkHistory(person=args.name or "")
+        for employer in args.employer:
+            history.add(
+                employer,
+                state=args.state,
+                city=args.city,
+                start_year=args.from_year,
+                end_year=args.to_year,
+            )
+
+    if not database_exists():
+        print(
+            f"No database yet at {get_database_path()}.\n"
+            f"Run '401k-finder sync --year 2023' to download a form year first.",
+            file=sys.stderr,
+        )
+        return 1
+
+    with read_session() as session:
+        report = AccountTracer(session).trace(history, limit_per_job=args.limit)
+
+    text = render_report(report, letters=args.letters)
+
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(text, encoding="utf-8")
+        print(f"Wrote {args.output}")
+        print(
+            f"  {report.total_matches} plan(s) across "
+            f"{len(report.jobs_with_matches)} of {len(history)} job(s)."
+        )
+    else:
+        print(text)
+
+    return 0 if report.total_matches else 1
+
+
 def cmd_license(args: argparse.Namespace) -> int:
     from app.licensing import get_gate, machine_fingerprint, machine_label
 
@@ -392,6 +701,19 @@ def cmd_status(args: argparse.Namespace) -> int:
 
         if summary.years:
             print(f"  Form years:       {', '.join(str(year) for year in summary.years)}")
+
+        from app.plans.successor import transfer_counts
+        from app.services.coverage import coverage, summarise
+
+        transfers, resolved = transfer_counts(session)
+        if transfers:
+            print(f"  Asset transfers:  {transfers:,} ({resolved:,} resolved to a plan held here)")
+
+        entries = coverage(session)
+        if entries:
+            print(f"\nCoverage: {summarise(entries)}")
+            for entry in entries:
+                print(f"  {entry.form_year}  {entry.depth.label}")
 
         if summary.by_category:
             print("\nPlans by category:")
@@ -558,6 +880,129 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--verbose", action="store_true")
     validate.set_defaults(func=cmd_validate)
 
+    storage_parser = sub.add_parser(
+        "storage",
+        help="Show or change where the data is kept (e.g. an external drive).",
+        description=(
+            "A full seventeen years runs to hundreds of gigabytes. The database, "
+            "downloads and extracted files can live on any drive; settings, logs "
+            "and the licence always stay with the application."
+        ),
+    )
+    storage_sub = storage_parser.add_subparsers(dest="storage_action")
+    storage_parser.set_defaults(
+        func=cmd_storage, storage_action="status", path=None, leave_data=False, yes=False
+    )
+
+    storage_status = storage_sub.add_parser("status", help="Show the current location.")
+    storage_status.set_defaults(func=cmd_storage, path=None, leave_data=False, yes=False)
+
+    storage_list = storage_sub.add_parser(
+        "list", help="List drives that could hold the data."
+    )
+    storage_list.set_defaults(func=cmd_storage, path=None, leave_data=False, yes=False)
+
+    storage_set = storage_sub.add_parser("set", help="Move the data to another drive.")
+    storage_set.add_argument("path", help="Folder on the drive, e.g. E:\\401k-data")
+    storage_set.add_argument(
+        "--leave-data",
+        action="store_true",
+        help="Point at the new location without moving what is already there.",
+    )
+    storage_set.add_argument("--yes", action="store_true", help="Skip the confirmation.")
+    storage_set.set_defaults(func=cmd_storage)
+
+    storage_reset = storage_sub.add_parser(
+        "reset", help="Move the data back beside the application."
+    )
+    storage_reset.add_argument("--leave-data", action="store_true")
+    storage_reset.add_argument("--yes", action="store_true")
+    storage_reset.set_defaults(func=cmd_storage, path=None)
+
+    index = sub.add_parser(
+        "index",
+        help="Fetch the employer index for every form year (small and fast).",
+        description=(
+            "Downloads the two filing forms for each year -- enough to match an "
+            "employer to a plan, at a fraction of the size of a full sync. Use "
+            "this to make a whole working life searchable, then sync in full "
+            "only the years that matched."
+        ),
+    )
+    index.add_argument("--year", type=int, action="append", help="Limit to these years.")
+    index.add_argument("--force", action="store_true", help="Re-fetch years already held.")
+    index.add_argument("--quiet", action="store_true")
+    index.set_defaults(func=cmd_index)
+
+    changes = sub.add_parser(
+        "changes",
+        help="Plans that changed provider between years.",
+        description=(
+            "Compares each plan's filed provider from one year to the next. "
+            "Needs at least two form years imported with the provider schedules."
+        ),
+    )
+    changes.add_argument(
+        "--role",
+        default=ProviderRole.RECORDKEEPER.value,
+        choices=[role.value for role in ProviderRole],
+    )
+    changes.add_argument("--year", type=int, help="Only changes landing in this year.")
+    changes.add_argument("--from-provider", help="Plans that moved away from this firm.")
+    changes.add_argument("--to-provider", help="Plans that moved to this firm.")
+    changes.add_argument("--state")
+    changes.add_argument("--min-participants", type=int)
+    changes.add_argument("--min-assets", type=float)
+    changes.add_argument(
+        "--include-appointments",
+        action="store_true",
+        help="Also report a role appearing for the first time.",
+    )
+    changes.add_argument(
+        "--include-departures",
+        action="store_true",
+        help="Also report a role no longer filed. Often an unimported schedule.",
+    )
+    changes.add_argument("--no-summary", action="store_true", help="Skip the flow table.")
+    changes.add_argument("--limit", type=int, default=500)
+    changes.add_argument("--csv", type=Path)
+    changes.set_defaults(func=cmd_changes)
+
+    trace = sub.add_parser(
+        "trace",
+        help="Find retirement plans from a work history (for a lost-account search).",
+        description=(
+            "Matches employers you have worked for against the filed plans, and "
+            "reports who was holding the money. Form 5500 holds no participant "
+            "records, so this identifies the plan and who to ask -- it cannot "
+            "confirm an account exists in your name."
+        ),
+    )
+    trace.add_argument(
+        "--employer",
+        action="append",
+        help="An employer to search for. Repeat for several.",
+    )
+    trace.add_argument(
+        "--history",
+        type=Path,
+        help=(
+            "CSV of employers. Columns: employer (required), city, state, "
+            "start_year, end_year, note."
+        ),
+    )
+    trace.add_argument("--name", help="The person's name, for the report heading.")
+    trace.add_argument("--state", help="Two-letter state, applied to every --employer.")
+    trace.add_argument("--city")
+    trace.add_argument("--from", dest="from_year", type=int, help="First year worked.")
+    trace.add_argument("--to", dest="to_year", type=int, help="Last year worked.")
+    trace.add_argument("--limit", type=int, default=8, help="Plans per employer.")
+    trace.add_argument(
+        "--letters", action="store_true", help="Append a claim letter per employer."
+    )
+    trace.add_argument("--output", type=Path, help="Write the report to a file.")
+    trace.set_defaults(func=cmd_trace)
+
     license_parser = sub.add_parser("license", help="Activate or inspect the licence.")
     license_sub = license_parser.add_subparsers(dest="license_action")
     license_parser.set_defaults(
@@ -599,6 +1044,14 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         return 130
+    except StorageUnavailable as exc:
+        # The data lives on a drive that is not connected. Said plainly,
+        # because the alternative is a stack trace about a missing table for
+        # somebody whose only problem is an unplugged USB stick.
+        print(f"\n{exc}\n", file=sys.stderr)
+        print("  401k-finder storage          show where the data should be", file=sys.stderr)
+        print("  401k-finder storage reset    go back to internal storage", file=sys.stderr)
+        return 2
     except FinderError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1

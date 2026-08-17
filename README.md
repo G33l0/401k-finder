@@ -142,6 +142,22 @@ plans, and imports in about three minutes on a modest machine. Adding the
 Syncs are resumable. Interrupt one and re-run it; completed datasets are
 skipped and a partial download continues where it stopped.
 
+### Index every year first
+
+A full form year is 20–60 GB, so importing a decade to search a decade is not
+realistic. Matching an employer to a plan needs only the two filing forms:
+
+```bash
+401k-finder index                    # every published year, employers only
+401k-finder index --year 2015 --year 2016
+```
+
+That makes **Find my accounts** work across a whole career at a fraction of the
+size. It cannot name a provider — every asset holder is on a schedule — so once
+you know which years matter, `sync` those in full. `401k-finder status` reports
+which years are held at which depth, and the trace report says so too rather
+than letting a thin year read as an empty one.
+
 Already have the files? Import them from disk:
 
 ```bash
@@ -161,6 +177,45 @@ superseded filings removed — this is what you want. **All** includes every
 filing received, including amendments and duplicates, and is useful only if you
 are studying filing behaviour itself.
 
+### Keeping the data on an external drive
+
+A full seventeen years runs to several hundred gigabytes, which most laptops
+cannot give up. The database, the downloads and the extracted CSV files can live
+on any drive — external, USB, or a network share:
+
+```bash
+401k-finder storage              # where the data is now, and how much room is left
+401k-finder storage list         # drives that could hold it
+401k-finder storage set E:\401k-data
+401k-finder storage reset        # move it back to this computer
+```
+
+In the desktop application the same controls are on the **Data** tab, under
+*Where the data is kept*. Setting a new location moves whatever is already
+there, so nothing has to be downloaded twice.
+
+Only the bulk data moves. Settings, logs and the licence stay on the machine,
+along with the small file recording where the data went — a pointer stored on
+the drive it points at would leave with the drive.
+
+Three things about removable media the application handles for you:
+
+- **FAT32 is refused.** It cannot hold a file over 4 GB and a single form year
+  passes that, so an import would die half way through with a disk-full error
+  that is nothing of the kind. Reformat as exFAT or NTFS first. (Reformatting
+  erases the drive — copy anything you need off it beforehand.)
+- **Network shares work, more slowly.** SQLite's write-ahead journal needs
+  shared memory that network filesystems do not provide, so the database drops
+  to the rollback journal there. A directly connected drive keeps the fast path.
+- **An unplugged drive is reported, not worked around.** If the drive is missing
+  at start-up you get a dialog offering to wait, choose another folder, or go
+  back to internal storage. The application will not quietly create an empty
+  database at the mount point, because an empty search result is
+  indistinguishable from having lost everything.
+
+Connect the drive before opening the application, and close the application
+before ejecting it.
+
 ---
 
 ## Using it
@@ -171,10 +226,12 @@ are studying filing behaviour itself.
 401k-finder-gui
 ```
 
-Three tabs: **Find plans** (search, results, and a detail panel with the
-provider list and full evidence), **Providers** (which firms hold the most
-plans, and drill into their book), and **Data** (download years, import local
-files, see what is loaded).
+Five tabs: **Find plans** (search, results, and a detail panel with the
+provider list and full evidence), **Find my accounts** (trace your own old
+401(k) from a work history — see below), **Providers** (which firms hold the
+most plans, and drill into their book), **Provider changes** (which plans moved
+between firms, and when), and **Data** (download years, import local files, see
+what is loaded).
 
 #### Themes
 
@@ -224,6 +281,67 @@ rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
 ```
 
 `401k-finder <command> --help` for the full set of options.
+
+---
+
+## Finding your own old 401(k)
+
+If you are trying to recover a retirement account from a previous employer,
+the **Find my accounts** tab (or `401k-finder trace`) works from your work
+history:
+
+```bash
+401k-finder trace \
+    --employer "Acme Manufacturing" --state OH --from 2008 --to 2012 \
+    --letters --output trace.txt
+```
+
+For each employer it reports the plan, its EIN and plan number, and **the firm
+that was holding the money in the years you worked there** — which is often not
+the firm holding it today. It also detects when a plan was wound up, and reads
+the sponsor name *as filed at the time*, so an employer that has since been
+acquired still matches under the name you remember.
+
+The report ends with a letter you can send, with the plan's details already
+filled in.
+
+### What it cannot do, and why
+
+**It cannot take a Social Security number, and no tool built on this data can.**
+Form 5500 is what an employer files about a *plan*. Across all 448 published
+record layouts there is no participant name, no Social Security number and no
+individual balance — every participant field is a count or an aggregate. There
+is nothing for an SSN to match against.
+
+So this tells you *which plan and who to ask*. It cannot confirm an account
+exists in your name; only the plan's recordkeeper or a participant-level
+registry can do that. Both the application and the report link to the ones that
+take an SSN, chief among them the Department of Labor's
+[Retirement Savings Lost and Found](https://lostandfound.dol.gov/).
+
+An SSN typed into the employer box is detected, refused, and never written to
+the database, the log or an exported report.
+
+---
+
+## Tracking providers over time
+
+Every engagement is stored with the form year it was filed for, so with two or
+more years imported the application can report which plans changed hands:
+
+```bash
+401k-finder changes --role RECORDKEEPER --year 2023
+401k-finder changes --from-provider "Fidelity" --min-assets 10000000 --csv losses.csv
+```
+
+For each plan it gives the firm before, the firm after, the years compared, the
+plan's size, and the schedule and field the later observation was read from — so
+a surprising result can be checked against the filing rather than argued about.
+The **Provider changes** tab is the same thing with filters and a CSV export.
+
+A change means *the filings named a different firm*. That is usually a real
+move, but a plan can rename or a filer can spell a firm two ways, which is why
+provider names are consolidated first and every row carries its source.
 
 ---
 
@@ -300,6 +418,7 @@ app/
     schedules/           What each dataset's columns mean
   database/              Models, engine, sessions, versioned schema
   licensing/             Signed offline licence keys, bound to one machine
+  trace/                 Work-history matching for lost-account searches
   providers/             Name normalisation, brand table, fuzzy matching
   search/                Query objects and the FTS5-backed search engine
   evidence/              Evidence trail assembly
@@ -317,6 +436,9 @@ tests/                   Test suite
 ---
 
 ## Development
+
+Planned and possible improvements, ranked by value against effort, are in
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```bash
 pip install -r requirements.txt -r requirements-dev.txt

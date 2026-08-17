@@ -48,6 +48,32 @@ exclusive access to the data, or that the data itself is yours. "Search DOL
 Form 5500 filings" is accurate. "Our proprietary retirement plan database" is
 not, and invites a complaint you do not need.
 
+### The one claim that will get you in trouble
+
+The **Find my accounts** feature traces a person's work history to the plans
+their employers ran. It is the most saleable thing in the product, and it is
+also the easiest to describe dishonestly.
+
+**Never advertise that it finds an account by Social Security number.** It does
+not, and no tool built on this data can: Form 5500 is what an employer files
+about a *plan*, and across all 448 published record layouts there is no
+participant name, no SSN and no individual balance. A page saying "enter your
+SSN to find your lost 401(k)" would be describing a capability the software
+does not have, over a product that charges money, in a category regulators
+watch closely — and it is indistinguishable from the scams that operate in this
+exact space.
+
+| Say this | Not this |
+|---|---|
+| "Find which retirement plan your old employer ran, and who holds the money" | "Find your lost 401(k) by SSN" |
+| "Identifies the plan, its EIN, and the recordkeeper to contact" | "Locates your account balance" |
+| "Built from public Department of Labor filings" | "Searches a nationwide database of retirement accounts" |
+
+The application enforces this from the inside — an SSN typed into the employer
+box is refused, never stored, and the user is pointed at the Department of
+Labor's Retirement Savings Lost and Found, which does take one. Keep your
+marketing on the same side of that line.
+
 ---
 
 ## 2. How the licensing works

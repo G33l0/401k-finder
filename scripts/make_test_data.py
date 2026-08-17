@@ -115,6 +115,22 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
     sch_i: list[dict[str, str]] = []
     sch_r: list[dict[str, str]] = []
     sch_d1: list[dict[str, str]] = []
+    sch_h1: list[dict[str, str]] = []
+
+    def _churn(index: int) -> int:
+        """
+        How far to rotate this plan's providers for this form year.
+
+        Every fourth plan changes provider each year; the rest keep theirs. A
+        fixture where nobody ever moves cannot exercise change detection, and
+        one where everybody moves cannot show that a steady plan is left alone.
+
+        Offset so plan 0 is never churned: it is the ACME plan the search tests
+        pin their provider assertions to, and rotating it would break them for
+        reasons that have nothing to do with what they are testing.
+        """
+
+        return year if index % 4 == 1 else 0
 
     for index in range(plan_count):
         sponsor, city, state, postal, business = SPONSORS[index % len(SPONSORS)]
@@ -123,7 +139,12 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
         plan_name = f"{sponsor.split()[0]} {PLAN_SUFFIXES[index % len(PLAN_SUFFIXES)]}"
         codes = PENSION_CODE_SETS[index % len(PENSION_CODE_SETS)]
         large_plan = index % 3 == 0
-        ack = f"2023{index:08d}NAL{index:07d}001"
+        # The year must be in the acknowledgement id. DOL issues one per
+        # filing, and generating two form years with the same ids made the
+        # second import update the first year's filings instead of adding to
+        # them -- which looked like it worked, and quietly left one year in the
+        # database when the fixture claimed two.
+        ack = f"{year}{index:08d}NAL{index:07d}001"
 
         participants = 120 + index * 37 if large_plan else 12 + index * 3
         assets = float((participants * 41_500) + index * 1_000)
@@ -192,8 +213,8 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
             # Two Schedule C providers per large plan, with distinct service codes.
             for order, (name, service_codes) in enumerate(
                 (
-                    (RECORDKEEPERS[index % len(RECORDKEEPERS)], "1537645038"),
-                    (TRUSTEES[index % len(TRUSTEES)], "2119"),
+                    (RECORDKEEPERS[(index + _churn(index)) % len(RECORDKEEPERS)], "1537645038"),
+                    (TRUSTEES[(index + _churn(index)) % len(TRUSTEES)], "2119"),
                 ),
                 start=1,
             ):
@@ -227,8 +248,8 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
                 {
                     "ACK_ID": ack,
                     "ROW_ORDER": "1",
-                    "DFE_P1_ENTITY_NAME": f"{RECORDKEEPERS[index % len(RECORDKEEPERS)]} CIT",
-                    "DFE_P1_SPONS_NAME": RECORDKEEPERS[index % len(RECORDKEEPERS)],
+                    "DFE_P1_ENTITY_NAME": f"{RECORDKEEPERS[(index + _churn(index)) % len(RECORDKEEPERS)]} CIT",
+                    "DFE_P1_SPONS_NAME": RECORDKEEPERS[(index + _churn(index)) % len(RECORDKEEPERS)],
                     "DFE_P1_PLAN_EIN": f"{40_000_000 + index:09d}",
                     "DFE_P1_PLAN_PN": "333",
                     "DFE_P1_ENTITY_CODE": "C",
@@ -314,6 +335,48 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
             }
         )
 
+    # --- A wind-up chain, so the successor walk has something real to follow.
+    #
+    # 12 -> 15 -> 18 is a two-hop merger; 21 points at an EIN that is not in
+    # this fixture, which is the common case of a transferee whose year has
+    # never been imported. Every index used here is a multiple of 3, so all of
+    # them file the large-plan schedules.
+    def _ein_for(index: int) -> str:
+        return f"{10_000_000 + index * 137:09d}"
+
+    def _pn_for(index: int) -> str:
+        return f"{(index % 3) + 1:03d}"
+
+    def _ack_for(index: int) -> str:
+        return f"{year}{index:08d}NAL{index:07d}001"
+
+    chain = [(12, 15), (15, 18)]
+    if plan_count > 21:
+        chain.append((21, None))
+
+    for source, target in chain:
+        if source >= plan_count or (target is not None and target >= plan_count):
+            continue
+
+        # The plan handing its assets over files a final return.
+        for row in main_rows:
+            if row["ACK_ID"] == _ack_for(source):
+                row["FINAL_FILING_IND"] = "1"
+
+        sch_h1.append(
+            {
+                "ACK_ID": _ack_for(source),
+                "ROW_ORDER": "1",
+                "PLAN_TRANSFER_NAME": (
+                    f"{SPONSORS[target % len(SPONSORS)][0]} SUCCESSOR PLAN"
+                    if target is not None
+                    else "OFFSHORE HOLDINGS RETIREMENT PLAN"
+                ),
+                "PLAN_TRANSFER_EIN": _ein_for(target) if target is not None else "998877665",
+                "PLAN_TRANSFER_PN": _pn_for(target) if target is not None else "001",
+            }
+        )
+
     datasets = (
         ("F_5500", main_rows),
         ("F_5500_SF", sf_rows),
@@ -323,6 +386,7 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
         ("F_SCH_H", sch_h),
         ("F_SCH_I", sch_i),
         ("F_SCH_R", sch_r),
+        ("F_SCH_H_PART1", sch_h1),
     )
 
     for dataset, rows in datasets:

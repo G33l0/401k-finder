@@ -231,10 +231,28 @@ CORE_DATASET_NAMES: tuple[str, ...] = (
     "F_SCH_C_PART1_ITEM2",
     "F_SCH_D_PART1",
     "F_SCH_H",
+    # Small, and the only source for where a wound-up plan's assets went.
+    "F_SCH_H_PART1",
     "F_SCH_I",
     "F_SCH_R",
     "F_SCH_DCG",
     "F_SCH_MEP",
+)
+
+
+#: The smallest set that still answers "which plan did my employer run".
+#:
+#: The two filing forms carry sponsor name, EIN, plan number, plan name and
+#: location — everything the employer match needs. They are a small fraction of
+#: a full year, which is what makes it practical to index every published year
+#: on an ordinary machine rather than importing one year and hoping it is the
+#: right one.
+#:
+#: What an index-only year cannot do is name a provider: every asset holder
+#: lives on a schedule, and schedules are what the size is.
+INDEX_DATASET_NAMES: tuple[str, ...] = (
+    "F_5500",
+    "F_5500_SF",
 )
 
 
@@ -313,16 +331,22 @@ def plan_sync(
     release: Release = Release.LATEST,
     datasets: tuple[str, ...] | None = None,
     core_only: bool = False,
+    index_only: bool = False,
 ) -> tuple[DatasetRelease, ...]:
     """
     Build the ordered list of datasets to fetch for a form year.
 
     Filing datasets are ordered first: schedules attach to filings by ACK_ID, so
     importing them first means every schedule row finds its parent.
+
+    ``index_only`` narrows this to the two filing forms — enough to match an
+    employer to a plan, and small enough to do for every published year.
     """
 
     if datasets is not None:
         wanted = {name.upper() for name in datasets}
+    elif index_only:
+        wanted = set(INDEX_DATASET_NAMES)
     elif core_only:
         wanted = set(CORE_DATASET_NAMES)
     else:

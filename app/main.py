@@ -28,6 +28,7 @@ def main() -> int:
     from app.ui import resources, theme
     from app.ui.windows.activation_dialog import require_license
     from app.ui.windows.main_window import MainWindow
+    from app.ui.windows.storage_dialog import ensure_storage_available
 
     configure_logging()
 
@@ -56,6 +57,12 @@ def main() -> int:
     # the right scheme rather than flashing light and repainting.
     settings = Settings.load()
     theme.apply(app, settings.theme)
+
+    # The data may live on a drive that is not connected. Checked before the
+    # window is built, because the alternative is an empty database created at
+    # the mount point and a search result that looks like everything was lost.
+    if not ensure_storage_available():
+        return 1
 
     # Activation runs before the main window is built. A build with no store
     # configured passes straight through, so development is unaffected.

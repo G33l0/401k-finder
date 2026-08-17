@@ -423,3 +423,61 @@ class ImportedDataset(Base):
     __table_args__ = (
         UniqueConstraint("form_year", "dataset", "release", name="uq_import_year_dataset_release"),
     )
+
+
+class PlanTransfer(Base):
+    """
+    Assets moved from one plan to another, as reported on Schedule H Part 1.
+
+    This is the only place the filings say **where the money went** when a plan
+    is merged or wound up. A participant whose old plan no longer exists has one
+    question, and this table is the answer to it: the receiving plan is named
+    with its own EIN and plan number, which is enough to look it up and find who
+    holds it now.
+
+    ``to_plan_id`` is filled in when the receiving plan is also in this
+    database. It stays null when it is not -- the transferee may be a plan that
+    has never been imported, or one that files under a different EIN -- and the
+    reported name, EIN and plan number are kept regardless, because they are
+    still what a person quotes when they write to ask.
+    """
+
+    __tablename__ = "plan_transfers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    #: The plan the assets left.
+    from_plan_id: Mapped[int] = mapped_column(
+        ForeignKey("plans.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    ack_id: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    form_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+    #: The receiving plan, exactly as reported.
+    to_name: Mapped[str | None] = mapped_column(String(500))
+    to_ein: Mapped[str | None] = mapped_column(String(9), index=True)
+    to_plan_number: Mapped[str | None] = mapped_column(String(3))
+
+    #: Resolved to a row in `plans` when the receiving plan is held locally.
+    to_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plans.id", ondelete="SET NULL"), index=True
+    )
+
+    source_file: Mapped[str | None] = mapped_column(String(500))
+    source_row: Mapped[int | None] = mapped_column(Integer)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
+
+    __table_args__ = (
+        # One row per reported transfer. Re-importing a year must not duplicate
+        # them, and the source row number is what makes each one distinct when a
+        # plan reports several transfers on the same filing.
+        UniqueConstraint(
+            "ack_id", "source_row", "to_ein", "to_plan_number", name="uq_transfer_row"
+        ),
+        Index("ix_transfer_target", "to_ein", "to_plan_number"),
+    )
+
+    @property
+    def target_key(self) -> str:
+        return f"{self.to_ein or '?'}-{self.to_plan_number or '?'}"

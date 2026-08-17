@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.codes import describe_characteristic, describe_service_code
-from app.core.constants import EFAST_FILING_URL
+from app.core.constants import SOURCE_LABEL
 from app.evidence.trail import PlanEvidence
 from app.search.engine import PlanResult
 from app.ui import theme
@@ -97,7 +97,7 @@ class PlanDetailPanel(QWidget):
         return self._placeholder(
             "No plan selected",
             "Select a plan in the results list to see who holds and administers it, "
-            "and the exact DOL filing field each answer comes from.",
+            "and the exact filing field each answer comes from.",
         )
 
     def _loading_html(self) -> str:
@@ -303,10 +303,10 @@ class PlanDetailPanel(QWidget):
 
         return f"""{self._style()}
 <h2>Evidence</h2>
-<p class='sub'>Every statement above traces to a named field of a named DOL dataset row.
-The original filing images can be retrieved from EBSA's public search using the
-sponsor EIN {escape(evidence.plan_key)}.</p>
-<p><a href='{EFAST_FILING_URL}'>Open the EFAST public filing search</a></p>
+<p class='sub'>Every statement above traces to a named field of a named row of the
+source data. Quote the sponsor EIN <b>{escape(evidence.plan_key)}</b> when asking a
+plan or its recordkeeper for the underlying filing.</p>
+<p class='src'>Source: {SOURCE_LABEL}</p>
 {"".join(blocks) or "<p>No evidence records were stored for this plan.</p>"}
 """
 
