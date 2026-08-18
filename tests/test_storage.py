@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -40,7 +41,35 @@ def test_inspect_blocks_a_path_whose_parent_is_gone(tmp_path: Path) -> None:
     assert "not available" in info.blockers[0].message
 
 
-def test_inspect_blocks_a_read_only_location(tmp_path: Path) -> None:
+def test_a_location_that_cannot_be_written_is_blocked(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """
+    The rule itself, on every platform. Program Files is read-only for a
+    standard user, so this matters most on the one where mode bits mean
+    nothing.
+    """
+
+    monkeypatch.setattr(storage, "_probe_writable", lambda _p: False)
+
+    info = storage.inspect(tmp_path)
+
+    assert not info.writable
+    assert not info.usable
+    assert any("cannot be written to" in item.message for item in info.blockers)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX mode bits do not make a directory read-only on Windows",
+)
+def test_the_write_probe_notices_a_read_only_directory(tmp_path: Path) -> None:
+    """
+    The probe itself, against a real read-only directory. A mount can look
+    fine until something is written to it, and finding that out during a
+    six-hour import is too late.
+    """
+
     if os.geteuid() == 0:  # pragma: no cover - root ignores the mode bits
         pytest.skip("running as root, which can write to a read-only directory")
 
@@ -49,13 +78,17 @@ def test_inspect_blocks_a_read_only_location(tmp_path: Path) -> None:
     target.chmod(0o500)
 
     try:
-        info = storage.inspect(target)
+        assert storage._probe_writable(target) is False
+        assert storage.inspect(target).blockers
     finally:
         target.chmod(0o700)
 
-    assert not info.writable
-    assert not info.usable
-    assert any("cannot be written to" in item.message for item in info.blockers)
+
+def test_the_write_probe_leaves_nothing_behind(tmp_path: Path) -> None:
+    """It writes a file to find out. It has to take it away again."""
+
+    assert storage._probe_writable(tmp_path) is True
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_fat32_is_refused_outright(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

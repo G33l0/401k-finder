@@ -404,7 +404,7 @@ def test_one_unusable_number_does_not_discard_the_whole_file(session, tmp_path):
 
     directory = tmp_path / "files"
     directory.mkdir()
-    (directory / "F_5500_2023_latest.csv").write_text(header + "".join(rows))
+    (directory / "F_5500_2023_latest.csv").write_text(header + "".join(rows), encoding="utf-8")
 
     stats = import_directory(session, directory, form_year=2023)
 
