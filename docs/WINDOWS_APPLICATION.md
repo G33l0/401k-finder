@@ -11,7 +11,9 @@ There are two artefacts:
 2. **An installer**, `401KFinderPro-Setup-<version>.exe`, which puts that
    folder in Program Files, creates shortcuts, and registers an uninstaller.
 
-`build.ps1` produces both.
+`build.ps1` produces both. `build.cmd` is a thin wrapper around it that
+PowerShell's execution policy does not apply to; the two take the same
+arguments.
 
 > **New to this?** [`DEPLOY.md`](DEPLOY.md) is a step-by-step walkthrough that
 > assumes nothing: installing the tools, adding your icon and logo, building,
@@ -29,10 +31,10 @@ git clone https://github.com/g33l0/401k-finder.git
 cd 401k-finder
 
 # Application only
-.\build.ps1
+.\build.cmd
 
 # Application and installer
-.\build.ps1 -Clean -Installer
+.\build.cmd -Clean -Installer
 ```
 
 Output:
@@ -49,13 +51,25 @@ copy of Qt. `401KFinderPro.exe` is windowed; `401k-finder.exe` is a console
 build of the same code, so `401k-finder sync --year 2023` works on a machine
 that only ever ran the installer.
 
-If PowerShell refuses to run the script:
+If PowerShell refuses to run the script, with either *"running scripts is
+disabled"* or *"is not digitally signed"*, use the `.cmd` wrapper instead. It is
+not subject to the execution policy and takes the same arguments:
+
+```powershell
+.\build.cmd -Clean -Installer
+```
+
+To stay in PowerShell, relax the policy for the current window only:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-That relaxes the policy for the current window only.
+That command can itself be refused on a machine where Group Policy locks the
+setting; `build.cmd`, or `powershell -ExecutionPolicy Bypass -File .\build.ps1`,
+works there. A *"not digitally signed"* message that survives a relaxed policy
+means the files came from a downloaded ZIP and carry Windows' internet mark:
+clear it with `Get-ChildItem -Recurse | Unblock-File`.
 
 ---
 
@@ -413,7 +427,7 @@ from there and passes it to Inno Setup, so the two never disagree.
 | Symptom | Cause and fix |
 |---|---|
 | `Python was not found on PATH` | Python not installed, or installed without the PATH option. Reinstall and tick "Add python.exe to PATH". |
-| `build.ps1 cannot be loaded` | Execution policy. Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`. |
+| `build.ps1 cannot be loaded`, whether it says *running scripts is disabled* or *is not digitally signed* | Execution policy. Use `.\build.cmd`, which is not subject to it, or run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first. If Group Policy locks that, `powershell -ExecutionPolicy Bypass -File .\build.ps1`. If *not digitally signed* persists, the files carry the mark-of-the-web from a ZIP download: `Get-ChildItem -Recurse | Unblock-File`. |
 | Hangs at *Preparing the virtual environment* | Cloud sync or antivirus, not a crash. Move the project off OneDrive-backed Desktop/Documents, or pass `-VenvPath C:\venvs\401k`. Wait 5 minutes before interrupting. |
 | Application opens, first search errors about a missing form year | The layouts were dropped from the package. Confirm the `datas` entry in the spec file and rebuild with `-Clean`. |
 | `ImportError: DLL load failed` for PySide6 | A mismatched or partial PySide6 install. Delete `.venv` and rebuild. |
