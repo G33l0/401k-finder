@@ -235,17 +235,26 @@ what is loaded).
 
 #### Themes
 
-**View → Theme** offers three schemes, and the choice is remembered:
+**View → Theme** offers seven schemes, and the choice is remembered:
 
 | | |
 |---|---|
 | **Light** | The default. A plain, bright document look. |
+| **Sepia** | Warm paper and dark brown. Less blue light for a long reading session. |
 | **Dark** | Neutral greys with a blue accent, for low light. |
+| **Midnight** | Deep navy with a periwinkle accent. Softer than Dark. |
+| **Amber** | Warm near-black with the amber of the application mark. |
 | **Hacker** | Near-black with a phosphor-green monospace treatment. |
+| **High contrast** | Black, white and yellow with heavy borders, for low vision. |
 
 They are defined in [`app/ui/theme.py`](app/ui/theme.py) as palettes of
 semantic roles such as `accent`, `text_muted` and `danger`, rather than as separate
-style sheets, so adding a fourth means adding one `Palette` and nothing else.
+style sheets, so adding an eighth means adding one `Palette` and nothing else.
+
+Every scheme is checked against WCAG contrast ratios by the test suite: body
+text clears AAA on both the window and panel backgrounds, secondary text clears
+AA, and the confidence colours clear the large-text threshold. High contrast is
+held to AAA on every role it defines.
 A test asserts that no colour appears in a generated style sheet unless the
 palette supplied it, which is what stops a stray literal turning into the one
 panel that never goes dark.

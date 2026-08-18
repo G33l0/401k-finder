@@ -19,13 +19,31 @@ def palette(request) -> theme.Palette:
     return theme.THEMES[request.param]
 
 
-def test_the_three_advertised_themes_exist():
-    assert [p.key for p in theme.available()] == ["light", "dark", "hacker"]
+def test_the_advertised_themes_exist():
+    assert [p.key for p in theme.available()] == [
+        "light",
+        "sepia",
+        "dark",
+        "midnight",
+        "amber",
+        "hacker",
+        "contrast",
+    ]
 
 
-def test_light_is_the_only_light_scheme():
-    assert not theme.LIGHT.dark
-    assert theme.DARK.dark and theme.HACKER.dark
+def test_the_menu_runs_light_to_dark():
+    """Two light schemes first, then the darks. A jumbled menu reads as a bug."""
+
+    flags = [p.dark for p in theme.available()]
+    assert flags == sorted(flags), "light schemes must come before dark ones"
+    assert flags.count(False) == 2
+
+
+def test_each_scheme_declares_its_own_brightness():
+    """A palette that lies about `dark` gets the wrong Qt icon set."""
+
+    for palette in theme.available():
+        assert palette.dark is (_luminance(palette.window) < 0.5), palette.key
 
 
 @pytest.mark.parametrize(
@@ -301,3 +319,88 @@ def test_the_source_label_is_the_one_the_product_uses():
     from app.core.constants import SOURCE_LABEL
 
     assert SOURCE_LABEL == "Department of Labour Database, USA"
+
+
+def _channel(value: int) -> float:
+    ratio = value / 255
+    return ratio / 12.92 if ratio <= 0.04045 else ((ratio + 0.055) / 1.055) ** 2.4
+
+
+def _luminance(colour: str) -> float:
+    """Relative luminance per WCAG 2.1."""
+
+    red, green, blue = (int(colour[i : i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * _channel(red) + 0.7152 * _channel(green) + 0.0722 * _channel(blue)
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    first, second = _luminance(foreground), _luminance(background)
+    lighter, darker = max(first, second), min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+@pytest.mark.parametrize(
+    ("foreground", "background", "floor"),
+    [
+        ("text", "window", 7.0),
+        ("text", "surface", 7.0),
+        ("text_muted", "surface", 4.5),
+        ("text_faint", "surface", 3.0),
+        ("accent", "surface", 4.5),
+        ("on_accent", "accent", 4.5),
+        ("on_selection", "selection", 4.5),
+        ("high", "surface", 3.0),
+        ("medium", "surface", 3.0),
+        ("danger", "surface", 3.0),
+    ],
+)
+def test_every_scheme_is_readable(palette, foreground, background, floor):
+    """
+    Body text clears WCAG AAA, secondary text clears AA, and the coloured
+    ratings clear the large-text threshold. Someone reads these reports for an
+    hour at a time.
+    """
+
+    ratio = contrast_ratio(getattr(palette, foreground), getattr(palette, background))
+    assert ratio >= floor, (
+        f"{palette.key}: {foreground} on {background} is {ratio:.1f}:1, "
+        f"below the {floor}:1 floor"
+    )
+
+
+def test_the_high_contrast_scheme_earns_its_name():
+    """It exists for low vision, so AAA everywhere is the whole point."""
+
+    palette = theme.CONTRAST
+
+    for role in ("text", "text_muted", "text_faint", "accent"):
+        ratio = contrast_ratio(getattr(palette, role), palette.window)
+        assert ratio >= 7.0, f"contrast.{role} is only {ratio:.1f}:1"
+
+    assert contrast_ratio(palette.text, palette.window) >= 20.0
+
+
+def test_borders_are_visible_against_their_background(palette):
+    """An invisible border turns grouped panels into one undivided slab."""
+
+    assert contrast_ratio(palette.border, palette.window) >= 1.2, palette.key
+    assert contrast_ratio(palette.border_strong, palette.surface) >= 1.3, palette.key
+
+
+def test_every_theme_gets_its_own_accelerator_key():
+    """Hacker and High contrast both wanted Alt+H; the second one never fired."""
+
+    marked = theme.accelerated([p.label for p in theme.available()])
+
+    keys = [label[label.index("&") + 1].lower() for label in marked if "&" in label]
+    assert len(keys) == len(set(keys)), f"duplicate accelerator in {marked}"
+    assert len(marked) == len(theme.available())
+
+
+def test_an_accelerator_keeps_the_label_readable():
+    assert theme.accelerated(["Light"]) == ["&Light"]
+    assert theme.accelerated(["Hacker", "High contrast"]) == ["&Hacker", "H&igh contrast"]
+
+
+def test_a_label_with_no_free_letter_is_left_alone():
+    assert theme.accelerated(["Aa", "Aa"]) == ["&Aa", "Aa"]

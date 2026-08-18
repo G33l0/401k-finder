@@ -192,8 +192,11 @@ class MainWindow(QMainWindow):
         self._theme_group.setExclusive(True)
 
         active = theme.resolve(self.settings.theme).key
-        for palette in theme.available():
-            action = QAction(f"&{palette.label}", self)
+        palettes = theme.available()
+        labels = theme.accelerated([palette.label for palette in palettes])
+
+        for palette, label in zip(palettes, labels, strict=True):
+            action = QAction(label, self)
             action.setCheckable(True)
             action.setChecked(palette.key == active)
             action.setData(palette.key)

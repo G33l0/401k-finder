@@ -1,4 +1,4 @@
-"""The three colour schemes, and the machinery for applying one."""
+"""The colour schemes, and the machinery for applying one."""
 
 from __future__ import annotations
 
@@ -139,7 +139,123 @@ HACKER = Palette(
 )
 
 
-THEMES: dict[str, Palette] = {theme.key: theme for theme in (LIGHT, DARK, HACKER)}
+SEPIA = Palette(
+    key="sepia",
+    label="Sepia",
+    dark=False,
+    window="#EFE6D8",
+    surface="#FAF4E9",
+    surface_alt="#F5EDDF",
+    border="#D9CBB4",
+    border_strong="#BFAE93",
+    text="#2E2519",
+    text_muted="#5C4F3D",
+    text_faint="#7D6E59",
+    accent="#8A4B22",
+    accent_hover="#6E3A18",
+    accent_soft="#F0E2CE",
+    on_accent="#FFF8EC",
+    selection="#E3CFAE",
+    on_selection="#33291B",
+    high="#3F6B2E",
+    medium="#8A5A16",
+    low="#867B6A",
+    danger="#A33125",
+    success="#3F6B2E",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+MIDNIGHT = Palette(
+    key="midnight",
+    label="Midnight",
+    dark=True,
+    window="#0E1424",
+    surface="#161E33",
+    surface_alt="#1C2540",
+    border="#2A3654",
+    border_strong="#3D4C70",
+    text="#DDE4F5",
+    text_muted="#9BA7C6",
+    text_faint="#77839F",
+    accent="#8AA9FF",
+    accent_hover="#B3C6FF",
+    accent_soft="#1E2A4C",
+    on_accent="#0A1024",
+    selection="#2C4079",
+    on_selection="#EDF1FF",
+    high="#56D9A3",
+    medium="#F2C14E",
+    low="#828EAC",
+    danger="#FF8592",
+    success="#56D9A3",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+AMBER = Palette(
+    key="amber",
+    label="Amber",
+    dark=True,
+    window="#14100B",
+    surface="#1D1811",
+    surface_alt="#241E15",
+    border="#3A2F1F",
+    border_strong="#57472E",
+    text="#F0DFC2",
+    text_muted="#BFA97F",
+    text_faint="#96835F",
+    accent="#F5A524",
+    accent_hover="#FFC163",
+    accent_soft="#33260F",
+    on_accent="#1A1206",
+    selection="#4A3616",
+    on_selection="#FFF0D4",
+    high="#9CCC52",
+    medium="#E8A33C",
+    low="#93815F",
+    danger="#FF7B5C",
+    success="#9CCC52",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+CONTRAST = Palette(
+    key="contrast",
+    label="High contrast",
+    dark=True,
+    window="#000000",
+    surface="#000000",
+    surface_alt="#141414",
+    border="#FFFFFF",
+    border_strong="#FFFF00",
+    text="#FFFFFF",
+    text_muted="#EDEDED",
+    text_faint="#D2D2D2",
+    accent="#FFFF00",
+    accent_hover="#FFFF99",
+    accent_soft="#262600",
+    on_accent="#000000",
+    selection="#FFFF00",
+    on_selection="#000000",
+    high="#00FF88",
+    medium="#FFD500",
+    low="#CFCFCF",
+    danger="#FF7A7A",
+    success="#00FF88",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+#: Menu order: the two light schemes, then the darks, then the accessibility one.
+THEMES: dict[str, Palette] = {
+    theme.key: theme
+    for theme in (LIGHT, SEPIA, DARK, MIDNIGHT, AMBER, HACKER, CONTRAST)
+}
 
 _current: Palette = THEMES[DEFAULT_THEME]
 
@@ -157,6 +273,30 @@ def available() -> list[Palette]:
     """The themes, in menu order."""
 
     return list(THEMES.values())
+
+
+def accelerated(labels: list[str]) -> list[str]:
+    """
+    Insert Qt's "&" accelerator marker, giving every label a distinct key.
+
+    Marking the first letter blindly gave both Hacker and High contrast Alt+H,
+    where the second one silently never fires.
+    """
+
+    used: set[str] = set()
+    marked: list[str] = []
+
+    for label in labels:
+        for index, character in enumerate(label):
+            key = character.lower()
+            if key.isalnum() and key not in used:
+                used.add(key)
+                marked.append(f"{label[:index]}&{label[index:]}")
+                break
+        else:
+            marked.append(label)
+
+    return marked
 
 
 def resolve(name: str | None) -> Palette:
