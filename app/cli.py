@@ -7,6 +7,7 @@ import contextlib
 import sys
 from pathlib import Path
 
+from app import __version__
 from app.core.config import (
     Settings,
     StorageUnavailable,
@@ -113,7 +114,17 @@ def cmd_import(args: argparse.Namespace) -> int:
     initialize_database()
     settings = Settings.load()
 
-    directory = args.path.resolve()
+    directory = args.path.expanduser().resolve()
+
+    if not directory.is_dir():
+        print(
+            f"There is no folder at {directory}.\n"
+            f"Point this at a folder of DOL source CSV files, named as they are "
+            f"published.",
+            file=sys.stderr,
+        )
+        return 1
+
     print(f"Importing DOL files from {directory}")
 
     with session_scope() as session:
@@ -146,7 +157,32 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 1 if stats.errors else 0
 
 
+def _needs_data() -> bool:
+    """
+    Report a missing database instead of letting SQLAlchemy do it.
+
+    Every read command goes through this. Before it existed, "search" on a
+    fresh installation answered with forty lines of SQLAlchemy traceback ending
+    in "no such table: plans".
+    """
+
+    if database_exists():
+        return True
+
+    print(
+        "No data yet. The database has not been created on this computer.\n\n"
+        "  401k-finder init             create it\n"
+        "  401k-finder index            fetch the employer index for every year\n"
+        "  401k-finder sync --year 2023 download a form year in full",
+        file=sys.stderr,
+    )
+    return False
+
+
 def cmd_search(args: argparse.Namespace) -> int:
+    if not _needs_data():
+        return 1
+
     filters = {
         "state": args.state,
         "form_years": tuple(args.year) if args.year else (),
@@ -210,6 +246,9 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
+    if not _needs_data():
+        return 1
+
     query = PlanQuery.parse(args.identifier, retirement_only=False, limit=5)
 
     with read_session() as session:
@@ -253,6 +292,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    if not _needs_data():
+        return 1
+
     query = ProviderQuery(
         text=" ".join(args.text) if args.text else "",
         role=args.role,
@@ -402,10 +444,21 @@ def cmd_index(args: argparse.Namespace) -> int:
     initialize_database()
     settings = Settings.load()
 
-    years = args.year or list(supported_years())
+    published = set(supported_years())
+    years = args.year or sorted(published)
+
+    unknown = [year for year in years if year not in published]
+    if unknown:
+        span = year_span(min(published), max(published))
+        print(
+            f"No data is published for {', '.join(str(year) for year in unknown)}. "
+            f"Form years {span} are available.",
+            file=sys.stderr,
+        )
+        return 1
 
     print(
-        f"Indexing {len(years)} form year(s): {years[0]} to {years[-1]}.\n"
+        f"Indexing {len(years)} form year(s): {year_span(years[0], years[-1], joiner=' to ')}.\n"
         f"This fetches the two filing forms only, which is enough to match an "
         f"employer to a plan.\nProvider detail needs a full sync of the years that matter; "
         f"'401k-finder sync --year N'\ndoes that once you know which they are.\n"
@@ -443,8 +496,7 @@ def cmd_changes(args: argparse.Namespace) -> int:
 
     from app.providers.changes import ChangeDetector, ChangeQuery
 
-    if not database_exists():
-        print(f"No database yet at {get_database_path()}.", file=sys.stderr)
+    if not _needs_data():
         return 1
 
     query = ChangeQuery(
@@ -560,12 +612,7 @@ def cmd_trace(args: argparse.Namespace) -> int:
                 end_year=args.to_year,
             )
 
-    if not database_exists():
-        print(
-            f"No database yet at {get_database_path()}.\n"
-            f"Run '401k-finder sync --year 2023' to download a form year first.",
-            file=sys.stderr,
-        )
+    if not _needs_data():
         return 1
 
     with read_session() as session:
@@ -653,7 +700,7 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     if not database_exists():
         print(f"Database: {get_database_path()}")
-        print("  Not created yet. Run 'init', or open the application once.")
+        print("  Not created yet. Run '401k-finder init', or open the application once.")
         return 0
 
     with read_session() as session:
@@ -750,7 +797,21 @@ def cmd_reset(args: argparse.Namespace) -> int:
     if not args.yes:
         print(f"This deletes {get_database_path()} and everything imported into it.")
         print("The DOL source files are untouched and can be re-imported.")
-        answer = input("Type 'delete' to confirm: ").strip().lower()
+
+        if not sys.stdin or not sys.stdin.isatty():
+            print(
+                "Nothing to read the confirmation from. Re-run with --yes if you "
+                "are sure.",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            answer = input("Type 'delete' to confirm: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            return 1
+
         if answer != "delete":
             print("Cancelled.")
             return 1
@@ -769,6 +830,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--verbose", action="store_true", help="Log debug detail.")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"401k-finder {__version__}",
+        help="Print the version and exit.",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 

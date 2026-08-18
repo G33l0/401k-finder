@@ -1,4 +1,4 @@
-"""The three colour schemes."""
+"""The colour schemes."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ HEX = re.compile(r"#[0-9A-Fa-f]{3,8}\b")
 
 @pytest.fixture(params=[palette.key for palette in theme.available()])
 def palette(request) -> theme.Palette:
-    """Runs each test against all three schemes."""
+    """Runs each test against every scheme."""
 
     return theme.THEMES[request.param]
 

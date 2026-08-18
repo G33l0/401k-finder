@@ -567,10 +567,10 @@ class MainWindow(QMainWindow):
         self.data_panel.set_running(True)
         self.status_message.setText("Indexing every form year…")
 
-        self.data_runner.run(
+        self.data_runner.start(
             index_task(self.settings, force=force),
-            on_result=self._on_index_finished,
-            on_error=self._on_data_failed,
+            on_finished=self._on_index_finished,
+            on_failed=self._on_data_failed,
             on_progress=self.data_panel.set_progress,
         )
 
@@ -594,10 +594,10 @@ class MainWindow(QMainWindow):
 
         self.status_message.setText("Comparing filed years…")
 
-        self.changes_runner.run(
+        self.changes_runner.start(
             changes_task(query),
-            on_result=self._on_changes_finished,
-            on_error=self._on_changes_failed,
+            on_finished=self._on_changes_finished,
+            on_failed=self._on_changes_failed,
         )
 
     def _on_changes_finished(self, report) -> None:  # noqa: ANN001
@@ -635,10 +635,10 @@ class MainWindow(QMainWindow):
 
         self.status_message.setText(f"Searching {len(history)} employer(s)…")
 
-        self.trace_runner.run(
+        self.trace_runner.start(
             trace_task(history),
-            on_result=self._on_trace_finished,
-            on_error=self._on_trace_failed,
+            on_finished=self._on_trace_finished,
+            on_failed=self._on_trace_failed,
         )
 
     def _on_trace_finished(self, report) -> None:  # noqa: ANN001

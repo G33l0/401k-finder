@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -163,6 +164,11 @@ def normalize_indicator(value: Any) -> bool | None:
     return None
 
 
+#: SQLite stores integers as signed 64-bit.
+SQLITE_INT_MAX = 2**63 - 1
+SQLITE_INT_MIN = -(2**63)
+
+
 def parse_int(value: Any) -> int | None:
     """Parse a DOL count field, tolerating commas and stray decimals."""
 
@@ -180,7 +186,14 @@ def parse_int(value: Any) -> int | None:
     except (InvalidOperation, ValueError, ArithmeticError):
         return None
 
-    return -parsed if negative else parsed
+    parsed = -parsed if negative else parsed
+
+    # SQLite integers are signed 64-bit. A filing carrying more than that is a
+    # typo, and letting it through aborts the insert for the whole file.
+    if not SQLITE_INT_MIN <= parsed <= SQLITE_INT_MAX:
+        return None
+
+    return parsed
 
 
 def parse_decimal(value: Any) -> Decimal | None:
@@ -200,6 +213,11 @@ def parse_decimal(value: Any) -> Decimal | None:
     except (InvalidOperation, ValueError):
         return None
 
+    # Decimal accepts "nan" and "inf". Neither is an amount, and both poison
+    # every SUM they reach.
+    if not parsed.is_finite():
+        return None
+
     return -parsed if negative else parsed
 
 
@@ -207,7 +225,15 @@ def parse_money(value: Any) -> float | None:
     """Parse a DOL amount into a float for storage and aggregation."""
 
     parsed = parse_decimal(value)
-    return None if parsed is None else float(parsed)
+    if parsed is None:
+        return None
+
+    try:
+        result = float(parsed)
+    except (OverflowError, ValueError):
+        return None
+
+    return result if math.isfinite(result) else None
 
 
 def parse_date(value: Any) -> date | None:
