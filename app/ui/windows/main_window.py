@@ -415,6 +415,26 @@ class MainWindow(QMainWindow):
             f"{summary.parties:,} provider engagements · years {years}"
         )
 
+    def _ask_where_to_save(
+        self, title: str, suggested: str, filters: str
+    ) -> Path | None:
+        """
+        Ask for a filename, and make sure it keeps its extension.
+
+        Qt only appends the filter's suffix on some platforms, so a person who
+        typed "acme plans" over the suggested name got a file with no extension
+        that Windows would not open in anything.
+        """
+
+        chosen, _ = QFileDialog.getSaveFileName(self, title, suggested, filters)
+
+        if not chosen:
+            return None
+
+        path = Path(chosen)
+
+        return path if path.suffix else path.with_suffix(Path(suggested).suffix)
+
     def export_results_csv(self) -> None:
         results = self.plan_table.results()
 
@@ -422,12 +442,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "Run a search first.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export results", "plans.csv", "CSV files (*.csv)"
-        )
+        path = self._ask_where_to_save("Export results", "plans.csv", "CSV files (*.csv)")
 
         if path:
-            written = export_service.export_plans_csv(results, Path(path))
+            written = export_service.export_plans_csv(results, path)
             self.status_message.setText(f"Exported {len(results):,} plan(s) to {written}")
 
     def export_results_json(self) -> None:
@@ -437,12 +455,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "Run a search first.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export results", "plans.json", "JSON files (*.json)"
-        )
+        path = self._ask_where_to_save("Export results", "plans.json", "JSON files (*.json)")
 
         if path:
-            written = export_service.export_plans_json(results, Path(path))
+            written = export_service.export_plans_json(results, path)
             self.status_message.setText(f"Exported {len(results):,} plan(s) to {written}")
 
     def export_providers(self) -> None:
@@ -452,12 +468,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "Run a provider search first.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export providers", "providers.csv", "CSV files (*.csv)"
+        path = self._ask_where_to_save(
+            "Export providers", "providers.csv", "CSV files (*.csv)"
         )
 
         if path:
-            written = export_service.export_providers_csv(results, Path(path))
+            written = export_service.export_providers_csv(results, path)
             self.status_message.setText(f"Exported {len(results):,} provider(s) to {written}")
 
     def export_evidence(self, plan_id: int) -> None:
@@ -471,15 +487,14 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "That plan is no longer available.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
+        path = self._ask_where_to_save(
             "Export evidence report",
             f"evidence-{package.plan_key}.txt",
             "Text files (*.txt)",
         )
 
         if path:
-            written = export_service.export_evidence_report(package, Path(path))
+            written = export_service.export_evidence_report(package, path)
             self.status_message.setText(f"Wrote evidence report to {written}")
 
     def open_data_folder(self) -> None:
@@ -610,14 +625,14 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Comparison failed", message)
 
     def export_changes(self, report) -> None:  # noqa: ANN001
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export provider changes", "provider-changes.csv", "CSV files (*.csv)"
+        path = self._ask_where_to_save(
+            "Export provider changes", "provider-changes.csv", "CSV files (*.csv)"
         )
-        if not path:
+        if path is None:
             return
 
         try:
-            written = export_service.export_provider_changes_csv(report.changes, Path(path))
+            written = export_service.export_provider_changes_csv(report.changes, path)
         except OSError as exc:
             QMessageBox.warning(self, "Could not save", str(exc))
             return
@@ -658,11 +673,10 @@ class MainWindow(QMainWindow):
 
         from app.trace.packet import render_report
 
-        suggested = "retirement-account-trace.txt"
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save report", suggested, "Text files (*.txt);;All files (*)"
+        path = self._ask_where_to_save(
+            "Save report", "retirement-account-trace.txt", "Text files (*.txt);;All files (*)"
         )
-        if not path:
+        if path is None:
             return
 
         answer = QMessageBox.question(

@@ -274,7 +274,9 @@ class SyncService:
             record.finished_at = datetime.now(UTC).replace(tzinfo=None)
             self.session.commit()
 
-            logger.error("%s %s failed: %s", release.form_year, release.name, exc)
+            # exception(), not error(): the traceback is the whole value of a
+            # log a customer sends you after a download fails.
+            logger.exception("%s %s failed", release.form_year, release.name)
 
             return DatasetOutcome(
                 dataset=release.name,

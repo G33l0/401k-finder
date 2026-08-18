@@ -210,3 +210,86 @@ def test_selecting_a_result_loads_its_detail(qt_app, window):
     settle(qt_app, window)
 
     assert window.detail_panel.tabs.count() > 0
+
+
+# ----------------------------------------------------------------------
+# Exports
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("suggested", "expected"),
+    [
+        ("plans.csv", ".csv"),
+        ("plans.json", ".json"),
+        ("evidence-12-3456789-001.txt", ".txt"),
+    ],
+)
+def test_a_typed_filename_keeps_its_extension(qt_app, window, monkeypatch, suggested, expected):
+    """
+    Qt only appends the filter's suffix on some platforms. Somebody who typed
+    "acme plans" over the suggested name got a file Windows would not open.
+    """
+
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: ("/tmp/acme plans", "")),
+    )
+
+    chosen = window._ask_where_to_save("Export", suggested, "Any (*)")
+
+    assert chosen is not None
+    assert chosen.suffix == expected
+    assert chosen.stem == "acme plans"
+
+
+def test_an_extension_the_user_typed_is_respected(qt_app, window, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        staticmethod(lambda *a, **k: ("/tmp/acme.tsv", "")),
+    )
+
+    assert window._ask_where_to_save("Export", "plans.csv", "Any (*)").suffix == ".tsv"
+
+
+def test_cancelling_the_save_dialog_exports_nothing(qt_app, window, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
+
+    assert window._ask_where_to_save("Export", "plans.csv", "Any (*)") is None
+
+
+def test_every_export_writes_a_readable_file(qt_app, window, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    destination = tmp_path / "exports"
+    destination.mkdir()
+    written: list = []
+
+    def save(*_a, **_k):
+        target = destination / f"export-{len(written)}"
+        written.append(target)
+        return (str(target), "")
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(save))
+
+    window.search_panel.query_input.setText("acme")
+    window.search_panel._emit_search()
+    settle(qt_app, window)
+
+    window.export_results_csv()
+    window.export_results_json()
+
+    produced = sorted(destination.iterdir())
+    assert len(produced) == 2
+    for path in produced:
+        assert path.stat().st_size > 0
+        assert path.suffix in {".csv", ".json"}
+        path.read_text(encoding="utf-8-sig")
