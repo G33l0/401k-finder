@@ -1,10 +1,4 @@
-"""
-External and removable storage.
-
-The failures these guard against are the expensive kind: a database truncated
-mid-move, an empty database silently created at the mount point of a drive that
-is merely unplugged, or a six-hour import that dies on FAT32's 4 GB file limit.
-"""
+"""External and removable storage."""
 
 from __future__ import annotations
 
@@ -17,19 +11,9 @@ import pytest
 from app.core import storage
 from app.core.config import STORAGE_DIR_ENV_VAR, StorageUnavailable, get_storage_dir
 
-# ----------------------------------------------------------------------
-# Reading a location
-# ----------------------------------------------------------------------
-
 
 def test_inspect_does_not_create_the_directory(tmp_path: Path) -> None:
-    """
-    The check that answers "is the drive there?" must not make it so.
-
-    An earlier version created the folder, which meant an unplugged drive
-    inspected as fine and the application then built an empty database at the
-    mount point.
-    """
+    """The check that answers "is the drive there?" must not make it so."""
 
     missing = tmp_path / "not-plugged-in"
 
@@ -76,9 +60,8 @@ def test_inspect_blocks_a_read_only_location(tmp_path: Path) -> None:
 
 def test_fat32_is_refused_outright(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """
-    A form year's database passes 4 GB, so FAT32 fails part-way through an
-    import with a disk-full error that is nothing of the kind. Refuse it up
-    front rather than warn.
+    A form year's database passes 4 GB, so FAT32 fails part-way through an import with a
+    disk-full error that is nothing of the kind. Refuse it up front rather than warn.
     """
 
     monkeypatch.setattr(storage, "volume_details", lambda _p: ("FAT32", True, False))
@@ -146,11 +129,6 @@ def test_space_is_measured_against_the_years_asked_for(
     assert cramped.usable  # a warning, not a refusal
 
 
-# ----------------------------------------------------------------------
-# The pointer
-# ----------------------------------------------------------------------
-
-
 def test_pointer_round_trips(tmp_path: Path) -> None:
     home = tmp_path / "app"
     home.mkdir()
@@ -197,11 +175,6 @@ def test_an_empty_pointer_path_means_unset(tmp_path: Path) -> None:
     assert storage.read_location(home) is None
 
 
-# ----------------------------------------------------------------------
-# get_storage_dir
-# ----------------------------------------------------------------------
-
-
 def test_missing_storage_raises_rather_than_creating(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -242,11 +215,6 @@ def test_the_environment_override_wins(
     assert get_storage_dir() == drive
 
 
-# ----------------------------------------------------------------------
-# The journal mode
-# ----------------------------------------------------------------------
-
-
 def test_network_paths_drop_out_of_wal(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """WAL needs a shared-memory file, which network filesystems do not provide."""
 
@@ -277,11 +245,6 @@ def test_undetectable_volume_keeps_wal(
     assert engine_module.journal_mode_for(tmp_path / "db.sqlite3") == "WAL"
 
 
-# ----------------------------------------------------------------------
-# Moving data
-# ----------------------------------------------------------------------
-
-
 def _populate(root: Path) -> None:
     for name in storage.MANAGED_DIRECTORIES:
         directory = root / name
@@ -291,7 +254,6 @@ def _populate(root: Path) -> None:
     (root / "database" / "nested").mkdir()
     (root / "database" / "nested" / "deep.bin").write_bytes(b"y" * 512)
 
-    # Local-only things that must be left exactly where they are.
     (root / "settings.json").write_text("{}", encoding="utf-8")
     (root / "logs").mkdir()
     (root / "logs" / "app.log").write_text("hello", encoding="utf-8")
@@ -316,7 +278,6 @@ def test_relocate_moves_the_data_and_leaves_the_local_files(tmp_path: Path) -> N
     assert (target / "database" / "nested" / "deep.bin").read_bytes() == b"y" * 512
     assert not (source / "database").exists()
 
-    # Settings and logs are per-machine and stay behind.
     assert (source / "settings.json").is_file()
     assert (source / "logs" / "app.log").is_file()
     assert not (target / "settings.json").exists()
@@ -362,11 +323,6 @@ def test_relocate_reports_progress(tmp_path: Path) -> None:
     assert seen[-1][1] == seen[-1][2] == len(storage.MANAGED_DIRECTORIES)
 
 
-# ----------------------------------------------------------------------
-# The relocation service
-# ----------------------------------------------------------------------
-
-
 def test_plan_move_refuses_nothing_and_reports_the_payload(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -401,7 +357,6 @@ def test_relocate_service_refuses_fat32_before_touching_anything(
     with pytest.raises(service.RelocationError, match="4 GB"):
         service.relocate(target)
 
-    # Nothing moved, nothing pointed anywhere new.
     assert (source / "database" / "database.bin").is_file()
     assert not (target / "database").exists()
 
@@ -522,11 +477,6 @@ def test_revert_to_internal_clears_the_pointer(
 
     assert storage.read_location(home) is None
     assert (home / "database" / "database.bin").is_file()
-
-
-# ----------------------------------------------------------------------
-# Formatting
-# ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

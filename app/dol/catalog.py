@@ -1,18 +1,4 @@
-"""
-The catalog of downloadable DOL Form 5500 datasets.
-
-EBSA publishes one ZIP per dataset per form year at a stable URL::
-
-    https://askebsa.dol.gov/FOIA Files/<year>/<release>/<dataset>_<year>_<release>.zip
-    https://askebsa.dol.gov/FOIA Files/<year>/<release>/<dataset>_<year>_<release>_layout.txt
-
-``release`` is ``Latest`` (one row per plan year, superseded filings removed)
-or ``All`` (every filing received, including amendments and duplicates).
-
-Which datasets exist varies by year — Schedule DCG and Schedule MEP only start
-in 2023, for example — so availability is read from the vendored layouts rather
-than assumed.
-"""
+"""The catalog of downloadable DOL Form 5500 datasets."""
 
 from __future__ import annotations
 
@@ -34,11 +20,8 @@ class Release(StrEnum):
 class DatasetKind(StrEnum):
     """How the importer should treat a dataset."""
 
-    #: Carries plan identity; creates plans and filings.
     FILING = "FILING"
-    #: Attaches to a filing by ACK_ID; one row per filing.
     SCHEDULE = "SCHEDULE"
-    #: Attaches to a filing by ACK_ID; many rows per filing (ROW_ORDER).
     SCHEDULE_DETAIL = "SCHEDULE_DETAIL"
 
 
@@ -50,10 +33,8 @@ class DatasetSpec:
     title: str
     kind: DatasetKind
     schedule_code: str
-    #: Roles this dataset can contribute; used to plan a provider-focused sync.
     provider_roles: tuple[ProviderRole, ...] = ()
     form_type: FormType | None = None
-    #: Rough share of a year's total download volume, for progress weighting.
     weight: int = 1
 
     @property
@@ -61,7 +42,6 @@ class DatasetSpec:
         return self.kind is DatasetKind.FILING
 
 
-#: Every dataset published on the EBSA Form 5500 dataset page.
 DATASETS: tuple[DatasetSpec, ...] = (
     DatasetSpec(
         "F_5500",
@@ -221,9 +201,6 @@ DATASETS: tuple[DatasetSpec, ...] = (
 
 DATASETS_BY_NAME: dict[str, DatasetSpec] = {spec.name: spec for spec in DATASETS}
 
-#: The minimum set that answers "who holds this retirement account". Downloading
-#: these gives a complete provider picture at roughly a third of the volume of a
-#: full year.
 CORE_DATASET_NAMES: tuple[str, ...] = (
     "F_5500",
     "F_5500_SF",
@@ -231,7 +208,6 @@ CORE_DATASET_NAMES: tuple[str, ...] = (
     "F_SCH_C_PART1_ITEM2",
     "F_SCH_D_PART1",
     "F_SCH_H",
-    # Small, and the only source for where a wound-up plan's assets went.
     "F_SCH_H_PART1",
     "F_SCH_I",
     "F_SCH_R",
@@ -240,16 +216,6 @@ CORE_DATASET_NAMES: tuple[str, ...] = (
 )
 
 
-#: The smallest set that still answers "which plan did my employer run".
-#:
-#: The two filing forms carry sponsor name, EIN, plan number, plan name and
-#: location — everything the employer match needs. They are a small fraction of
-#: a full year, which is what makes it practical to index every published year
-#: on an ordinary machine rather than importing one year and hoping it is the
-#: right one.
-#:
-#: What an index-only year cannot do is name a provider: every asset holder
-#: lives on a schedule, and schedules are what the size is.
 INDEX_DATASET_NAMES: tuple[str, ...] = (
     "F_5500",
     "F_5500_SF",
@@ -333,15 +299,7 @@ def plan_sync(
     core_only: bool = False,
     index_only: bool = False,
 ) -> tuple[DatasetRelease, ...]:
-    """
-    Build the ordered list of datasets to fetch for a form year.
-
-    Filing datasets are ordered first: schedules attach to filings by ACK_ID, so
-    importing them first means every schedule row finds its parent.
-
-    ``index_only`` narrows this to the two filing forms — enough to match an
-    employer to a plan, and small enough to do for every published year.
-    """
+    """Build the ordered list of datasets to fetch for a form year."""
 
     if datasets is not None:
         wanted = {name.upper() for name in datasets}

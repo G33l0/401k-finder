@@ -118,8 +118,6 @@ class ProviderPanel(QWidget):
 
         layout.addLayout(footer)
 
-    # ------------------------------------------------------------------
-
     def _emit_search(self) -> None:
         self.search_requested.emit(self.build_query())
 

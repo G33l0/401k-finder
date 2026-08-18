@@ -1,20 +1,4 @@
-"""
-Extract service providers from DOL filing and schedule rows.
-
-Each rule names the dataset it applies to, the field carrying the organisation
-name, the role that field implies and how confident that mapping is. Rules are
-declarative so a reviewer can check them against the published layouts, and so
-new datasets can be supported by adding rules rather than by editing logic.
-
-Confidence reflects how directly the filed field answers "who holds this plan":
-
-    HIGH    the field names the role outright (Schedule H trustee/custodian,
-            Schedule A insurance carrier, a Schedule C service code)
-    MEDIUM  the field names a real party whose exact role is implied rather
-            than stated (Schedule D investment vehicles, plan administrator)
-    LOW     the party is attached to the plan but may not administer any assets
-            (form preparer, indirect-compensation payor)
-"""
+"""Extract service providers from DOL filing and schedule rows."""
 
 from __future__ import annotations
 
@@ -32,8 +16,6 @@ from app.dol.normalizer import (
     split_numeric_codes,
 )
 
-#: Placeholder text filers use in a name field when there is nothing to report.
-#: These would otherwise become some of the largest "providers" in the database.
 _PLACEHOLDER_NAMES = frozenset(
     {
         "N/A",
@@ -110,12 +92,8 @@ class ExtractionRule:
     service_code_field: str | None = None
     direct_comp_field: str | None = None
     indirect_comp_field: str | None = None
-    #: When set, the rule only fires if this field holds a truthy indicator.
     require_indicator: str | None = None
-    #: When set, the rule only fires if these fields are all empty. Used for
-    #: fallback rules that must not compete with a directly reported name.
     require_absent: tuple[str, ...] = ()
-    #: When set, the service-code field decides the role and this is the fallback.
     role_from_service_codes: bool = False
 
 
@@ -123,7 +101,6 @@ def _rules(*rules: ExtractionRule) -> tuple[ExtractionRule, ...]:
     return rules
 
 
-#: Rules per dataset. Field names come from the vendored DOL layouts.
 EXTRACTION_RULES: dict[str, tuple[ExtractionRule, ...]] = {
     "F_5500": _rules(
         ExtractionRule(
@@ -135,11 +112,6 @@ EXTRACTION_RULES: dict[str, tuple[ExtractionRule, ...]] = {
             city_field="ADMIN_US_CITY",
             state_field="ADMIN_US_STATE",
         ),
-        # Roughly 95% of Form 5500 filings leave ADMIN_NAME blank and tick
-        # ADMIN_NAME_SAME_SPON_IND instead, meaning the employer administers
-        # the plan itself. Without this rule those plans show no administrator
-        # at all, which reads as "unknown" when the filing in fact answered the
-        # question.
         ExtractionRule(
             "SPONSOR_DFE_NAME",
             ProviderRole.ADMINISTRATOR,
@@ -382,17 +354,11 @@ def is_placeholder_name(text: str) -> bool:
     stripped = text.strip().upper().rstrip(".")
     if stripped in _PLACEHOLDER_NAMES or f"{stripped}." in _PLACEHOLDER_NAMES:
         return True
-    # A name with no letters at all is a code, a dash or a row of zeros.
     return not any(character.isalpha() for character in stripped)
 
 
 def clean_provider_name(value: Any) -> str | None:
-    """
-    Normalize a filed organisation name, rejecting filler values.
-
-    Returns None when the field holds a placeholder, is too short to identify
-    anyone, or contains no letters.
-    """
+    """Normalize a filed organisation name, rejecting filler values."""
 
     text = normalize_text(value)
     if len(text) < 3:
@@ -404,14 +370,7 @@ def clean_provider_name(value: Any) -> str | None:
 
 
 def role_from_service_codes(codes: tuple[str, ...], fallback: ProviderRole) -> ProviderRole:
-    """
-    Pick the role a Schedule C provider plays from its service codes.
-
-    A provider commonly reports several codes — recordkeeper, trustee and
-    investment manager together, say. The most specific service code wins, using
-    the same ordering the UI presents roles in, and compensation-only codes
-    (50-99) are only consulted if no service code (10-49) was reported.
-    """
+    """Pick the role a Schedule C provider plays from its service codes."""
 
     if not codes:
         return fallback
@@ -512,12 +471,7 @@ def _apply_rule(
 
 
 def extract_providers(row: dict[str, Any], dataset: str) -> list[ProviderCandidate]:
-    """
-    Return every provider named in one row of one dataset.
-
-    Duplicates within a row — the same organisation in the same role reported in
-    two fields — collapse to a single candidate.
-    """
+    """Return every provider named in one row of one dataset."""
 
     rules = EXTRACTION_RULES.get(dataset.upper())
     if not rules:

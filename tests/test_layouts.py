@@ -16,7 +16,6 @@ def test_expected_years_are_vendored():
     assert years, "no layouts were vendored"
     assert min(years) <= 2009
     assert max(years) >= 2023
-    # No gaps: a missing year would silently disable that year everywhere.
     assert list(years) == list(range(min(years), max(years) + 1))
 
 

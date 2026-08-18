@@ -1,8 +1,3 @@
-"""
-401K Finder Pro.
-
-A local research application for searching and analyzing
-U.S. Department of Labor Form 5500 retirement-plan data.
-"""
+"""401K Finder Pro."""
 
 __version__ = "2.0.0"

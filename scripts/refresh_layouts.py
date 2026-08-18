@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-Refresh the vendored DOL record layouts.
-
-Fetches every ``*_layout.txt`` published on the EBSA Form 5500 dataset page and
-rewrites ``app/dol/layouts/data/<year>.json``. Run this when DOL publishes a new
-form year, or revises an existing layout.
-
-    python -m scripts.refresh_layouts                  # every year
-    python -m scripts.refresh_layouts --year 2025      # one year
-    python -m scripts.refresh_layouts --check          # report drift, write nothing
-
-``--check`` is the one to run in CI: it fails if what DOL publishes no longer
-matches what is vendored, which is how a silent layout change gets noticed
-before it corrupts an import.
-"""
+"""Refresh the vendored DOL record layouts."""
 
 from __future__ import annotations
 
@@ -46,13 +32,7 @@ def layout_url(form_year: int, dataset: str) -> str:
 
 
 def parse_layout(text: str) -> list[dict[str, object]]:
-    """
-    Parse a DOL layout file.
-
-        FIELD_POSITION,FIELD_NAME,TYPE,SIZE (only for text fields)
-        ===========================================
-        1,ACK_ID,TEXT,30
-    """
+    """Parse a DOL layout file."""
 
     fields: list[dict[str, object]] = []
 
@@ -72,8 +52,6 @@ def parse_layout(text: str) -> list[dict[str, object]]:
         }
 
         if len(parts) > 3 and parts[3] not in ("", "0"):
-            # A non-numeric size means DOL changed the layout format; keep the
-            # field, just without a declared size.
             with contextlib.suppress(ValueError):
                 entry["s"] = int(parts[3])
 

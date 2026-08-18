@@ -1,12 +1,4 @@
-"""
-The three colour schemes.
-
-The interesting failures here are not "the wrong blue". They are a theme that
-leaves part of the interface in the previous scheme, and a stored setting that
-stops the application starting. Both are covered.
-
-Only :func:`app.ui.theme.apply` needs Qt, so most of this runs headless.
-"""
+"""The colour schemes."""
 
 from __future__ import annotations
 
@@ -17,29 +9,41 @@ import pytest
 from app.core.config import Settings
 from app.ui import theme
 
-#: Every hex colour written into a style sheet or the document CSS.
 HEX = re.compile(r"#[0-9A-Fa-f]{3,8}\b")
 
 
 @pytest.fixture(params=[palette.key for palette in theme.available()])
 def palette(request) -> theme.Palette:
-    """Runs each test against all three schemes."""
+    """Runs each test against every scheme."""
 
     return theme.THEMES[request.param]
 
 
-def test_the_three_advertised_themes_exist():
-    assert [p.key for p in theme.available()] == ["light", "dark", "hacker"]
+def test_the_advertised_themes_exist():
+    assert [p.key for p in theme.available()] == [
+        "light",
+        "sepia",
+        "dark",
+        "midnight",
+        "amber",
+        "hacker",
+        "contrast",
+    ]
 
 
-def test_light_is_the_only_light_scheme():
-    assert not theme.LIGHT.dark
-    assert theme.DARK.dark and theme.HACKER.dark
+def test_the_menu_runs_light_to_dark():
+    """Two light schemes first, then the darks. A jumbled menu reads as a bug."""
+
+    flags = [p.dark for p in theme.available()]
+    assert flags == sorted(flags), "light schemes must come before dark ones"
+    assert flags.count(False) == 2
 
 
-# ----------------------------------------------------------------------
-# A stored setting must never stop the application starting
-# ----------------------------------------------------------------------
+def test_each_scheme_declares_its_own_brightness():
+    """A palette that lies about `dark` gets the wrong Qt icon set."""
+
+    for palette in theme.available():
+        assert palette.dark is (_luminance(palette.window) < 0.5), palette.key
 
 
 @pytest.mark.parametrize(
@@ -70,11 +74,6 @@ def test_settings_round_trip_a_theme(tmp_path):
     assert Settings.load(path).theme == "hacker"
 
 
-# ----------------------------------------------------------------------
-# Completeness: a scheme that only half-applies is the real bug
-# ----------------------------------------------------------------------
-
-
 def test_every_palette_role_is_filled(palette):
     for name in theme.Palette.__slots__:
         value = getattr(palette, name)
@@ -82,12 +81,7 @@ def test_every_palette_role_is_filled(palette):
 
 
 def test_style_sheet_carries_no_colour_the_palette_did_not_supply(palette):
-    """
-    Guards against a colour being pasted straight into the style sheet.
-
-    That is exactly how a "dark mode" ends up with one white panel: a literal
-    survives the conversion and then never changes again.
-    """
+    """Guards against a colour being pasted straight into the style sheet."""
 
     allowed = {
         getattr(palette, name).upper()
@@ -118,12 +112,7 @@ def test_schemes_actually_differ(palette):
 
 
 def test_document_css_styles_every_class_the_detail_panel_emits(palette):
-    """
-    The detail panel's HTML and this CSS have to agree.
-
-    A class used in the markup but missing here renders in the default colours
-    — black on black under the dark schemes.
-    """
+    """The detail panel's HTML and this CSS have to agree."""
 
     css = theme.document_css(palette)
     for name in ("tag", "role", "src", "hi", "med", "low", "card", "empty", "sub"):
@@ -148,19 +137,9 @@ def test_detail_panel_holds_no_colours_of_its_own():
     assert not HEX.findall(source.read_text(encoding="utf-8"))
 
 
-# ----------------------------------------------------------------------
-# The overlay
-# ----------------------------------------------------------------------
-
-
 def test_overlay_defaults_to_empty():
     theme.set_overlay(None)
     assert theme._overlay == ""
-
-
-# ----------------------------------------------------------------------
-# Applying a theme for real
-# ----------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -203,12 +182,8 @@ class RecordingApp:
 
 def test_apply_forces_fusion(qt_app):
     """
-    The native Windows style ignores a custom palette, so without this a dark
-    theme comes out with light chrome around it.
-
-    Asserted against a stand-in rather than the live application because
-    setting a style sheet wraps the style in a ``QStyleSheetStyle``, which
-    reports neither its own name nor the base style underneath it.
+    The native Windows style ignores a custom palette, so without this a dark theme
+    comes out with light chrome around it.
     """
 
     recorder = RecordingApp()
@@ -247,9 +222,8 @@ def test_overlay_survives_a_theme_change(qt_app):
 
 def test_the_window_applies_its_stored_theme_when_built_directly(qt_app, tmp_path):
     """
-    Constructed outside app.main there is nothing else to apply the theme, so
-    the window would show a stored scheme in the menu while being painted in
-    the default one.
+    Constructed outside app.main there is nothing else to apply the theme, so the window
+    would show a stored scheme in the menu while being painted in the default one.
     """
 
     from app.ui.windows.main_window import MainWindow
@@ -308,19 +282,11 @@ def test_detail_panel_rerenders_on_a_theme_change(qt_app):
     theme.apply(qt_app, theme.DEFAULT_THEME)
 
 
-# ----------------------------------------------------------------------
-# Attribution
-# ----------------------------------------------------------------------
-
-
 def test_the_ui_shows_no_web_addresses():
     """
-    The application names its source rather than linking to it. A URL rendered
-    on screen invites the reader to go and use the website instead, and makes a
-    paid product look like a shim over a free one.
-
-    The addresses still exist in app/core/constants.py and app/dol — the
-    downloader needs them. This guards presentation only.
+    The application names its source rather than linking to it. A URL rendered on screen
+    invites the reader to go and use the website instead, and makes a paid product look
+    like a shim over a free one.
     """
 
     import re
@@ -353,3 +319,88 @@ def test_the_source_label_is_the_one_the_product_uses():
     from app.core.constants import SOURCE_LABEL
 
     assert SOURCE_LABEL == "Department of Labour Database, USA"
+
+
+def _channel(value: int) -> float:
+    ratio = value / 255
+    return ratio / 12.92 if ratio <= 0.04045 else ((ratio + 0.055) / 1.055) ** 2.4
+
+
+def _luminance(colour: str) -> float:
+    """Relative luminance per WCAG 2.1."""
+
+    red, green, blue = (int(colour[i : i + 2], 16) for i in (1, 3, 5))
+    return 0.2126 * _channel(red) + 0.7152 * _channel(green) + 0.0722 * _channel(blue)
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    first, second = _luminance(foreground), _luminance(background)
+    lighter, darker = max(first, second), min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+@pytest.mark.parametrize(
+    ("foreground", "background", "floor"),
+    [
+        ("text", "window", 7.0),
+        ("text", "surface", 7.0),
+        ("text_muted", "surface", 4.5),
+        ("text_faint", "surface", 3.0),
+        ("accent", "surface", 4.5),
+        ("on_accent", "accent", 4.5),
+        ("on_selection", "selection", 4.5),
+        ("high", "surface", 3.0),
+        ("medium", "surface", 3.0),
+        ("danger", "surface", 3.0),
+    ],
+)
+def test_every_scheme_is_readable(palette, foreground, background, floor):
+    """
+    Body text clears WCAG AAA, secondary text clears AA, and the coloured
+    ratings clear the large-text threshold. Someone reads these reports for an
+    hour at a time.
+    """
+
+    ratio = contrast_ratio(getattr(palette, foreground), getattr(palette, background))
+    assert ratio >= floor, (
+        f"{palette.key}: {foreground} on {background} is {ratio:.1f}:1, "
+        f"below the {floor}:1 floor"
+    )
+
+
+def test_the_high_contrast_scheme_earns_its_name():
+    """It exists for low vision, so AAA everywhere is the whole point."""
+
+    palette = theme.CONTRAST
+
+    for role in ("text", "text_muted", "text_faint", "accent"):
+        ratio = contrast_ratio(getattr(palette, role), palette.window)
+        assert ratio >= 7.0, f"contrast.{role} is only {ratio:.1f}:1"
+
+    assert contrast_ratio(palette.text, palette.window) >= 20.0
+
+
+def test_borders_are_visible_against_their_background(palette):
+    """An invisible border turns grouped panels into one undivided slab."""
+
+    assert contrast_ratio(palette.border, palette.window) >= 1.2, palette.key
+    assert contrast_ratio(palette.border_strong, palette.surface) >= 1.3, palette.key
+
+
+def test_every_theme_gets_its_own_accelerator_key():
+    """Hacker and High contrast both wanted Alt+H; the second one never fired."""
+
+    marked = theme.accelerated([p.label for p in theme.available()])
+
+    keys = [label[label.index("&") + 1].lower() for label in marked if "&" in label]
+    assert len(keys) == len(set(keys)), f"duplicate accelerator in {marked}"
+    assert len(marked) == len(theme.available())
+
+
+def test_an_accelerator_keeps_the_label_readable():
+    assert theme.accelerated(["Light"]) == ["&Light"]
+    assert theme.accelerated(["Hacker", "High contrast"]) == ["&Hacker", "H&igh contrast"]
+
+
+def test_a_label_with_no_free_letter_is_left_alone():
+    assert theme.accelerated(["Aa", "Aa"]) == ["&Aa", "Aa"]

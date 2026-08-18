@@ -1,12 +1,4 @@
-"""
-Versioned schema management for the local SQLite database.
-
-The application owns its database outright — it is a local research cache
-rebuilt from public DOL files — so migrations are kept deliberately simple: a
-``schema_version`` table plus an ordered list of upgrade steps. When the stored
-version is newer than this build understands, or a step cannot be applied, the
-caller is told to rebuild rather than being left with a half-migrated file.
-"""
+"""Versioned schema management for the local SQLite database."""
 
 from __future__ import annotations
 
@@ -18,17 +10,13 @@ from sqlalchemy.engine import Connection, Engine
 
 from app.core.exceptions import DatabaseError
 from app.core.logging import get_logger
-
-# Importing models registers every ORM class with Base.metadata.
 from app.database import models  # noqa: F401
 from app.database.base import Base
 
 logger = get_logger(__name__)
 
-#: Bumped whenever the physical schema changes.
 SCHEMA_VERSION = 5
 
-#: Columns fed into the full-text index, in the order they are searched.
 FTS_TABLE = "plan_fts"
 
 
@@ -40,12 +28,7 @@ class MigrationStep:
 
 
 def _apply_pragmas(connection: Connection) -> None:
-    """
-    Configure SQLite for a large local analytical cache.
-
-    WAL keeps the UI responsive while a multi-gigabyte import runs, and the
-    larger cache and memory-backed temp store cut import time substantially.
-    """
+    """Configure SQLite for a large local analytical cache."""
 
     from app.database.engine import current_journal_mode
 
@@ -61,14 +44,7 @@ def _apply_pragmas(connection: Connection) -> None:
 
 
 def _create_fts(connection: Connection) -> None:
-    """
-    Create the FTS5 index over plan identity and keep it in step with `plans`.
-
-    An external-content table is deliberately avoided: rows are written by bulk
-    INSERT during import, and triggers on an external-content table would make
-    those inserts markedly slower. The index is populated explicitly by
-    ``rebuild_fts`` at the end of an import instead.
-    """
+    """Create the FTS5 index over plan identity and keep it in step with `plans`."""
 
     connection.exec_driver_sql(
         f"""
@@ -134,13 +110,7 @@ def _step_indexes(connection: Connection) -> None:
 
 
 def _step_evidence_uniqueness(connection: Connection) -> None:
-    """
-    Make evidence rows unique per source field.
-
-    Databases written before this step may already hold duplicates from a
-    repeated import, so they are collapsed first -- keeping the earliest row of
-    each group -- before the index that forbids them is created.
-    """
+    """Make evidence rows unique per source field."""
 
     connection.exec_driver_sql(
         """
@@ -163,14 +133,7 @@ def _step_evidence_uniqueness(connection: Connection) -> None:
 
 
 def _step_plan_transfers(connection: Connection) -> None:
-    """
-    Record where a wound-up plan's assets went.
-
-    Schedule H Part 1 names the receiving plan, and until now the application
-    read it only for the transferee's name, filed as though it were a service
-    provider. Creating the table is enough here -- the rows arrive on the next
-    import of that dataset, which is why it also joins the core download set.
-    """
+    """Record where a wound-up plan's assets went."""
 
     Base.metadata.tables["plan_transfers"].create(bind=connection, checkfirst=True)
 
@@ -210,11 +173,7 @@ def current_version(engine: Engine) -> int:
 
 
 def initialize_database(engine: Engine) -> int:
-    """
-    Bring the database up to ``SCHEMA_VERSION``, creating it if needed.
-
-    Returns the version now in force.
-    """
+    """Bring the database up to ``SCHEMA_VERSION``, creating it if needed."""
 
     with engine.begin() as connection:
         _apply_pragmas(connection)
@@ -257,12 +216,7 @@ def has_fts(engine: Engine) -> bool:
 
 
 def rebuild_fts(engine: Engine) -> int:
-    """
-    Repopulate the full-text indexes from `plans` and `providers`.
-
-    Called once after an import rather than per row, which is roughly an order
-    of magnitude faster than maintaining the index through triggers.
-    """
+    """Repopulate the full-text indexes from `plans` and `providers`."""
 
     if not has_fts(engine):
         return 0

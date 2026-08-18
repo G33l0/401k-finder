@@ -38,8 +38,8 @@ that apart from a deliberate replacement.
 
 ## Colours, not branding
 
-The three colour schemes live in [`app/ui/theme.py`](../theme.py), not here.
-`app.qss` is layered *after* whichever theme is active, so rules in it win — use
+The colour schemes live in [`app/ui/theme.py`](../theme.py), not here.
+`app.qss` is layered *after* whichever theme is active, so rules in it win. Use
 it for small adjustments, and edit the theme module for anything structural.
 
 ## Checking what a build resolved

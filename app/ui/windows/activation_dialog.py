@@ -1,19 +1,4 @@
-"""
-The activation window shown when a build requires a licence.
-
-This is the first thing a paying customer sees, and often the first thing they
-see when something has gone wrong, so every route forward is on it: get a key,
-enter a key, or copy the details needed to ask for help.
-
-Licences are issued by email rather than through a store, which makes the
-customer's **Machine ID** the thing this window exists to hand over. It is
-shown in full, selectable, with one button that copies it and another that
-opens a pre-addressed email containing it. Someone who cannot find their
-Machine ID cannot buy the product.
-
-There is no network call here — a key is checked against the public key
-compiled into the build — so activation is instant and works offline.
-"""
+"""The activation window shown when a build requires a licence."""
 
 from __future__ import annotations
 
@@ -68,8 +53,6 @@ class ActivationDialog(QDialog):
 
         self._build()
 
-    # ------------------------------------------------------------------
-
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 16)
@@ -93,10 +76,6 @@ class ActivationDialog(QDialog):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        # --- The Machine ID ------------------------------------------
-        # Read-only rather than a label so it can be selected and copied by
-        # hand, which is what people do when a Copy button does not seem to
-        # have worked.
         machine_row = QHBoxLayout()
 
         machine_label = QLabel("Machine ID:")
@@ -131,12 +110,9 @@ class ActivationDialog(QDialog):
         rule.setFrameShadow(QFrame.Sunken)
         layout.addWidget(rule)
 
-        # --- The key ---------------------------------------------------
         entry_label = QLabel("Paste your licence key here:")
         layout.addWidget(entry_label)
 
-        # A multi-line box, because the key is long and arrives wrapped across
-        # several lines in an email. Pasting it as-is has to work.
         self.key_input = QPlainTextEdit()
         self.key_input.setPlaceholderText(
             "XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX-XXXXXXXX…"
@@ -169,8 +145,6 @@ class ActivationDialog(QDialog):
 
         layout.addWidget(self.buttons)
 
-    # ------------------------------------------------------------------
-
     def _key_text(self) -> str:
         return self.key_input.toPlainText().strip()
 
@@ -199,7 +173,7 @@ class ActivationDialog(QDialog):
             QUrl(
                 _mailto(
                     self.gate,
-                    f"Licence request — {self.gate.config.product_name}",
+                    f"Licence request: {self.gate.config.product_name}",
                     "Hello,\n\nI would like to buy a licence for "
                     f"{self.gate.config.product_name}.\n\n{self._details()}\n"
                     "Thank you.\n",
@@ -210,19 +184,15 @@ class ActivationDialog(QDialog):
         if opened:
             return
 
-        # No mail client configured is common on a fresh Windows install. Put
-        # everything on the clipboard so the customer can still write to us.
         QGuiApplication.clipboard().setText(
             f"To: {self.gate.config.support_email}\n\n{self._details()}"
         )
         self._show_message(
             f"No email program is set up on this computer. The address and your "
-            f"Machine ID have been copied to the clipboard — email them to "
+            f"Machine ID have been copied to the clipboard. Email them to "
             f"{self.gate.config.support_email} from anywhere.",
             ok=True,
         )
-
-    # ------------------------------------------------------------------
 
     def _activate(self) -> None:
         result = self.gate.activate(self._key_text())
@@ -237,7 +207,7 @@ class ActivationDialog(QDialog):
             QMessageBox.information(
                 self,
                 "Activated",
-                f"Thank you — {self.gate.config.product_name} is activated on this "
+                f"Thank you. {self.gate.config.product_name} is now activated on this "
                 f"computer.{expiry}",
             )
             self.accept()
@@ -259,12 +229,7 @@ class ActivationDialog(QDialog):
 
 
 def require_license(gate: LicenseGate, parent: QWidget | None = None) -> bool:
-    """
-    Ensure the application is licensed, prompting if it is not.
-
-    Returns True when the application may run. Called at start-up, before the
-    main window is built.
-    """
+    """Ensure the application is licensed, prompting if it is not."""
 
     status = gate.status()
 
@@ -273,8 +238,6 @@ def require_license(gate: LicenseGate, parent: QWidget | None = None) -> bool:
 
     dialog = ActivationDialog(gate, parent)
 
-    # An expired or foreign key is already stored, so say why the window has
-    # appeared rather than letting it look like a first run.
     if status.state in {LicenseState.EXPIRED, LicenseState.WRONG_MACHINE}:
         dialog._show_message(status.message, ok=False)
 

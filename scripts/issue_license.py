@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""
-Issue licence keys. **Owner's tool — never ship this to a customer.**
-
-    python -m scripts.issue_license --new-keypair
-    python -m scripts.issue_license --machine 2580db0d... --label "Acme Corp"
-    python -m scripts.issue_license --machine 2580db0d... --label "Acme" --days 365
-
-A customer emails you the Machine ID their copy shows. You run this, and reply
-with the key it prints. That is the whole system: no store, no payment
-provider, no server.
-
-**The signing key is the business.** Anyone who has it can issue licences for
-your product, and there is no way to revoke one once issued. Keep it off any
-machine you would not trust with your bank details, and keep a backup — lose it
-and every future key has to come from a new keypair, which means a new build,
-because the public half is compiled in.
-"""
+"""Issue licence keys. Owner's tool: never ship this to a customer."""
 
 from __future__ import annotations
 
@@ -34,11 +18,8 @@ if str(REPO_ROOT) not in sys.path:
 from app.licensing import ed25519, keys  # noqa: E402
 from app.licensing.config import SUPPORT_EMAIL  # noqa: E402
 
-#: Where the private seed is kept unless told otherwise. Outside the repository
-#: on purpose — the single worst outcome here is committing the signing key.
 DEFAULT_SEED_FILE = Path.home() / ".401k-finder" / "signing-key.hex"
 
-#: Read instead of the file when set, for a CI or password-manager workflow.
 SEED_ENV_VAR = "FINDER_401K_LICENSE_SEED"
 
 
@@ -71,7 +52,7 @@ def create_keypair(path: Path) -> int:
     if path.exists():
         raise SystemExit(
             f"A signing key already exists at {path}.\n"
-            f"Refusing to overwrite it — every licence you have issued was signed with it.\n"
+            f"Refusing to overwrite it. Every licence you have issued was signed with it.\n"
             f"To deliberately start over, move that file somewhere safe first."
         )
 
@@ -81,8 +62,6 @@ def create_keypair(path: Path) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(seed.hex() + "\n", encoding="utf-8")
 
-    # Windows ignores POSIX modes; the file inherits the profile's ACL, which
-    # is already per-user, so a failure here is not worth stopping for.
     with contextlib.suppress(OSError):
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 0600
 
@@ -98,8 +77,6 @@ def create_keypair(path: Path) -> int:
 def issue(args: argparse.Namespace) -> int:
     seed = load_seed(args.seed_file)
 
-    # Machine IDs get pasted out of emails with spaces, dashes and stray
-    # quotation marks attached; keep the hex and drop the rest.
     machine = "".join(c for c in args.machine.strip().lower() if c in "0123456789abcdef")
 
     if len(machine) < 32:
@@ -126,9 +103,6 @@ def issue(args: argparse.Namespace) -> int:
 
     term = "does not expire" if expires is None else f"is valid until {expires:%d %B %Y}"
 
-    # Wrap on group boundaries. Splitting mid-group leaves a dash stranded at
-    # the start of a line, which reads like a typo and invites someone to
-    # "fix" it before pasting.
     groups = key.split("-")
     wrapped = "\n".join(
         "-".join(groups[at : at + 5]) for at in range(0, len(groups), 5)
@@ -143,7 +117,7 @@ def issue(args: argparse.Namespace) -> int:
     print(f"This key is tied to the computer with Machine ID {machine},")
     print(f"and {term}. If you change computer, email us the new Machine ID and")
     print("we will issue a replacement.\n")
-    print(f"— {args.support}")
+    print(f"-- {args.support}")
 
     return 0
 

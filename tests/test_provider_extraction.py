@@ -205,11 +205,6 @@ def test_every_rule_names_a_field_the_layout_defines():
     assert not problems, f"extraction rules reference unknown fields: {problems}"
 
 
-# ----------------------------------------------------------------------
-# Provider identity
-# ----------------------------------------------------------------------
-
-
 def test_known_brands_get_a_canonical_name():
     assert normalize_provider("FIDELITY INVESTMENTS INSTITUTIONAL OPERAT").canonical_name == (
         "Fidelity Investments"

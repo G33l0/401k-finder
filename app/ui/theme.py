@@ -1,64 +1,26 @@
-"""
-The three colour schemes, and the machinery for applying one.
-
-    light     the default; a plain, bright document look
-    dark      low-light, neutral greys with a blue accent
-    hacker    near-black with a phosphor-green monospace treatment
-
-Everything a theme controls lives in :class:`Palette`. Widgets and the HTML
-detail views both read from it, which is the point: before this existed the
-detail panel wrote ``#fbfcfd`` cards straight into its markup, so any dark
-scheme would have painted white boxes onto a dark window.
-
-Three things have to change together for a theme to be complete, and missing
-any one of them leaves visible seams:
-
-* the **QPalette**, which is what unstyled and native widgets read — message
-  boxes, tooltips, combo pop-ups;
-* the **style sheet**, for everything the palette does not reach;
-* the **document CSS** used by the ``QTextBrowser`` panels, which have their
-  own rich-text renderer and ignore both of the above.
-
-The widget style is forced to Fusion. The native Windows style ignores the
-palette for many widgets and would render a light grey chrome around a dark
-window; Fusion honours it, and costs a little native feel to get themes that
-are actually themes.
-"""
+"""The colour schemes, and the machinery for applying one."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: The value used when nothing is stored, or the stored value is not one we
-#: know.
 DEFAULT_THEME = "light"
 
-#: Fusion is the only built-in widget style that honours a custom palette on
-#: every platform. Without it the Windows style keeps its own light chrome and
-#: the dark themes come out half-applied.
 WIDGET_STYLE = "Fusion"
 
 
 @dataclass(frozen=True, slots=True)
 class Palette:
-    """
-    One theme, in semantic roles rather than colour names.
-
-    Roles are named for what they mean — ``danger``, ``muted``, ``accent`` —
-    so a scheme can be re-coloured without every call site having to agree on
-    whether "blue" is still blue.
-    """
+    """One theme, in semantic roles rather than colour names."""
 
     key: str
     label: str
 
-    #: True when this scheme is light-on-dark. Qt needs to be told, and a few
-    #: choices (icon tinting, shadow strength) key off it.
     dark: bool
 
     window: str  #: The application background.
     surface: str  #: Input fields, tables, text panes.
-    surface_alt: str  #: Cards and alternating rows; a step off ``surface``.
+    surface_alt: str
     border: str
     border_strong: str  #: Focus rings and header rules.
 
@@ -89,8 +51,6 @@ class Palette:
         return self.font_family
 
 
-#: The stack is quoted so a family with a space survives both Qt style sheets
-#: and the rich-text parser.
 _SANS = "'Segoe UI', 'Inter', system-ui, -apple-system, 'Noto Sans', sans-serif"
 _MONO = "'Cascadia Mono', 'JetBrains Mono', Consolas, 'DejaVu Sans Mono', monospace"
 
@@ -151,9 +111,6 @@ DARK = Palette(
 )
 
 
-#: Green-on-black, monospaced throughout. The green is deliberately pulled back
-#: from #00FF00 — full-intensity phosphor on pure black is unreadable for more
-#: than a minute, and this is a tool people sit in front of for an hour.
 HACKER = Palette(
     key="hacker",
     label="Hacker",
@@ -182,16 +139,126 @@ HACKER = Palette(
 )
 
 
-THEMES: dict[str, Palette] = {theme.key: theme for theme in (LIGHT, DARK, HACKER)}
+SEPIA = Palette(
+    key="sepia",
+    label="Sepia",
+    dark=False,
+    window="#EFE6D8",
+    surface="#FAF4E9",
+    surface_alt="#F5EDDF",
+    border="#D9CBB4",
+    border_strong="#BFAE93",
+    text="#2E2519",
+    text_muted="#5C4F3D",
+    text_faint="#7D6E59",
+    accent="#8A4B22",
+    accent_hover="#6E3A18",
+    accent_soft="#F0E2CE",
+    on_accent="#FFF8EC",
+    selection="#E3CFAE",
+    on_selection="#33291B",
+    high="#3F6B2E",
+    medium="#8A5A16",
+    low="#867B6A",
+    danger="#A33125",
+    success="#3F6B2E",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
 
-#: The palette in force. Widgets that colour themselves at runtime — the
-#: activation dialog's success and failure messages — read this.
+
+MIDNIGHT = Palette(
+    key="midnight",
+    label="Midnight",
+    dark=True,
+    window="#0E1424",
+    surface="#161E33",
+    surface_alt="#1C2540",
+    border="#2A3654",
+    border_strong="#3D4C70",
+    text="#DDE4F5",
+    text_muted="#9BA7C6",
+    text_faint="#77839F",
+    accent="#8AA9FF",
+    accent_hover="#B3C6FF",
+    accent_soft="#1E2A4C",
+    on_accent="#0A1024",
+    selection="#2C4079",
+    on_selection="#EDF1FF",
+    high="#56D9A3",
+    medium="#F2C14E",
+    low="#828EAC",
+    danger="#FF8592",
+    success="#56D9A3",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+AMBER = Palette(
+    key="amber",
+    label="Amber",
+    dark=True,
+    window="#14100B",
+    surface="#1D1811",
+    surface_alt="#241E15",
+    border="#3A2F1F",
+    border_strong="#57472E",
+    text="#F0DFC2",
+    text_muted="#BFA97F",
+    text_faint="#96835F",
+    accent="#F5A524",
+    accent_hover="#FFC163",
+    accent_soft="#33260F",
+    on_accent="#1A1206",
+    selection="#4A3616",
+    on_selection="#FFF0D4",
+    high="#9CCC52",
+    medium="#E8A33C",
+    low="#93815F",
+    danger="#FF7B5C",
+    success="#9CCC52",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+CONTRAST = Palette(
+    key="contrast",
+    label="High contrast",
+    dark=True,
+    window="#000000",
+    surface="#000000",
+    surface_alt="#141414",
+    border="#FFFFFF",
+    border_strong="#FFFF00",
+    text="#FFFFFF",
+    text_muted="#EDEDED",
+    text_faint="#D2D2D2",
+    accent="#FFFF00",
+    accent_hover="#FFFF99",
+    accent_soft="#262600",
+    on_accent="#000000",
+    selection="#FFFF00",
+    on_selection="#000000",
+    high="#00FF88",
+    medium="#FFD500",
+    low="#CFCFCF",
+    danger="#FF7A7A",
+    success="#00FF88",
+    font_family=_SANS,
+    mono_family=_MONO,
+)
+
+
+#: Menu order: the two light schemes, then the darks, then the accessibility one.
+THEMES: dict[str, Palette] = {
+    theme.key: theme
+    for theme in (LIGHT, SEPIA, DARK, MIDNIGHT, AMBER, HACKER, CONTRAST)
+}
+
 _current: Palette = THEMES[DEFAULT_THEME]
 
-#: Extra style sheet appended after the theme's own, for deployments that drop
-#: an ``app.qss`` into the resources folder. Held here rather than applied once
-#: at start-up, because switching themes replaces the whole style sheet and
-#: would otherwise silently discard it.
 _overlay: str = ""
 
 
@@ -208,6 +275,30 @@ def available() -> list[Palette]:
     return list(THEMES.values())
 
 
+def accelerated(labels: list[str]) -> list[str]:
+    """
+    Insert Qt's "&" accelerator marker, giving every label a distinct key.
+
+    Marking the first letter blindly gave both Hacker and High contrast Alt+H,
+    where the second one silently never fires.
+    """
+
+    used: set[str] = set()
+    marked: list[str] = []
+
+    for label in labels:
+        for index, character in enumerate(label):
+            key = character.lower()
+            if key.isalnum() and key not in used:
+                used.add(key)
+                marked.append(f"{label[:index]}&{label[index:]}")
+                break
+        else:
+            marked.append(label)
+
+    return marked
+
+
 def resolve(name: str | None) -> Palette:
     """Look up a theme, falling back to the default for anything unknown."""
 
@@ -218,19 +309,8 @@ def current() -> Palette:
     return _current
 
 
-# ----------------------------------------------------------------------
-# The Qt side
-# ----------------------------------------------------------------------
-
-
 def qt_palette(palette: Palette):  # -> QPalette
-    """
-    Build the QPalette.
-
-    This is what reaches the widgets a style sheet does not: message boxes,
-    tooltips, combo-box pop-ups, and the text cursor. Skipping it is why
-    half-finished dark modes have one stubbornly white dialog.
-    """
+    """Build the QPalette."""
 
     from PySide6.QtGui import QColor
     from PySide6.QtGui import QPalette as QtPalette
@@ -261,8 +341,6 @@ def qt_palette(palette: Palette):  # -> QPalette
     paint(QtPalette.Link, palette.accent)
     paint(QtPalette.LinkVisited, palette.accent_hover)
 
-    # Disabled controls have to be dimmed explicitly, or they stay full
-    # strength and a greyed-out button looks enabled.
     for role, colour in (
         (QtPalette.WindowText, palette.text_faint),
         (QtPalette.Text, palette.text_faint),
@@ -541,15 +619,7 @@ QLabel[role="faint"] {{
 
 
 def document_css(palette: Palette) -> str:
-    """
-    The ``<style>`` block for the rich-text detail panels.
-
-    ``QTextBrowser`` renders with Qt's own rich-text engine, which reads none
-    of the widget style sheet, so the HTML has to carry its own colours. Only a
-    subset of CSS is supported — no flexbox, no custom properties, and
-    ``background`` on ``body`` does not fill the viewport, which is why the
-    widget background is set through the style sheet instead.
-    """
+    """The ``<style>`` block for the rich-text detail panels."""
 
     p = palette
 
@@ -571,10 +641,6 @@ def document_css(palette: Palette) -> str:
         f".hi{{color:{p.high};font-weight:bold;}}"
         f".med{{color:{p.medium};}}"
         f".low{{color:{p.low};}}"
-        # Cards are tables, not divs. Qt's rich-text engine paints a div's
-        # background behind its own first line only, so a div card with nested
-        # lines inside came out as a stripe with the rest of the content
-        # hanging below it. A single-cell table is drawn as one block.
         f"table.card{{width:100%;margin:8px 0;background:{p.surface_alt};"
         f"border:1px solid {p.border};}}"
         "table.card td{padding:8px 11px;}"
@@ -584,11 +650,7 @@ def document_css(palette: Palette) -> str:
 
 
 def apply(app, name: str | None) -> Palette:
-    """
-    Apply a theme to a running QApplication and return the palette used.
-
-    Safe to call repeatedly; switching themes at runtime is exactly this.
-    """
+    """Apply a theme to a running QApplication and return the palette used."""
 
     global _current
 

@@ -1,33 +1,10 @@
-"""
-Ed25519 signing and verification, in pure Python.
-
-Vendored because licence keys must be **unforgeable by someone holding the
-application**. A symmetric scheme — an HMAC with a secret compiled into the
-executable — would let the first person who unpacks the build write a key
-generator that works for everyone, forever. With a signature only the holder of
-the private key can issue keys; the application carries the public half, which
-verifies keys and cannot mint them.
-
-The alternative was to depend on ``cryptography`` or ``PyNaCl``. This is about
-120 lines, needs nothing but ``hashlib``, and adds no native extension to the
-Windows build, so it is the smaller cost.
-
-This is the RFC 8032 reference construction, and the test suite checks it
-against the published RFC test vectors. It is deliberately unoptimised: a
-verification costs a few milliseconds, and it runs once per launch.
-
-**Not for bulk or hostile-input use.** The arithmetic is variable-time and
-leaks timing information about the private scalar. That is irrelevant for
-verifying a licence on the customer's own machine, and it means this module
-should never be reused for anything where an attacker can time the signer.
-"""
+"""Ed25519 signing and verification, in pure Python."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 
-#: The field and group parameters of edwards25519, from RFC 8032 §5.1.
 P = 2**255 - 19
 L = 2**252 + 27742317777372353535851937790883648493
 
@@ -66,7 +43,7 @@ def _recover_x(y: int, sign: int) -> int | None:
 
 
 def _add(point: Point, other: Point) -> Point:
-    """Twisted Edwards addition. Complete for this curve — no special cases."""
+    """Twisted Edwards addition. Complete for this curve, so no special cases."""
 
     x1, y1 = point
     x2, y2 = other
@@ -122,11 +99,6 @@ def _clamp(seed_hash: bytes) -> int:
     return int.from_bytes(scalar, "little")
 
 
-# ----------------------------------------------------------------------
-# The public interface
-# ----------------------------------------------------------------------
-
-
 def generate_seed() -> bytes:
     """A new 32-byte private seed, from the OS random source."""
 
@@ -163,12 +135,7 @@ def sign(message: bytes, seed: bytes) -> bytes:
 
 
 def verify(message: bytes, signature: bytes, key: bytes) -> bool:
-    """
-    Check a signature. Returns False rather than raising on anything malformed.
-
-    A licence key is attacker-supplied text pasted into a dialog, so every
-    reachable failure has to be a quiet no rather than a traceback.
-    """
+    """Check a signature. Returns False rather than raising on anything malformed."""
 
     if len(signature) != 64 or len(key) != 32:
         return False
@@ -181,8 +148,6 @@ def verify(message: bytes, signature: bytes, key: bytes) -> bool:
 
     scalar = int.from_bytes(signature[32:], "little")
     if scalar >= L:
-        # Non-canonical S. Rejecting it is what stops a valid signature being
-        # trivially reshaped into a second one that also verifies.
         return False
 
     challenge = int.from_bytes(_sha512(signature[:32] + key + message), "little") % L

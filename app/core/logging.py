@@ -12,13 +12,7 @@ _configured = False
 
 
 def configure_logging(level: int = logging.INFO, console: bool = True) -> logging.Logger:
-    """
-    Configure application logging. Safe to call repeatedly.
-
-    File logging is best effort: a packaged Windows build can be launched from a
-    location where the log directory cannot be created, and that should degrade
-    to console-only logging rather than stop the application from starting.
-    """
+    """Configure application logging. Safe to call repeatedly."""
 
     global _configured
 
@@ -60,12 +54,7 @@ def configure_logging(level: int = logging.INFO, console: bool = True) -> loggin
 
 
 def get_logger(name: str | None = None) -> logging.Logger:
-    """
-    Return a child of the application logger.
-
-    Modules call this at import time; handlers are attached lazily by
-    ``configure_logging`` so importing a module never creates a log file.
-    """
+    """Return a child of the application logger."""
 
     root = logging.getLogger(LOGGER_NAME)
 

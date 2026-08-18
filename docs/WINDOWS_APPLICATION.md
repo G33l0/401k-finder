@@ -1,20 +1,20 @@
 # Packaging 401K Finder Pro as a Windows application
 
 How to turn this repository into a Windows program a non-technical user can
-install and run — a Start-menu entry, a desktop icon, no Python, no terminal.
+install and run: a Start-menu entry, a desktop icon, no Python, no terminal.
 
 There are two artefacts:
 
-1. **A standalone application folder** — `dist\401K Finder Pro\`, containing
+1. **A standalone application folder**, `dist\401K Finder Pro\`, containing
    `401KFinderPro.exe`, `401k-finder.exe` and everything they need. Copy it
    anywhere and run it.
-2. **An installer** — `401KFinderPro-Setup-<version>.exe`, which puts that
+2. **An installer**, `401KFinderPro-Setup-<version>.exe`, which puts that
    folder in Program Files, creates shortcuts, and registers an uninstaller.
 
 `build.ps1` produces both.
 
 > **New to this?** [`DEPLOY.md`](DEPLOY.md) is a step-by-step walkthrough that
-> assumes nothing — installing the tools, adding your icon and logo, building,
+> assumes nothing: installing the tools, adding your icon and logo, building,
 > testing and distributing. This document is the reference behind it: how the
 > packaging works and what to do when it does not.
 
@@ -22,7 +22,7 @@ There are two artefacts:
 
 ## Quick start
 
-On a Windows machine with Python 3.11–3.13 installed:
+On a Windows machine with Python 3.11 to 3.13 installed:
 
 ```powershell
 git clone https://github.com/g33l0/401k-finder.git
@@ -64,7 +64,7 @@ That relaxes the policy for the current window only.
 ### Python 3.11, 3.12 or 3.13
 
 From [python.org](https://www.python.org/downloads/windows/). During
-installation tick **"Add python.exe to PATH"** — `build.ps1` fails immediately
+installation tick **"Add python.exe to PATH"**. `build.ps1` fails immediately
 without it.
 
 Python 3.14 is not yet supported: PySide6 wheels lag new releases, and the
@@ -79,7 +79,7 @@ finds `ISCC.exe` on `PATH` or in its default install location.
 ### Nothing else
 
 PyInstaller is installed into the build's virtual environment automatically. The
-end user needs nothing at all — not Python, not the Visual C++ redistributable
+end user needs nothing at all: not Python, not the Visual C++ redistributable
 (the Qt runtime is bundled).
 
 ---
@@ -95,10 +95,10 @@ end user needs nothing at all — not Python, not the Visual C++ redistributable
    about to invoke is importable.
 3. **Runs the test suite.** A release build with failing tests is a bug you are
    about to ship; pass `-SkipTests` only when iterating on packaging itself.
-4. **Verifies the vendored DOL layouts load.** See the warning below — this is
+4. **Verifies the vendored DOL layouts load.** See the warning below, because this is
    the single most common packaging failure.
 5. **Runs PyInstaller** against `installer\401k-finder.spec`.
-6. **Smoke-tests the built application** — checks the layout files are present
+6. **Smoke-tests the built application.** It checks the layout files are present
    under `_internal`, then runs the packaged `401k-finder.exe` to confirm it
    starts, reads those layouts and creates a database. This runs the frozen
    executable, not the source tree, so it actually catches a bad `datas` entry.
@@ -132,7 +132,7 @@ datas = [
 
 `build.ps1` verifies this twice: once in the source tree before packaging, and
 once against the built folder afterwards by running the packaged
-`401k-finder.exe`. The second check is the one that matters — a check that
+`401k-finder.exe`. The second check is the one that matters, because a check that
 imports from the source tree would pass even if PyInstaller dropped every
 layout file. If you change where the layouts live, update the spec and the
 `$LayoutDir` path in `build.ps1` together.
@@ -167,7 +167,7 @@ Users can reach this folder from **File → Open data folder** in the applicatio
 
 ### Disk space
 
-Plan for **20–60 GB** for a single form year with the core datasets: the
+Plan for **20 to 60 GB** for a single form year with the core datasets: the
 archives, the extracted CSVs, and the database built from them. The application
 deletes extracted CSVs after a successful import by default (`keep_extracted`
 in `settings.json`) but keeps the archives so a re-import needs no re-download.
@@ -177,14 +177,14 @@ system disk will take. See **External and removable drives** below.
 
 ### External and removable drives
 
-The bulk data — `database`, `dol_data`, `downloads` and `exports` — can be moved
+The bulk data (`database`, `dol_data`, `downloads` and `exports`) can be moved
 to any other drive. The **Data** tab has the controls under *Where the data is
 kept*; the command line is `401k-finder storage set E:\401k-data`, with
 `storage`, `storage list` and `storage reset` alongside it. Changing the
 location moves what is already there rather than starting over.
 
 What deliberately does **not** move: `settings.json`, `logs`, the licence, and
-`storage.json` — the one-line file recording where the data went. All four are
+`storage.json`, the one-line file recording where the data went. All four are
 per-machine, and all four have to be readable before anyone knows whether the
 other drive is connected. A pointer stored on the drive it points at would leave
 with the drive.
@@ -195,7 +195,7 @@ Three Windows-specific things the code handles rather than leaving to the user:
 | --- | --- |
 | Drive formatted FAT32 | **Refused.** FAT32 caps a single file at 4 GB and a form year's database passes that, so the import would fail part-way with a misleading disk-full error. The dialog says to reformat as exFAT or NTFS, and warns that reformatting erases the drive. |
 | Mapped network drive or UNC path | **Allowed, with a warning.** SQLite's write-ahead journal needs a shared-memory file that SMB does not implement, so the database falls back to the rollback journal (`PRAGMA journal_mode = DELETE`). It works; it is slower. |
-| Drive not connected at start-up | **Reported.** A dialog offers *Try again*, *Choose the folder…*, *Use internal storage* or *Quit*, before the main window is built. The application never creates an empty database at the mount point — an empty search result looks exactly like losing everything. |
+| Drive not connected at start-up | **Reported.** A dialog offers *Try again*, *Choose the folder…*, *Use internal storage* or *Quit*, before the main window is built. The application never creates an empty database at the mount point, because an empty search result looks exactly like losing everything. |
 
 Drive letters change. If Windows reassigns the stick from `E:` to `F:`, the
 start-up dialog is what you get, and *Choose the folder…* points it at the new
@@ -210,7 +210,7 @@ application before ejecting it.
 
 ### Portable installs
 
-Set `FINDER_401K_DATA_DIR` to keep everything beside the executable — useful for
+Set `FINDER_401K_DATA_DIR` to keep everything beside the executable, which suits
 a USB stick or a locked-down machine:
 
 ```bat
@@ -227,8 +227,8 @@ Save that as `Run-Portable.bat` next to the executable.
 Expect roughly **200 MB** for the application folder, of which Qt is most.
 A Linux build of the same spec measures 198 MB; Windows lands in the same range.
 
-The spec file already excludes the Qt modules the application never touches —
-3D, multimedia, QML/Quick, WebEngine, charts, sensors — which removes about
+The spec file already excludes the Qt modules the application never touches:
+3D, multimedia, QML/Quick, WebEngine, charts and sensors. That removes about
 150 MB. Removing more means removing features.
 
 A one-folder build is used rather than `--onefile` deliberately: a one-file
@@ -297,7 +297,7 @@ The spec bundles whichever are present; `app/ui/resources/__init__.py` resolves
 them at runtime, handling the fact that a frozen build unpacks data files beside
 the executable rather than next to the module.
 
-Verify what a build resolved — this works against the packaged executable too,
+Verify what a build resolved. This works against the packaged executable too,
 and reports paths inside `_internal`:
 
 ```powershell
@@ -318,7 +318,7 @@ Test on a clean Windows VM with no Python installed:
 2. Launch it. The window should open and the status bar should report no data
    imported. `401k-finder.exe status` from a prompt in that folder should say
    the same thing.
-3. **Open the Data tab and download a year.** This is the real test — it
+3. **Open the Data tab and download a year.** This is the real test, because it
    exercises TLS, the DOL download, ZIP extraction, the layouts, the importer
    and the database in one go. If the layouts were dropped from the package,
    this is where it fails.
@@ -403,7 +403,7 @@ upgraded build opens an older database and migrates it. Opening a database
 written by a *newer* build raises a clear error naming both versions rather than
 corrupting it.
 
-Bump the version in `app/__init__.py` before building — `build.ps1` reads it
+Bump the version in `app/__init__.py` before building. `build.ps1` reads it
 from there and passes it to Inno Setup, so the two never disagree.
 
 ---
@@ -420,9 +420,9 @@ from there and passes it to Inno Setup, so the two never disagree.
 | Window opens then closes immediately | Run `401KFinderPro.exe` from a terminal to see the error, or read `%LOCALAPPDATA%\401K Finder Pro\logs\application.log`. |
 | Inno Setup not found | Install Inno Setup 6, or build without `-Installer`. |
 | Downloads fail behind a corporate proxy | Set `HTTPS_PROXY` before launching; httpx honours it. TLS-inspecting proxies may also need the corporate CA in the system trust store. |
-| Build succeeds but the executable is ~1 GB | Qt modules were not excluded — this happens if the spec file was replaced by a generated one. Restore `installer\401k-finder.spec`. |
+| Build succeeds but the executable is ~1 GB | Qt modules were not excluded. This happens if the spec file was replaced by a generated one. Restore `installer\401k-finder.spec`. |
 | `TypeError` about `cipher` or `win_no_prefer_redirects` while reading the spec | An old spec file from PyInstaller 5. Those arguments were removed in PyInstaller 6; the current spec does not use them. |
-| `ModuleNotFoundError: No module named 'app'` during the build | `build.ps1` was run from outside the project directory. The project is not pip-installed into the build venv, so the checks run with the project root as the working directory — this is handled, but a hand-run `python -c "import app"` needs `cd` first. |
+| `ModuleNotFoundError: No module named 'app'` during the build | `build.ps1` was run from outside the project directory. The project is not pip-installed into the build venv, so the checks run with the project root as the working directory. This is handled, but a hand-run `python -c "import app"` needs `cd` first. |
 
 Logs are the first place to look: `%LOCALAPPDATA%\401K Finder Pro\logs\application.log`.
 
@@ -430,7 +430,7 @@ Logs are the first place to look: `%LOCALAPPDATA%\401K Finder Pro\logs\applicati
 
 ## Building on non-Windows machines
 
-You cannot. PyInstaller does not cross-compile — it bundles the interpreter and
+You cannot. PyInstaller does not cross-compile. It bundles the interpreter and
 libraries of the machine it runs on, so a Windows executable requires Windows.
 
 Options:
@@ -441,5 +441,5 @@ Options:
 - Wine is not viable for this. It can sometimes produce a binary, but the result
   is unreliable and untestable in any meaningful way.
 
-The application itself runs fine on Linux and macOS from source — only the
+The application itself runs fine on Linux and macOS from source. Only the
 packaged `.exe` needs Windows to build.

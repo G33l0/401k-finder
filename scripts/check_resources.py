@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""
-Check that the registry links still work. **Run before every release.**
-
-    python -m scripts.check_resources
-
-``app/trace/resources.py`` points people at government and third-party sites to
-search for a lost account by Social Security number. Those addresses drift, and
-a dead link in a paid product is worse than no link — someone chasing money they
-are owed hits a 404 and concludes the tool is abandoned.
-
-This makes one request per resource and reports what came back. It is not part
-of the test suite: the tests must pass offline, and a government site being slow
-is not a reason to fail a build.
-"""
+"""Check that the registry links still work. **Run before every release.**"""
 
 from __future__ import annotations
 
@@ -46,8 +33,6 @@ def main() -> int:
     ) as client:
         for resource in RESOURCES:
             try:
-                # HEAD first: several of these serve large pages, and some
-                # government hosts reject it, so fall back to GET.
                 response = client.head(resource.url)
                 if response.status_code >= 400:
                     response = client.get(resource.url)
@@ -59,10 +44,6 @@ def main() -> int:
             landed = str(response.url)
             moved = "" if landed.rstrip("/") == resource.url.rstrip("/") else f" -> {landed}"
 
-            # 401/403 from a government site almost always means "no scripts",
-            # not "no page". Reporting those as failures would train the reader
-            # to ignore the whole report, so they are called out separately and
-            # do not fail the run.
             if response.status_code in {401, 403, 405, 429}:
                 print(
                     f"  ?     {resource.url}  HTTP {response.status_code}{moved}"
@@ -79,13 +60,13 @@ def main() -> int:
     if failures:
         print(
             f"{failures} link(s) are broken. Fix them in app/trace/resources.py before\n"
-            f"releasing — these are what someone follows to find their money."
+            f"releasing. These are what someone follows to find their money."
         )
         return 1
 
     print(
         "No broken links. Open any marked '?' in a browser, and check any '->'\n"
-        "redirect — a redirect today is a dead link in a year."
+        "redirect. A redirect today is a dead link in a year."
     )
     return 0
 

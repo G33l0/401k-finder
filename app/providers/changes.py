@@ -1,27 +1,4 @@
-"""
-Which plans changed provider, and who they moved between.
-
-Every engagement is already stored with the form year it was filed for, so the
-history is sitting in the database — this reads it rather than adding anything.
-Compare a plan's provider in one year against the next and you get the question
-a recordkeeper, third-party administrator or advisory firm actually pays to have
-answered:
-
-    43 plans changed recordkeeper. 19 of them left you. Here is where they went,
-    with assets and participants.
-
-**What this can and cannot say.** A change here means *the filings named a
-different firm*. That is usually a real move, but not always: a plan can rename,
-a filer can spell the same firm two ways, or the answer can come from a
-different schedule in the second year. Provider names are consolidated first,
-which removes most of it, and every change carries the schedule and field it was
-read from so a surprising one can be checked rather than argued about.
-
-The gaps are worth stating too. A plan that skips a year, or whose year has not
-been imported, produces no change — not a "no change". :class:`ChangeQuery`
-compares adjacent *observed* years per plan rather than assuming the whole range
-is present.
-"""
+"""Which plans changed provider, and who they moved between."""
 
 from __future__ import annotations
 
@@ -41,11 +18,8 @@ logger = get_logger(__name__)
 class ChangeKind(StrEnum):
     """What happened to a role between two years."""
 
-    #: A different firm in the later year.
     SWITCHED = "SWITCHED"
-    #: The role appears for the first time.
     GAINED = "GAINED"
-    #: The role was filed before and is now absent.
     LOST = "LOST"
 
     @property
@@ -80,8 +54,6 @@ class ProviderChange:
     participants: int | None
     total_assets: float | None
 
-    #: Where the later observation was read from, so a surprising change can be
-    #: checked against the filing rather than taken on trust.
     schedule_code: str | None = None
     source_field: str | None = None
 
@@ -117,25 +89,17 @@ class ProviderChange:
 class ChangeQuery:
     """What to look for."""
 
-    #: Restrict to one role. Recordkeeper is the one people ask about.
     role: str = "RECORDKEEPER"
 
-    #: Only changes whose later year is this. None means every year on record.
     year: int | None = None
 
-    #: Only plans that moved away from this provider.
     from_provider: str | None = None
-    #: Only plans that moved to this provider.
     to_provider: str | None = None
 
     state: str | None = None
     min_participants: int | None = None
     min_assets: float | None = None
 
-    #: Whether to report roles appearing and disappearing, or only true swaps.
-    #: Off by default: a role vanishing usually means the schedule that carried
-    #: it was not imported, which would read as a wave of losses that never
-    #: happened.
     include_gained: bool = False
     include_lost: bool = False
 
@@ -156,7 +120,6 @@ class ChangeReport:
     query: ChangeQuery
     changes: list[ProviderChange] = field(default_factory=list)
 
-    #: Years actually compared, so an empty result can be read correctly.
     years_compared: tuple[int, ...] = ()
 
     @property
@@ -182,11 +145,7 @@ class ChangeReport:
         ]
 
     def flows(self) -> list[tuple[str, str, int, float]]:
-        """
-        Where plans moved, aggregated: (from, to, plans, assets), biggest first.
-
-        This is the shape people want on a slide.
-        """
+        """Where plans moved, aggregated: (from, to, plans, assets), biggest first."""
 
         totals: dict[tuple[str, str], list[float]] = {}
 
@@ -240,26 +199,16 @@ class ChangeDetector:
 
         report.years_compared = tuple(sorted(years))
 
-        # Biggest plans first: a firm reviewing a list of losses cares about the
-        # $400m one long before the $2m one.
         report.changes.sort(key=lambda item: (-(item.total_assets or 0.0), item.plan_name))
         report.changes = report.changes[: wanted.limit]
 
         self._attach_plan_details(report)
         return report
 
-    # ------------------------------------------------------------------
-
     def _observations(
         self, query: ChangeQuery
     ) -> dict[tuple[int, str], dict[int, tuple[str, str | None, str | None]]]:
-        """
-        Every (plan, role, year) → provider seen, deduplicated.
-
-        A plan can name the same firm on several schedules in one year. The
-        first is kept; they are the same engagement filed twice, and counting
-        them separately would invent changes that did not happen.
-        """
+        """Every (plan, role, year) → provider seen, deduplicated."""
 
         statement = (
             select(
@@ -345,13 +294,7 @@ class ChangeDetector:
         return True
 
     def _attach_plan_details(self, report: ChangeReport) -> None:
-        """
-        Fill in the plan facts, in one query.
-
-        Deliberately after the trim to ``limit``: joining plan columns into the
-        scan would carry them for every engagement in the database, and only a
-        few hundred rows are ever shown.
-        """
+        """Fill in the plan facts, in one query."""
 
         if not report.changes:
             return

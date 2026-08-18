@@ -1,11 +1,4 @@
-"""
-Licensing: signed keys, issued by the owner and checked offline.
-
-There is no store and no licence server, so the failure this suite cares about
-is not "the API returned the wrong thing". It is a key that should not work
-being accepted, or a key that should work being refused — the second being
-worse, because it locks out someone who has paid.
-"""
+"""Licensing: signed keys, issued by the owner and checked offline."""
 
 from __future__ import annotations
 
@@ -42,15 +35,6 @@ def gate(public_key, monkeypatch, tmp_path, isolated_data_dir) -> LicenseGate:
     return LicenseGate(LicenseConfig(public_key=public_key))
 
 
-# ----------------------------------------------------------------------
-# The signature primitive
-# ----------------------------------------------------------------------
-
-
-#: RFC 8032 §7.1, secret key to public key. A hand-written Ed25519 has to be
-#: pinned to the published vectors, not merely to itself — a self-consistent
-#: implementation of the *wrong* curve passes every round-trip test in this
-#: file and fails against every other Ed25519 in the world.
 RFC_8032_KEYS = [
     (
         "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
@@ -62,7 +46,6 @@ RFC_8032_KEYS = [
     ),
 ]
 
-#: RFC 8032 §7.1, test 2: secret, message, expected signature.
 RFC_8032_SIGNATURE = (
     "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb",
     "72",
@@ -125,11 +108,6 @@ def test_a_seed_must_be_the_right_size():
     for bad in (b"", b"\x00" * 31, b"\x00" * 33):
         with pytest.raises(ValueError):
             ed25519.public_key(bad)
-
-
-# ----------------------------------------------------------------------
-# The key format
-# ----------------------------------------------------------------------
 
 
 def test_a_key_round_trips(seed, public_key):
@@ -240,11 +218,6 @@ def test_days_remaining_counts_down(seed, public_key):
     assert parsed.days_remaining() == 30
 
 
-# ----------------------------------------------------------------------
-# The gate
-# ----------------------------------------------------------------------
-
-
 def test_unlicensed_by_default(gate):
     status = gate.status()
 
@@ -307,7 +280,6 @@ def test_a_copied_licence_file_does_not_work(gate, seed, monkeypatch):
     gate.activate(keys.issue(MACHINE, seed, label="Acme Corp"))
     assert gate.status().allows_use
 
-    # Same file, different computer.
     monkeypatch.setattr("app.licensing.gate.machine_fingerprint", lambda: OTHER_MACHINE)
 
     status = gate.status()
@@ -319,11 +291,6 @@ def test_an_unreadable_licence_file_asks_for_the_key_again(gate):
     storage.license_path().write_text("not json at all", encoding="utf-8")
 
     assert gate.status().state is LicenseState.UNLICENSED
-
-
-# ----------------------------------------------------------------------
-# Builds with no key configured
-# ----------------------------------------------------------------------
 
 
 def test_an_unconfigured_build_never_gates():
@@ -367,12 +334,8 @@ def test_fingerprint_is_stable_and_opaque():
 
 def test_no_payment_provider_remains_in_the_source():
     """
-    The store integrations were removed outright. A stray import or a leftover
-    URL would be a live code path nobody is testing.
-
-    Matched against how an integration actually appears — a module name, a
-    hostname, an API path — rather than against bare words, because "stripe"
-    and "paddle" are ordinary English and this must not fire on prose.
+    The store integrations were removed outright. A stray import or a leftover URL would
+    be a live code path nobody is testing.
     """
 
     import re

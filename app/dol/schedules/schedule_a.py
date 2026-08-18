@@ -1,4 +1,4 @@
-"""Schedule A — insurance information, and Part 1 broker detail."""
+"""Schedule A: insurance information, and Part 1 broker detail."""
 
 from __future__ import annotations
 

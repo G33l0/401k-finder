@@ -1,4 +1,4 @@
-"""Schedules MB and SB — actuarial information for defined benefit plans."""
+"""Schedules MB and SB: actuarial information for defined benefit plans."""
 
 from __future__ import annotations
 

@@ -1,32 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate the application mark.
-
-    python -m scripts.make_logo [--preview]
-
-Writes into ``app/ui/resources``:
-
-    logo.svg    vector original, for the web and print
-    logo.png    512 px, used by the About dialog
-    app.png     512 px, window-icon fallback off Windows
-    app.ico     16/32/48/64/128/256 px, the Windows executable icon
-
-**The design**
-
-The mark is a *trace*: a stepped path climbing from a small hollow node to a
-large solid one. That is what the application does — it follows a filing up
-through the schedules until it reaches the firm holding the money. The right
-angles read as records and ledgers rather than as motion; the single filled
-node is the answer being found.
-
-It climbs rather than descends deliberately. A descending staircase in front of
-a retirement product reads as losing money, whatever you meant by it.
-
-Two variants come out of the same definition. Below 48 px the mark drops a step
-and gains stroke weight, because a three-step stair turns to mush at 16 px.
-Drawing the small sizes separately is the difference between an icon that reads
-in the taskbar and one that looks like a smudge.
-"""
+"""Generate the application mark."""
 
 from __future__ import annotations
 
@@ -46,38 +19,24 @@ except ImportError:  # pragma: no cover - the script is the only consumer
 
 OUTPUT_DIR = REPO_ROOT / "app" / "ui" / "resources"
 
-# --- Palette ---------------------------------------------------------------
-# Deep teal reads as considered and financial without being the default
-# corporate blue; amber gives the terminal node a focal point that survives
-# being shrunk. Both hold up on light and dark backgrounds.
 BADGE = (11, 58, 74, 255)  # #0B3A4A
 TRACE = (242, 247, 248, 255)  # #F2F7F8
 ACCENT = (245, 165, 36, 255)  # #F5A524
 
-#: Rendered at this multiple then downsampled, which is what gives clean edges
-#: without writing a rasteriser.
 SUPERSAMPLE = 8
 
 Point = tuple[float, float]
 
 
-#: How round the badge is, as a fraction of its side.
 BADGE_RADIUS = 0.20
 
 
 def _clearance(centre: Point, radius: float) -> float:
-    """
-    How much room a disc has inside the badge. Negative means it pokes out.
-
-    The composition runs corner to corner, so both end nodes land exactly where
-    the badge is curving away and a plain bounding-box margin says everything is
-    fine while the node is visibly hanging outside the silhouette.
-    """
+    """How much room a disc has inside the badge. Negative means it pokes out."""
 
     x, y = centre
     edges = min(x, y, 1 - x, 1 - y) - radius
 
-    # Inside a corner's quadrant the silhouette is the arc, not the edges.
     cx = BADGE_RADIUS if x < BADGE_RADIUS else 1 - BADGE_RADIUS
     cy = BADGE_RADIUS if y < BADGE_RADIUS else 1 - BADGE_RADIUS
     if abs(x - 0.5) > 0.5 - BADGE_RADIUS and abs(y - 0.5) > 0.5 - BADGE_RADIUS:
@@ -87,14 +46,7 @@ def _clearance(centre: Point, radius: float) -> float:
 
 
 class Mark:
-    """
-    One variant of the mark, in normalized 0..1 coordinates.
-
-    The points below are written out roughly; the constructor then scales and
-    centres the whole thing to sit inside the badge with ``margin`` to spare.
-    That keeps the geometry readable, and means changing a stroke weight or a
-    node radius cannot silently push a node out through a rounded corner.
-    """
+    """One variant of the mark, in normalized 0..1 coordinates."""
 
     def __init__(
         self,
@@ -118,8 +70,6 @@ class Mark:
         ys = [y for _, y in scaled]
         half = stroke / 2
 
-        # Each end node sticks out further than the stroke does, so the two
-        # radii have to be accounted for separately rather than padded evenly.
         left = min(xs[0] - origin, min(xs) - half, xs[-1] - terminal)
         right = max(xs[0] + origin, max(xs) + half, xs[-1] + terminal)
         top = min(ys[0] - origin, min(ys) - half, ys[-1] - terminal)
@@ -142,7 +92,7 @@ class Mark:
             ) - margin
 
         low, high = 0.1, 2.0
-        for _ in range(40):  # bisection; 40 rounds is far past pixel precision
+        for _ in range(40):
             middle = (low + high) / 2
             if shortfall(middle) >= 0:
                 low = middle
@@ -152,8 +102,6 @@ class Mark:
         return self._place(low)
 
 
-#: Three rises. The gaps between parallel strokes stay wider than the strokes
-#: themselves, which is what keeps the steps legible once downsampled.
 DETAILED = Mark(
     points=[
         (0.20, 0.80),
@@ -170,8 +118,6 @@ DETAILED = Mark(
     margin=0.060,
 )
 
-#: Two rises, heavier stroke, tighter margin. Anything more detailed than this
-#: disappears at 16 px.
 SIMPLE = Mark(
     points=[
         (0.24, 0.76),
@@ -210,16 +156,12 @@ def render(size: int, mark: Mark | None = None) -> Image.Image:
 
     draw.line(points, fill=TRACE, width=int(stroke))
 
-    # Rounded joints: Pillow has no line-join control, so every vertex gets a
-    # disc. Without them the right angles come out notched.
     for x, y in points[1:-1]:
         draw.ellipse(
             [(x - stroke / 2, y - stroke / 2), (x + stroke / 2, y + stroke / 2)],
             fill=TRACE,
         )
 
-    # The origin: a ring, drawn as a disc punched through with the badge colour
-    # so the hole stays crisp when downsampled.
     ox, oy = points[0]
     radius = canvas * mark.origin
     draw.ellipse([(ox - radius, oy - radius), (ox + radius, oy + radius)], fill=TRACE)
@@ -227,7 +169,6 @@ def render(size: int, mark: Mark | None = None) -> Image.Image:
     if inner > 0:
         draw.ellipse([(ox - inner, oy - inner), (ox + inner, oy + inner)], fill=BADGE)
 
-    # The answer: a solid node, in the accent colour.
     ex, ey = points[-1]
     radius = canvas * mark.terminal
     draw.ellipse([(ex - radius, ey - radius), (ex + radius, ey + radius)], fill=ACCENT)
@@ -250,8 +191,6 @@ def build_svg(box: int = 512) -> str:
     start = mark.points[0]
     end = mark.points[-1]
 
-    # The raster origin is a punched disc; in SVG a stroked circle is the same
-    # shape and stays a real ring if anyone recolours the badge.
     ring = mark.origin - mark.stroke * 0.225
 
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {box} {box}" \
@@ -284,7 +223,6 @@ def _contact_row(ground: tuple[int, int, int, int]) -> Image.Image:
     x = gap
     for size in PREVIEW_SIZES:
         tile = render(size)
-        # Bottom-aligned, so the sizes step down in a readable line.
         row.paste(tile, (x, height - gap - size), tile)
         x += size + gap
 

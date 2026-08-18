@@ -1,15 +1,4 @@
-"""
-Command-line interface.
-
-    401k-finder sync --year 2023
-    401k-finder search "acme manufacturing"
-    401k-finder plan 12-3456789/001 --evidence
-    401k-finder providers --role RECORDKEEPER
-
-The CLI is a first-class entry point, not a debugging aid: everything the
-desktop application does is available here, which is what makes the tool usable
-on a server, in a scheduled job, or over SSH.
-"""
+"""Command-line interface."""
 
 from __future__ import annotations
 
@@ -18,13 +7,14 @@ import contextlib
 import sys
 from pathlib import Path
 
+from app import __version__
 from app.core.config import (
     Settings,
     StorageUnavailable,
     get_app_data_dir,
     get_database_path,
 )
-from app.core.constants import LATEST_FORM_YEAR, ProviderRole
+from app.core.constants import LATEST_FORM_YEAR, ProviderRole, year_span
 from app.core.exceptions import FinderError, ImportCancelled
 from app.core.logging import configure_logging
 from app.database.init_db import database_exists, initialize_database, reset_database
@@ -65,11 +55,6 @@ def _print_progress(stage: str, dataset: str, done: int, total: int, message: st
 
     if stage == "finalize" and done == total:
         sys.stderr.write("\n")
-
-
-# ----------------------------------------------------------------------
-# Commands
-# ----------------------------------------------------------------------
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -129,7 +114,17 @@ def cmd_import(args: argparse.Namespace) -> int:
     initialize_database()
     settings = Settings.load()
 
-    directory = args.path.resolve()
+    directory = args.path.expanduser().resolve()
+
+    if not directory.is_dir():
+        print(
+            f"There is no folder at {directory}.\n"
+            f"Point this at a folder of DOL source CSV files, named as they are "
+            f"published.",
+            file=sys.stderr,
+        )
+        return 1
+
     print(f"Importing DOL files from {directory}")
 
     with session_scope() as session:
@@ -162,7 +157,32 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 1 if stats.errors else 0
 
 
+def _needs_data() -> bool:
+    """
+    Report a missing database instead of letting SQLAlchemy do it.
+
+    Every read command goes through this. Before it existed, "search" on a
+    fresh installation answered with forty lines of SQLAlchemy traceback ending
+    in "no such table: plans".
+    """
+
+    if database_exists():
+        return True
+
+    print(
+        "No data yet. The database has not been created on this computer.\n\n"
+        "  401k-finder init             create it\n"
+        "  401k-finder index            fetch the employer index for every year\n"
+        "  401k-finder sync --year 2023 download a form year in full",
+        file=sys.stderr,
+    )
+    return False
+
+
 def cmd_search(args: argparse.Namespace) -> int:
+    if not _needs_data():
+        return 1
+
     filters = {
         "state": args.state,
         "form_years": tuple(args.year) if args.year else (),
@@ -188,7 +208,6 @@ def cmd_search(args: argparse.Namespace) -> int:
             print("Run '401k-finder status' to check which years have been imported.")
             return 1
 
-        # "+" marks a floor: a broad text search stops counting at the cap.
         print(f"{total:,}{'+' if capped else ''} plan(s) matched; showing {len(results)}.\n")
 
         for result in results:
@@ -203,7 +222,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                 f"{' [' + ', '.join(result.features) + ']' if result.features else ''}"
                 f"  |  {result.participants or '-'} participants"
                 f"  |  {_money(result.total_assets)}"
-                f"  |  years {result.first_year}-{result.last_year}"
+                f"  |  years {year_span(result.first_year, result.last_year)}"
             )
 
             for party in result.primary_providers()[: args.providers]:
@@ -227,6 +246,9 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 
 def cmd_plan(args: argparse.Namespace) -> int:
+    if not _needs_data():
+        return 1
+
     query = PlanQuery.parse(args.identifier, retirement_only=False, limit=5)
 
     with read_session() as session:
@@ -270,6 +292,9 @@ def cmd_plan(args: argparse.Namespace) -> int:
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
+    if not _needs_data():
+        return 1
+
     query = ProviderQuery(
         text=" ".join(args.text) if args.text else "",
         role=args.role,
@@ -373,7 +398,6 @@ def cmd_storage(args: argparse.Namespace) -> int:
         print(f"\n{result.summary()}")
         return 0
 
-    # Default: report where things are.
     location = current_location()
     info = storage.inspect(location)
 
@@ -385,7 +409,7 @@ def cmd_storage(args: argparse.Namespace) -> int:
 
     if not location.is_dir():
         print(
-            "\n  NOT AVAILABLE. If this is a removable drive, connect it — the "
+            "\n  NOT AVAILABLE. If this is a removable drive, connect it. The "
             "drive letter\n  may also have changed. "
             "'401k-finder storage reset' returns to internal storage.",
             file=sys.stderr,
@@ -420,12 +444,23 @@ def cmd_index(args: argparse.Namespace) -> int:
     initialize_database()
     settings = Settings.load()
 
-    years = args.year or list(supported_years())
+    published = set(supported_years())
+    years = args.year or sorted(published)
+
+    unknown = [year for year in years if year not in published]
+    if unknown:
+        span = year_span(min(published), max(published))
+        print(
+            f"No data is published for {', '.join(str(year) for year in unknown)}. "
+            f"Form years {span} are available.",
+            file=sys.stderr,
+        )
+        return 1
 
     print(
-        f"Indexing {len(years)} form year(s): {years[0]}–{years[-1]}.\n"
-        f"This fetches the two filing forms only — enough to match an employer "
-        f"to a plan.\nProvider detail needs a full sync of the years that matter; "
+        f"Indexing {len(years)} form year(s): {year_span(years[0], years[-1], joiner=' to ')}.\n"
+        f"This fetches the two filing forms only, which is enough to match an "
+        f"employer to a plan.\nProvider detail needs a full sync of the years that matter; "
         f"'401k-finder sync --year N'\ndoes that once you know which they are.\n"
     )
 
@@ -461,8 +496,7 @@ def cmd_changes(args: argparse.Namespace) -> int:
 
     from app.providers.changes import ChangeDetector, ChangeQuery
 
-    if not database_exists():
-        print(f"No database yet at {get_database_path()}.", file=sys.stderr)
+    if not _needs_data():
         return 1
 
     query = ChangeQuery(
@@ -484,13 +518,13 @@ def cmd_changes(args: argparse.Namespace) -> int:
     if not report.years_compared:
         print(
             "Nothing to compare. Provider changes need at least two form years "
-            "imported\nwith the schedules that name providers — see "
+            "imported\nwith the schedules that name providers. See "
             "'401k-finder status'.",
             file=sys.stderr,
         )
         return 1
 
-    span = f"{report.years_compared[0]}–{report.years_compared[-1]}"
+    span = year_span(report.years_compared[0], report.years_compared[-1])
     print(f"{report.total:,} {args.role.lower().replace('_', ' ')} change(s) across {span}.\n")
 
     if not report.total:
@@ -529,10 +563,6 @@ def cmd_trace(args: argparse.Namespace) -> int:
     from app.trace import AccountTracer, WorkHistory, looks_like_ssn
     from app.trace.packet import render_report
 
-    # Checked on the raw arguments, before anything is constructed. Employment
-    # redacts on the way in, so by the time a history exists the number is gone
-    # -- which is right for the log and the database, but would leave the person
-    # staring at an empty report with no idea why.
     raw = " ".join(filter(None, [*(args.employer or []), args.name or ""]))
     if args.history and args.history.is_file():
         with contextlib.suppress(OSError):
@@ -582,12 +612,7 @@ def cmd_trace(args: argparse.Namespace) -> int:
                 end_year=args.to_year,
             )
 
-    if not database_exists():
-        print(
-            f"No database yet at {get_database_path()}.\n"
-            f"Run '401k-finder sync --year 2023' to download a form year first.",
-            file=sys.stderr,
-        )
+    if not _needs_data():
         return 1
 
     with read_session() as session:
@@ -634,7 +659,6 @@ def cmd_license(args: argparse.Namespace) -> int:
         print(result.message)
         return 0 if result.ok else 1
 
-    # Default: report the current position.
     status = gate.status()
 
     print(status.headline())
@@ -651,8 +675,6 @@ def cmd_license(args: argparse.Namespace) -> int:
     if status.activated_at:
         print(f"  Activated:    {status.activated_at:%Y-%m-%d %H:%M} UTC")
 
-    # The Machine ID is what a customer sends to buy or move a licence, so it
-    # is printed whether or not anything is activated.
     print(f"  Machine ID:   {machine_fingerprint()}")
     print(f"  Machine:      {machine_label()}")
 
@@ -670,22 +692,15 @@ def cmd_status(args: argparse.Namespace) -> int:
     from app.ui import resources
 
     if args.branding:
-        # Confirms which branding assets a build actually resolved. In a
-        # packaged application this reports the unpacked bundle directory, so it
-        # is the quickest way to tell whether an icon made it into the build.
         found = resources.describe()
         print(f"Resource folder: {found['resource_dir']}")
         for slot in ("icon", "logo", "stylesheet"):
             print(f"  {slot + ':':12} {found[slot] or 'not set (using Qt default)'}")
         print()
 
-    # On a machine where the application has never been opened there is no
-    # database yet, and every count below would fail on a missing table. This
-    # is the first command a new installation runs — reporting "nothing yet" is
-    # the answer, not a traceback.
     if not database_exists():
         print(f"Database: {get_database_path()}")
-        print("  Not created yet. Run 'init', or open the application once.")
+        print("  Not created yet. Run '401k-finder init', or open the application once.")
         return 0
 
     with read_session() as session:
@@ -782,7 +797,21 @@ def cmd_reset(args: argparse.Namespace) -> int:
     if not args.yes:
         print(f"This deletes {get_database_path()} and everything imported into it.")
         print("The DOL source files are untouched and can be re-imported.")
-        answer = input("Type 'delete' to confirm: ").strip().lower()
+
+        if not sys.stdin or not sys.stdin.isatty():
+            print(
+                "Nothing to read the confirmation from. Re-run with --yes if you "
+                "are sure.",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            answer = input("Type 'delete' to confirm: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            return 1
+
         if answer != "delete":
             print("Cancelled.")
             return 1
@@ -790,9 +819,6 @@ def cmd_reset(args: argparse.Namespace) -> int:
     reset_database()
     print("Database rebuilt empty.")
     return 0
-
-
-# ----------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -804,6 +830,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--verbose", action="store_true", help="Log debug detail.")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"401k-finder {__version__}",
+        help="Print the version and exit.",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1045,9 +1077,6 @@ def main(argv: list[str] | None = None) -> int:
         print("\nInterrupted.", file=sys.stderr)
         return 130
     except StorageUnavailable as exc:
-        # The data lives on a drive that is not connected. Said plainly,
-        # because the alternative is a stack trace about a missing table for
-        # somebody whose only problem is an unplugged USB stick.
         print(f"\n{exc}\n", file=sys.stderr)
         print("  401k-finder storage          show where the data should be", file=sys.stderr)
         print("  401k-finder storage reset    go back to internal storage", file=sys.stderr)

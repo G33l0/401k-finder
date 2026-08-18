@@ -1,18 +1,4 @@
-"""
-The "Find my accounts" tab: a work history in, a trace out.
-
-Someone using this is not researching plans — they are trying to recover their
-own money, usually with no idea what a Form 5500 is. So the panel asks for the
-only thing they reliably know (where they worked, roughly when), and answers
-with the plan's identity, the firm that was holding it, and what to say.
-
-The one thing it deliberately does not ask for is a Social Security number.
-Nothing in Form 5500 identifies a participant, so an SSN could only ever fail —
-and it would fail after being typed into a box. People will still try, because
-every other lost-account service asks for one, so the employer field watches for
-it, refuses to search, and points at the registries where an SSN genuinely
-works.
-"""
+"""The "Find my accounts" tab: a work history in, a trace out."""
 
 from __future__ import annotations
 
@@ -34,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.constants import SOURCE_LABEL, US_STATES
+from app.core.constants import SOURCE_LABEL, US_STATES, year_span
 from app.trace import WorkHistory, looks_like_ssn
 from app.trace.matcher import TraceReport
 from app.trace.resources import RESOURCES
@@ -42,7 +28,6 @@ from app.ui import theme
 
 COLUMNS = ("Employer", "City", "State", "From", "To")
 
-#: Blank rows kept at the bottom so there is always somewhere to type.
 SPARE_ROWS = 3
 
 
@@ -58,8 +43,6 @@ class TracePanel(QWidget):
         self._report: TraceReport | None = None
         self._build()
 
-    # ------------------------------------------------------------------
-
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -69,8 +52,8 @@ class TracePanel(QWidget):
             "<b>Looking for a retirement account from an old job?</b><br>"
             "List the employers you have worked for. This searches the official "
             "filings each one made, and reports the plan they ran and the firm "
-            "that was holding the money — the details you need before a "
-            f"recordkeeper will look you up.<br>"
+            "that was holding the money, which is what a recordkeeper needs before "
+            f"anyone will look you up.<br>"
             f"<span style='font-size:9pt'>Source: <b>{SOURCE_LABEL}</b></span>"
         )
         intro.setTextFormat(Qt.RichText)
@@ -79,7 +62,6 @@ class TracePanel(QWidget):
 
         splitter = QSplitter(Qt.Vertical)
 
-        # --- Work history --------------------------------------------
         top = QWidget()
         top_layout = QVBoxLayout(top)
         top_layout.setContentsMargins(0, 0, 0, 0)
@@ -99,8 +81,8 @@ class TracePanel(QWidget):
         top_layout.addWidget(self.table)
 
         hint = QLabel(
-            "Fill in what you remember — the employer's name is the only part that "
-            "is needed. A state and rough years make the match far more reliable."
+            "Fill in what you remember. Only the employer's name is required, though "
+            "a state and rough years make the match far more reliable."
         )
         hint.setWordWrap(True)
         hint.setProperty("role", "muted")
@@ -136,10 +118,7 @@ class TracePanel(QWidget):
         top_layout.addLayout(buttons)
         splitter.addWidget(top)
 
-        # --- Results --------------------------------------------------
         self.results = QTextBrowser()
-        # External links are deliberately not opened from here; every anchor is
-        # an internal action. See _resources_html.
         self.results.setOpenExternalLinks(False)
         self.results.anchorClicked.connect(self._on_anchor)
         splitter.addWidget(self.results)
@@ -149,10 +128,6 @@ class TracePanel(QWidget):
 
         self._append_blank_rows(SPARE_ROWS)
         self.show_intro()
-
-    # ------------------------------------------------------------------
-    # The table
-    # ------------------------------------------------------------------
 
     def _append_blank_rows(self, count: int) -> None:
         self.table.blockSignals(True)
@@ -168,7 +143,6 @@ class TracePanel(QWidget):
         return item.text().strip() if item else ""
 
     def _on_cell_changed(self, row: int, column: int) -> None:
-        # Typing in the last row means more room is needed.
         if row == self.table.rowCount() - 1 and self._cell(row, 0):
             self._append_blank_rows(1)
 
@@ -186,7 +160,7 @@ class TracePanel(QWidget):
             self,
             "That looks like a Social Security number",
             "It has not been searched for, saved or logged.\n\n"
-            "This tool searches Form 5500 — what employers file about their plans. "
+            "This tool searches Form 5500, the return employers file about their plans. "
             "It names plans, not people: there is no participant list, no Social "
             "Security number and no individual balance anywhere in it, so an SSN "
             "has nothing to match against here.\n\n"
@@ -246,8 +220,6 @@ class TracePanel(QWidget):
         self.table.blockSignals(False)
         self._append_blank_rows(SPARE_ROWS)
 
-    # ------------------------------------------------------------------
-
     def _on_trace(self) -> None:
         history = self.build_history()
 
@@ -305,10 +277,6 @@ class TracePanel(QWidget):
             QGuiApplication.clipboard().setText(value)
             self.window().statusBar().showMessage(f"Copied {value}", 4000)
 
-    # ------------------------------------------------------------------
-    # Rendering
-    # ------------------------------------------------------------------
-
     def show_intro(self) -> None:
         self.results.setHtml(_intro_html())
 
@@ -334,24 +302,12 @@ def _year(value: str) -> int | None:
     return int(found.group(0)) if found else None
 
 
-# ----------------------------------------------------------------------
-# HTML
-# ----------------------------------------------------------------------
-
-
 def _style() -> str:
     return theme.document_css(theme.current())
 
 
 def _resources_html() -> str:
-    """
-    The registries, named rather than linked.
-
-    No web address is shown and nothing here opens a browser. "Copy web
-    address" puts it on the clipboard so the person pastes it in themselves,
-    which is the habit worth building anyway: the one reliable defence against
-    a retirement-account scam is never following a link somebody handed you.
-    """
+    """The registries, named rather than linked."""
 
     rows = []
     for resource in RESOURCES:
@@ -381,7 +337,7 @@ each year. From your work history this finds:</p>
 <ul>
 <li>the plan your employer ran, with its exact name, EIN and plan number;</li>
 <li>the recordkeeper, trustee or custodian holding the money <b>in the years you
-worked there</b> — often not the same firm as today;</li>
+worked there</b>, often not the same firm as today;</li>
 <li>whether the plan still exists, or was wound up and the money moved;</li>
 <li>a letter you can send, with the plan's details filled in.</li>
 </ul>
@@ -390,7 +346,7 @@ worked there</b> — often not the same firm as today;</li>
 <p>Whether <b>you personally</b> have a balance. Form 5500 is what an employer
 files about a plan, not about its members: across all 448 published record
 layouts there is no participant name, no Social Security number and no
-individual balance. <b>Do not enter a Social Security number here</b> — it has
+individual balance. <b>Do not enter a Social Security number here.</b> It has
 nothing to match against, and this tool will refuse it.</p>
 
 <p>Only the plan's own recordkeeper, or one of the registries below, can confirm
@@ -425,14 +381,12 @@ def _match_html(match, index: int) -> str:  # noqa: ANN001
     badge = {"STRONG": "hi", "POSSIBLE": "med"}.get(match.confidence, "low")
 
     terminated = (
-        f"<div class='src'><b>This plan was wound up</b> — a final return was filed "
+        f"<div class='src'><b>This plan was wound up.</b> A final return was filed "
         f"for {match.final_year}.</div>"
         if match.terminated
         else ""
     )
 
-    # The chain is the answer for anyone whose plan no longer exists, so it
-    # goes above the provider tables rather than below them.
     successor = ""
     if match.successor:
         hops = "".join(
@@ -452,7 +406,7 @@ def _match_html(match, index: int) -> str:  # noqa: ANN001
         successor = f"<div class='sub'><b>Where the assets went</b></div>{hops}{now}"
 
     renamed = (
-        f"<div class='src'>Filed at the time as “{escape(match.matched_as)}”.</div>"
+        f"<div class='src'>Filed at the time as \"{escape(match.matched_as)}\".</div>"
         if match.matched_as and match.matched_as != match.sponsor_name
         else ""
     )
@@ -466,7 +420,7 @@ def _match_html(match, index: int) -> str:  # noqa: ANN001
 <div class='src'>{escape(match.sponsor_name or 'Sponsor not reported')}
 &nbsp;·&nbsp; EIN {escape(match.ein or '?')} / plan {escape(match.plan_number or '?')}
 &nbsp;·&nbsp; {escape(match.city or '')} {escape(match.state or '')}
-&nbsp;·&nbsp; filed {match.first_year or '?'}–{match.last_year or '?'}</div>
+&nbsp;·&nbsp; filed {year_span(match.first_year, match.last_year)}</div>
 {renamed}{terminated}
 <p><a href='copy:{escape(match.ein or "")}'>Copy EIN</a></p>
 {successor}
@@ -484,7 +438,7 @@ def _report_html(report: TraceReport) -> str:
     from html import escape
 
     years = (
-        f"{report.years_searched[0]}–{report.years_searched[-1]}"
+        year_span(report.years_searched[0], report.years_searched[-1])
         if report.years_searched
         else "none imported yet"
     )
@@ -518,8 +472,8 @@ def _report_html(report: TraceReport) -> str:
 
     blocks.append("<h3>Where to search by Social Security number</h3>")
     blocks.append(
-        "<p class='sub'>Nothing above can confirm an account exists in your name — "
-        "Form 5500 holds no participant records. These registries do, and are the "
+        "<p class='sub'>Nothing above can confirm an account exists in your name, "
+        "because Form 5500 holds no participant records. These registries do, and are the "
         "only places your Social Security number belongs.</p>"
     )
     blocks.append(_resources_html())

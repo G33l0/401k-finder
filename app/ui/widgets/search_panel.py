@@ -21,7 +21,6 @@ from app.core.constants import US_STATES, PlanFeature, ProviderRole
 from app.dol.catalog import supported_years
 from app.search.query import PlanQuery, SortOrder
 
-#: The account types someone actually searches for, in the order they matter.
 FEATURE_LABELS: tuple[tuple[str, str], ...] = (
     ("", "Any retirement account type"),
     (PlanFeature.K401.value, "401(k)"),
@@ -74,8 +73,6 @@ class SearchPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        # Searching on every keystroke would queue a query per character, so
-        # typing is debounced and only the last one runs.
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(350)
@@ -163,8 +160,6 @@ class SearchPanel(QWidget):
             self.sort_combo.addItem(label, value)
         form.addRow("Sort by:", self.sort_combo)
 
-        # Short label, full explanation on hover: the panel is narrow, and the
-        # long form was being clipped mid-word rather than wrapped.
         self.retirement_only = QCheckBox("Retirement plans only")
         self.retirement_only.setToolTip("Exclude health and welfare plans from results.")
         self.retirement_only.setChecked(True)
@@ -181,11 +176,7 @@ class SearchPanel(QWidget):
 
         layout.addStretch(1)
 
-    # ------------------------------------------------------------------
-
     def _on_text_changed(self, text: str) -> None:
-        # Two characters is too little to be worth a query against millions of
-        # plans; below that, wait for an explicit Search.
         if len(text.strip()) >= 3 or not text.strip():
             self._debounce.start()
 

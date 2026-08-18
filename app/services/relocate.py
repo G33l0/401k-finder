@@ -1,17 +1,4 @@
-"""
-Moving the data to another drive without losing it.
-
-The database is the whole point of the exercise and it can be hundreds of
-gigabytes, so this is written to fail safely rather than quickly:
-
-* the target is checked **before** anything is touched, so a FAT32 stick or a
-  read-only mount is refused while the data is still where it was;
-* every open connection is closed first, because moving a SQLite file out from
-  under a live handle is how a database gets truncated;
-* the pointer is written **after** the move succeeds, so an interruption leaves
-  the application still looking at the old location, which still has the data;
-* the move is a move, not a copy, so a drive with just enough room works.
-"""
+"""Moving the data to another drive without losing it."""
 
 from __future__ import annotations
 
@@ -25,7 +12,6 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: (directory being moved, position, total)
 Progress = Callable[[str, int, int], None]
 
 
@@ -58,12 +44,7 @@ def current_location() -> Path:
 
 
 def plan_move(target: Path, *, move_existing: bool = True) -> tuple[storage.StorageInfo, int]:
-    """
-    Check a target and report what moving there would involve.
-
-    Returns the inspection and the number of bytes that would be moved, so a
-    caller can confirm before starting something that may take an hour.
-    """
+    """Check a target and report what moving there would involve."""
 
     source = current_location()
     info = storage.inspect(Path(target).expanduser())
@@ -80,12 +61,7 @@ def relocate(
     move_existing: bool = True,
     progress: Progress | None = None,
 ) -> RelocationResult:
-    """
-    Point the application at ``target``, optionally taking the data along.
-
-    Raises :class:`RelocationError` before touching anything if the target is
-    unusable.
-    """
+    """Point the application at ``target``, optionally taking the data along."""
 
     source = current_location()
     destination = Path(target).expanduser().resolve()
@@ -103,9 +79,6 @@ def relocate(
 
     payload = storage.managed_size(source) if (move_existing and source.is_dir()) else 0
 
-    # A cross-volume move copies then deletes, so the target needs room for the
-    # payload. Checking all of it is the conservative call, and the failure it
-    # prevents is a half-moved database.
     cross_volume = payload and not storage.is_same_volume(source, destination)
 
     if cross_volume and info.free_bytes < payload:
@@ -115,8 +88,8 @@ def relocate(
             f"choose a location with more room."
         )
 
-    # Release the database file. Moving it while a connection is open is how a
-    # SQLite database gets truncated, and on Windows it simply fails.
+    # Moving a SQLite file with a connection open truncates it on POSIX and
+    # fails outright on Windows.
     from app.database.engine import dispose_engine
     from app.database.session import reset_session_factory
 
@@ -135,8 +108,8 @@ def relocate(
                 f"still points at {source}. Check both locations before retrying."
             ) from exc
 
-    # Written last, so an interruption above leaves the application looking at
-    # the old location -- which is where the data still is.
+    # Written last, so an interruption leaves the application pointed at the
+    # old location, which is where the data still is.
     storage.write_location(get_app_data_dir(), destination)
 
     logger.info("Storage relocated from %s to %s", source, destination)

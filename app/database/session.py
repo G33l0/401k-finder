@@ -43,8 +43,6 @@ def create_session() -> Session:
 def session_scope() -> Generator[Session, None, None]:
     """
     Provide a transactional session that commits on success and rolls back on error.
-
-    Use this for any unit of work that writes.
     """
 
     session = create_session()

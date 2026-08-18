@@ -17,8 +17,6 @@ from app.dol.schedules import (
 )
 from app.dol.schedules.registry import ScheduleRegistry
 
-#: Each module reports the datasets it covers for a given year, skipping the
-#: ones DOL did not publish that year.
 _MODULES = (
     schedule_form,
     schedule_a,

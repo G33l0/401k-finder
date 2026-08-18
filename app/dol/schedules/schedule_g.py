@@ -1,4 +1,4 @@
-"""Schedule G — financial transaction schedules (defaults and non-exempt transactions)."""
+"""Schedule G: financial transaction schedules (defaults and non-exempt transactions)."""
 
 from __future__ import annotations
 

@@ -6,13 +6,7 @@ from typing import Any
 
 @dataclass(slots=True)
 class ScheduleRecordData:
-    """
-    A schedule row in flight, before it becomes a ScheduleRecord.
-
-    The importer buffers these and writes them in batches, so keeping them as a
-    plain dataclass rather than an ORM object keeps memory flat across the
-    millions of rows in a full form year.
-    """
+    """A schedule row in flight, before it becomes a ScheduleRecord."""
 
     ack_id: str
     form_year: int

@@ -1,28 +1,4 @@
-"""
-The licence key format: what a key contains, and how it is checked.
-
-A key is a small signed record. It carries the machine it was issued for, an
-optional expiry, and a label naming the customer, all covered by an Ed25519
-signature made with the owner's private key. The application holds only the
-public half, so it can check a key but nobody can make one from the binary.
-
-    payload
-      1 byte    format version
-      10 bytes  the machine tag: the first 10 bytes of the fingerprint
-      4 bytes   expiry, days since 1970-01-01, big-endian; 0 means perpetual
-      1 byte    label length
-      n bytes   label, UTF-8
-
-    key text
-      base32(payload + 64-byte signature), in dash-separated groups
-
-Ten bytes of machine tag is 80 bits, far past any chance of two customers
-colliding, and shorter than the fingerprint so the key stays a manageable size.
-
-Nothing here reaches the network. A key is verified entirely on the machine it
-was issued for, which is the whole point: there is no licence server to run, to
-pay for, or to be down when a customer is trying to work.
-"""
+"""The licence key format: what a key contains, and how it is checked."""
 
 from __future__ import annotations
 
@@ -34,20 +10,14 @@ from datetime import date
 from app.licensing import ed25519
 from app.licensing.models import LicenseState
 
-#: Bump when the payload layout changes. Old keys then fail to parse rather
-#: than being misread, and the customer is asked for a new one.
 FORMAT_VERSION = 1
 
-#: Bytes of the machine fingerprint carried in a key.
 MACHINE_BYTES = 10
 
-#: Longest customer label a key can carry.
 MAX_LABEL = 48
 
 _EPOCH = date(1970, 1, 1)
 
-#: base32 without padding: A-Z and 2-7. No 0/1/8/9, so there is nothing to
-#: confuse with O, I, B or g when a key is read aloud down a phone.
 _ALPHABET = re.compile(r"[^A-Z2-7]")
 
 _GROUP = 8
@@ -55,7 +25,7 @@ _GROUP = 8
 
 @dataclass(frozen=True, slots=True)
 class LicenseKey:
-    """A parsed licence key. Parsed is not the same as valid — see `check`."""
+    """A parsed licence key. Parsed is not the same as valid; see `check`."""
 
     machine: bytes
     expires: date | None
@@ -84,19 +54,12 @@ class KeyCheck:
         return self.state is LicenseState.ACTIVE
 
 
-# ----------------------------------------------------------------------
-# Encoding
-# ----------------------------------------------------------------------
-
-
 def machine_tag(fingerprint: str) -> bytes:
     """The part of a machine fingerprint that a key commits to."""
 
     try:
         return bytes.fromhex(fingerprint)[:MACHINE_BYTES]
     except ValueError:
-        # A fingerprint is always hex in practice; being defensive here keeps a
-        # surprising platform from turning into a crash at start-up.
         return fingerprint.encode("utf-8")[:MACHINE_BYTES].ljust(MACHINE_BYTES, b"\0")
 
 
@@ -126,15 +89,7 @@ def format_key(raw: bytes) -> str:
 
 
 def normalise(text: str) -> str:
-    """
-    Strip a pasted key back to its alphabet.
-
-    Keys travel through email, so they arrive wrapped across lines, with soft
-    hyphens, non-breaking spaces or quotation marks attached. Everything
-    outside the alphabet is dropped rather than rejected — refusing a key
-    because the customer's mail client wrapped it would be its own support
-    problem.
-    """
+    """Strip a pasted key back to its alphabet."""
 
     return _ALPHABET.sub("", text.strip().upper())
 
@@ -146,20 +101,10 @@ def issue(
     expires: date | None = None,
     label: str = "",
 ) -> str:
-    """
-    Create a licence key. **Owner side** — needs the private seed.
-
-    The application never calls this; it lives here so the format is defined
-    once and the issuing tool cannot drift from the checker.
-    """
+    """Create a licence key. Owner side: this needs the private seed."""
 
     payload = _build_payload(fingerprint, expires, label)
     return format_key(payload + ed25519.sign(payload, seed))
-
-
-# ----------------------------------------------------------------------
-# Decoding and checking
-# ----------------------------------------------------------------------
 
 
 def _split(text: str) -> tuple[bytes, bytes] | None:
@@ -176,7 +121,6 @@ def _split(text: str) -> tuple[bytes, bytes] | None:
     except (ValueError, TypeError):
         return None
 
-    # 1 version + 10 machine + 4 expiry + 1 length, then the signature.
     if len(raw) < 16 + 64:
         return None
 
@@ -217,13 +161,7 @@ def check(
     fingerprint: str,
     today: date | None = None,
 ) -> KeyCheck:
-    """
-    Check a key against a public key and this machine.
-
-    The order matters. The signature is verified *before* the machine and the
-    expiry are looked at, so an unsigned key cannot produce a message that
-    reveals anything about what a valid one would have to contain.
-    """
+    """Check a key against a public key and this machine."""
 
     parts = _split(text)
     if parts is None:
@@ -239,6 +177,8 @@ def check(
     except ValueError:
         key_bytes = b""
 
+    # Signature first. An unsigned key must reveal nothing about the machine
+    # tag or the expiry it claims.
     if not ed25519.verify(payload, signature, key_bytes):
         return KeyCheck(
             LicenseState.INVALID,

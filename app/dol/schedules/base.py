@@ -8,14 +8,7 @@ from app.dol.normalizer import normalize_column_name
 
 @dataclass(frozen=True, slots=True)
 class ScheduleDefinition:
-    """
-    What the application knows about one dataset for one form year.
-
-    The column list is not restated here — it is read from the vendored DOL
-    layout, which is the published source of truth. This type adds the parts the
-    layout does not carry: a human-readable name, the fields that identify a
-    provider, and the fields that must be present for a row to be usable.
-    """
+    """What the application knows about one dataset for one form year."""
 
     code: str
     name: str

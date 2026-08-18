@@ -1,4 +1,4 @@
-"""Schedule I — small plan financial information."""
+"""Schedule I: small plan financial information."""
 
 from __future__ import annotations
 

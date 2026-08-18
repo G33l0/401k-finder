@@ -1,4 +1,4 @@
-"""Schedule D — DFE and participating-plan information."""
+"""Schedule D: DFE and participating-plan information."""
 
 from __future__ import annotations
 

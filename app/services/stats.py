@@ -96,14 +96,7 @@ def database_summary(session: Session) -> DatabaseSummary:
 
 
 def feature_counts(session: Session) -> list[tuple[str, int]]:
-    """
-    Count plans carrying each retirement account type.
-
-    Features are stored as a "|"-joined string rather than a join table, because
-    a plan carries at most a handful and the string keeps the plans table to one
-    row per plan. Counting them means one scan per feature, which is acceptable
-    for a status view but is why this is not used inside search.
-    """
+    """Count plans carrying each retirement account type."""
 
     from app.core.constants import PlanFeature
 

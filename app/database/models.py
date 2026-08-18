@@ -26,14 +26,7 @@ def _utcnow() -> datetime:
 
 
 class Plan(Base):
-    """
-    A retirement or welfare plan, deduplicated across years.
-
-    DOL identifies a plan by the pair (sponsor EIN, plan number). Everything a
-    filing says about the plan is stored on ``Filing``; the columns here are the
-    values from the most recent filing seen, so search results can be rendered
-    without joining every year.
-    """
+    """A retirement or welfare plan, deduplicated across years."""
 
     __tablename__ = "plans"
 
@@ -54,11 +47,8 @@ class Plan(Base):
 
     plan_effective_date: Mapped[date | None] = mapped_column(Date)
 
-    #: PlanCategory value derived from the benefit codes.
     plan_category: Mapped[str | None] = mapped_column(String(30), index=True)
-    #: Sorted PlanFeature values, joined with "|" for cheap LIKE filtering.
     plan_features: Mapped[str | None] = mapped_column(String(400), index=True)
-    #: Raw characteristics codes as filed, e.g. "2E|2G|2J".
     benefit_codes: Mapped[str | None] = mapped_column(String(200))
 
     is_retirement_plan: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -103,12 +93,7 @@ class Plan(Base):
 
 
 class Filing(Base):
-    """
-    One Form 5500, 5500-SF or DCG filing, keyed by its DOL ACK_ID.
-
-    ACK_ID is the join key for every schedule dataset, which is why it is
-    unique and indexed rather than derived.
-    """
+    """One Form 5500, 5500-SF or DCG filing, keyed by its DOL ACK_ID."""
 
     __tablename__ = "filings"
 
@@ -183,14 +168,7 @@ class Filing(Base):
 
 
 class Provider(Base):
-    """
-    An organisation named in a filing: recordkeeper, trustee, insurer, and so on.
-
-    Providers are grouped by ``name_key`` — a punctuation- and suffix-stripped
-    form of the filed name — so that the dozens of spellings of one firm across
-    hundreds of thousands of filings resolve to a single entity, while the
-    original filed text stays on each PlanParty row.
-    """
+    """An organisation named in a filing: recordkeeper, trustee, insurer, and so on."""
 
     __tablename__ = "providers"
 
@@ -203,9 +181,7 @@ class Provider(Base):
     city: Mapped[str | None] = mapped_column(String(200))
     state: Mapped[str | None] = mapped_column(String(2), index=True)
 
-    #: Best-guess canonical name for a well-known firm, when recognised.
     canonical_name: Mapped[str | None] = mapped_column(String(200), index=True)
-    #: Dominant role across all of this provider's engagements.
     primary_role: Mapped[str | None] = mapped_column(String(60), index=True)
 
     plan_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
@@ -223,12 +199,7 @@ class Provider(Base):
 
 
 class PlanParty(Base):
-    """
-    A provider engaged by a plan in a particular role, for a particular year.
-
-    This is the table that answers "who holds this 401(k)". Every row carries
-    the schedule and field it came from so the answer stays auditable.
-    """
+    """A provider engaged by a plan in a particular role, for a particular year."""
 
     __tablename__ = "plan_parties"
 
@@ -245,7 +216,6 @@ class PlanParty(Base):
     )
 
     role: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
-    #: The name exactly as filed, before name-key normalisation.
     reported_name: Mapped[str | None] = mapped_column(String(500))
     reported_ein: Mapped[str | None] = mapped_column(String(9))
     relationship_text: Mapped[str | None] = mapped_column(String(200))
@@ -283,12 +253,7 @@ class PlanParty(Base):
 
 
 class ScheduleRecord(Base):
-    """
-    A parsed schedule row, stored with its original columns intact.
-
-    ``raw_data`` keeps the filed values so extraction rules can be improved and
-    re-run later without re-downloading tens of gigabytes from DOL.
-    """
+    """A parsed schedule row, stored with its original columns intact."""
 
     __tablename__ = "schedule_records"
 
@@ -325,13 +290,7 @@ class ScheduleRecord(Base):
 
 
 class Evidence(Base):
-    """
-    The provenance record behind a stated result.
-
-    Every provider attribution writes one of these, naming the dataset, file,
-    row and field it came from, so any claim the application makes can be
-    traced back to a specific line of a specific DOL file.
-    """
+    """The provenance record behind a stated result."""
 
     __tablename__ = "evidence"
 
@@ -368,9 +327,6 @@ class Evidence(Base):
     filing: Mapped[Filing | None] = relationship(back_populates="evidence")
 
     __table_args__ = (
-        # One record per field of a source row. Without this, re-importing a
-        # dataset appends a second copy of every citation, inflating the
-        # evidence trail while telling the user nothing new.
         UniqueConstraint(
             "ack_id",
             "dataset",
@@ -383,12 +339,7 @@ class Evidence(Base):
 
 
 class ImportedDataset(Base):
-    """
-    Tracks which DOL datasets have been imported, so syncs are resumable.
-
-    A dataset is only skipped on a later run when it completed successfully and
-    the source file is unchanged; failed runs stay recorded with their error.
-    """
+    """Tracks which DOL datasets have been imported, so syncs are resumable."""
 
     __tablename__ = "imported_datasets"
 
@@ -426,39 +377,22 @@ class ImportedDataset(Base):
 
 
 class PlanTransfer(Base):
-    """
-    Assets moved from one plan to another, as reported on Schedule H Part 1.
-
-    This is the only place the filings say **where the money went** when a plan
-    is merged or wound up. A participant whose old plan no longer exists has one
-    question, and this table is the answer to it: the receiving plan is named
-    with its own EIN and plan number, which is enough to look it up and find who
-    holds it now.
-
-    ``to_plan_id`` is filled in when the receiving plan is also in this
-    database. It stays null when it is not -- the transferee may be a plan that
-    has never been imported, or one that files under a different EIN -- and the
-    reported name, EIN and plan number are kept regardless, because they are
-    still what a person quotes when they write to ask.
-    """
+    """Assets moved from one plan to another, as reported on Schedule H Part 1."""
 
     __tablename__ = "plan_transfers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
-    #: The plan the assets left.
     from_plan_id: Mapped[int] = mapped_column(
         ForeignKey("plans.id", ondelete="CASCADE"), nullable=False, index=True
     )
     ack_id: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     form_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
-    #: The receiving plan, exactly as reported.
     to_name: Mapped[str | None] = mapped_column(String(500))
     to_ein: Mapped[str | None] = mapped_column(String(9), index=True)
     to_plan_number: Mapped[str | None] = mapped_column(String(3))
 
-    #: Resolved to a row in `plans` when the receiving plan is held locally.
     to_plan_id: Mapped[int | None] = mapped_column(
         ForeignKey("plans.id", ondelete="SET NULL"), index=True
     )
@@ -469,9 +403,6 @@ class PlanTransfer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, nullable=False)
 
     __table_args__ = (
-        # One row per reported transfer. Re-importing a year must not duplicate
-        # them, and the source row number is what makes each one distinct when a
-        # plan reports several transfers on the same filing.
         UniqueConstraint(
             "ack_id", "source_row", "to_ein", "to_plan_number", name="uq_transfer_row"
         ),

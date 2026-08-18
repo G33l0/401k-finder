@@ -1,10 +1,4 @@
-"""
-Schedule definitions layered on top of the vendored DOL layouts.
-
-The layouts say which columns a dataset has; the definitions here say what those
-columns mean — which one names a provider, which ones identify the row, and how
-the dataset fits into a filing.
-"""
+"""Schedule definitions layered on top of the vendored DOL layouts."""
 
 from app.dol.schedules.base import ScheduleDefinition
 from app.dol.schedules.default_registry import build_default_registry, build_registry

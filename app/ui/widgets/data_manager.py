@@ -57,7 +57,6 @@ class DataManagerPanel(QWidget):
         intro.setTextFormat(Qt.RichText)
         layout.addWidget(intro)
 
-        # --- Download -------------------------------------------------
         download = QGroupBox("Download a form year")
         download_layout = QVBoxLayout(download)
 
@@ -96,12 +95,6 @@ class DataManagerPanel(QWidget):
 
         download_layout.addLayout(row)
 
-        # --- Index every year -----------------------------------------
-        # A full year is tens of gigabytes, so most people import one and hope
-        # it is the right one. This fetches the employer index for every
-        # published year instead: enough to find which plan an employer ran, at
-        # a fraction of the size, and it tells you which years to then sync
-        # properly.
         index_row = QHBoxLayout()
 
         self.index_button = QPushButton("Index every year")
@@ -132,7 +125,6 @@ class DataManagerPanel(QWidget):
 
         layout.addWidget(download)
 
-        # --- Local import ---------------------------------------------
         local = QGroupBox("Import files already on this computer")
         local_layout = QHBoxLayout(local)
         local_layout.addWidget(
@@ -146,11 +138,6 @@ class DataManagerPanel(QWidget):
 
         layout.addWidget(local)
 
-        # --- Where the data is kept -----------------------------------
-        # Seventeen form years do not fit on most laptops, so the database,
-        # the downloads and the extracted files can live on an external drive.
-        # Only these move: settings, logs and the licence stay on this machine
-        # so the application can still start when the drive is unplugged.
         where = QGroupBox("Where the data is kept")
         where_layout = QVBoxLayout(where)
 
@@ -183,7 +170,6 @@ class DataManagerPanel(QWidget):
 
         layout.addWidget(where)
 
-        # --- Progress -------------------------------------------------
         self.progress = QProgressBar()
         self.progress.setVisible(False)
         layout.addWidget(self.progress)
@@ -197,7 +183,6 @@ class DataManagerPanel(QWidget):
         self.cancel_button.clicked.connect(self.cancel_requested)
         layout.addWidget(self.cancel_button, alignment=Qt.AlignRight)
 
-        # --- What is loaded -------------------------------------------
         loaded = QGroupBox("Imported datasets")
         loaded_layout = QVBoxLayout(loaded)
 
@@ -223,8 +208,6 @@ class DataManagerPanel(QWidget):
         self._update_estimate()
         self.refresh_storage()
 
-    # ------------------------------------------------------------------
-
     def _update_estimate(self) -> None:
         year = self.year_combo.currentData()
         available = set(dataset_names_for_year(year))
@@ -233,7 +216,7 @@ class DataManagerPanel(QWidget):
             count = len(available & set(CORE_DATASET_NAMES))
             note = (
                 "The core set is typically a few gigabytes compressed and takes "
-                "roughly 15–60 minutes to download and import."
+                "roughly 15 to 60 minutes to download and import."
             )
         else:
             count = len(available)
@@ -378,8 +361,8 @@ class DataManagerPanel(QWidget):
             self,
             "Index every year",
             "Download the employer index for every published form year?\n\n"
-            "This fetches the two filing forms per year — far smaller than a full "
-            "download, but still a substantial transfer the first time. You can "
+            "This fetches the two filing forms per year. That is far smaller than a "
+            "full download, but still a substantial transfer the first time. You can "
             "keep working while it runs, and cancel at any point.",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes,
@@ -393,8 +376,6 @@ class DataManagerPanel(QWidget):
         if directory:
             self.import_requested.emit(Path(directory), None)
 
-    # ------------------------------------------------------------------
-
     def set_running(self, running: bool) -> None:
         self._running = running
 
@@ -402,8 +383,6 @@ class DataManagerPanel(QWidget):
         self.index_button.setEnabled(not running)
         self.import_button.setEnabled(not running)
         self.storage_button.setEnabled(not running)
-        # Moving the data out from under a running import is the one way to
-        # actually lose it, so both storage controls go down together.
         self.storage_reset_button.setEnabled(not running)
         self.year_combo.setEnabled(not running)
         self.core_only.setEnabled(not running)
@@ -421,7 +400,6 @@ class DataManagerPanel(QWidget):
             self.progress.setRange(0, total)
             self.progress.setValue(min(done, total))
         else:
-            # Unknown length: show a busy indicator rather than a false 0%.
             self.progress.setRange(0, 0)
 
         self.status_label.setText(message)

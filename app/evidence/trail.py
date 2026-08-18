@@ -1,11 +1,4 @@
-"""
-Assemble the evidence behind a result.
-
-Every provider attribution the importer makes writes an Evidence row naming the
-dataset, file, row and field it came from. This module turns those rows into a
-readable trail, so a user can answer "how do you know Fidelity is the
-recordkeeper for this plan" without opening the database.
-"""
+"""Assemble the evidence behind a result."""
 
 from __future__ import annotations
 
@@ -91,7 +84,7 @@ class ProviderFinding:
         """A plain-language account of why this provider is attached to the plan."""
 
         lines = [
-            f"{self.display_name} — {self.role.replace('_', ' ').title()} "
+            f"{self.display_name}, {self.role.replace('_', ' ').title()} "
             f"({self.form_year}, confidence {self.confidence or 'unknown'})"
         ]
 
@@ -207,8 +200,6 @@ def build_plan_evidence(
 
     parties = list(session.execute(party_statement))
 
-    # Evidence is matched to a finding by (year, schedule, field, value) because
-    # the importer writes both from the same candidate.
     evidence_statement = select(Evidence).where(Evidence.plan_id == plan_id)
     if form_years:
         evidence_statement = evidence_statement.where(Evidence.form_year.in_(form_years))

@@ -9,11 +9,11 @@ requires you to understand Python.
 
 **Related documents**
 
-- [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md) — the reference on how the
+- [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md), the reference on how the
   packaging works, what the spec file does, and how to troubleshoot it.
-- [`SELLING.md`](SELLING.md) — putting the installer online, taking payment, and
+- [`SELLING.md`](SELLING.md), on putting the installer online, taking payment, and
   licence keys issued by email and tied to the buyer's computer.
-- [`../README.md`](../README.md) — what the application does and how to use it.
+- [`../README.md`](../README.md), on what the application does and how to use it.
 
 ---
 
@@ -46,22 +46,22 @@ dist\installer\
     401KFinderPro-Setup-2.0.0.exe
 ```
 
-The person you give this to needs **nothing installed** — no Python, no Qt, no
+The person you give this to needs **nothing installed**: no Python, no Qt, no
 Visual C++ runtime. They run the setup, get a Start-menu entry, and open it.
 
 The application ships with **no data**. On first run it is an empty database;
 the user downloads a form year from the Data tab. That download is several
-gigabytes and takes 15–60 minutes, so tell them to expect it.
+gigabytes and takes 15 to 60 minutes, so tell them to expect it.
 
 ### Time and disk
 
 | | |
 |---|---|
-| Installing the tools | 15–20 minutes, mostly downloads |
-| First build | 5–10 minutes |
-| Later builds | 2–4 minutes |
+| Installing the tools | 15 to 20 minutes, mostly downloads |
+| First build | 5 to 10 minutes |
+| Later builds | 2 to 4 minutes |
 | Disk for building | ~3 GB |
-| Disk for a user running it | 20–60 GB per form year |
+| Disk for a user running it | 20 to 60 GB per form year |
 
 ---
 
@@ -72,7 +72,7 @@ You need three things. Install them in this order.
 ### 2.1 Python
 
 1. Go to <https://www.python.org/downloads/windows/>.
-2. Download the latest **3.12** or **3.13** release — *"Windows installer
+2. Download the latest **3.12** or **3.13** release, the *"Windows installer
    (64-bit)"*. Do **not** take 3.14 or newer; the UI toolkit does not have
    builds for it yet and the build will refuse to run.
 3. Run the installer. On the very first screen, **tick "Add python.exe to
@@ -87,7 +87,7 @@ python --version
 ```
 
 You should see `Python 3.12.x` or `Python 3.13.x`. If you instead see a Microsoft
-Store page or `python was not found`, the PATH tick box was missed — re-run the
+Store page or `python was not found`, the PATH tick box was missed. Re-run the
 installer, choose **Modify**, and enable it.
 
 ### 2.2 Git
@@ -118,7 +118,7 @@ Open PowerShell and pick somewhere to work.
 
 **Avoid Desktop, Documents and OneDrive.** Windows redirects those to OneDrive
 by default, and the build creates thousands of small files that cloud sync will
-crawl through — it looks like the build has frozen. Use a plain local folder:
+crawl through, and it looks like the build has frozen. Use a plain local folder:
 
 ```powershell
 mkdir C:\dev -Force
@@ -154,8 +154,8 @@ it. It does not change your machine's settings.
 
 ## 4. Add your icon and logo
 
-**This step is optional.** The repository already ships a mark — a stepped
-trace climbing to a solid node, in deep teal and amber — and the build picks it
+**This step is optional.** The repository already ships a mark, a stepped
+trace climbing to a solid node in deep teal and amber, and the build picks it
 up with no work from you. Read this section when you want to replace it with
 your own branding, or when you want to change the one that is there.
 
@@ -181,7 +181,7 @@ file and regenerate:
 ```
 
 That rewrites `app.ico`, `app.png`, `logo.png` and `logo.svg`, and with
-`--preview` also writes `app\ui\logo_preview.png` — every icon size on a light
+`--preview` also writes `app\ui\logo_preview.png`, showing every icon size on a light
 and a dark background, which is the only reliable way to tell whether a change
 still reads at 16 px. The preview file is not shipped and is git-ignored.
 
@@ -190,7 +190,7 @@ clears the badge's rounded corners by the stated margin, so changing a stroke
 weight cannot silently push part of the design outside the icon's silhouette.
 
 If you replace the images by hand instead, delete the
-`test_the_mark_is_reproducible_from_its_source` test — it exists to catch the
+`test_the_mark_is_reproducible_from_its_source` test. It exists to catch the
 committed files and the script drifting apart and cannot tell that apart from
 a deliberate replacement.
 
@@ -204,7 +204,7 @@ a deliberate replacement.
 | `logo.svg` | Not used at runtime. The vector original, for your store page and print | SVG |
 | `app.qss` | Optional. Extra Qt style sheet rules, applied *after* the active theme | UTF-8 text, [Qt Style Sheets syntax](https://doc.qt.io/qt-6/stylesheet-syntax.html) |
 
-Names are exact and case-sensitive on some systems — use lower case.
+Names are exact and case-sensitive on some systems, so use lower case.
 
 ### 4.2 Icon specification in detail
 
@@ -231,14 +231,14 @@ one size makes the icon look blurred or jagged everywhere else.
   be either PNG or BMP. Any modern tool does this correctly by default.
 - **Square.** A non-square source is stretched, not letterboxed.
 - Keep the design readable at 16 px. Fine detail and small text disappear
-  entirely — a single bold shape reads far better than a detailed illustration.
+  entirely. A single bold shape reads far better than a detailed illustration.
 
 **Making one from a PNG**
 
 Start with a square PNG at 1024×1024, then:
 
 - *Online:* <https://redketchup.io/icon-converter> or
-  <https://icoconvert.com> — choose the multi-size option, not a single size.
+  <https://icoconvert.com>. Choose the multi-size option, not a single size.
 - *ImageMagick:*
   ```powershell
   magick logo.png -define icon:auto-resize=256,128,64,48,32,16 app.ico
@@ -254,7 +254,7 @@ Start with a square PNG at 1024×1024, then:
   display; larger than 1024 px only inflates the build.
 - PNG with transparency. The dialog background follows the user's Windows theme,
   so a logo on a baked-in white rectangle will show that rectangle on dark mode.
-- A wordmark works here even though it would not work as an icon — 96 px is
+- A wordmark works here even though it would not work as an icon, because 96 px is
   wide enough to read text.
 
 ### 4.4 Confirm they were picked up
@@ -270,7 +270,7 @@ Resource folder: C:\Users\you\Documents\401k-finder\app\ui\resources
   stylesheet:  not set (using Qt default)
 ```
 
-Anything reading `not set` was not found — check the filename and that it is in
+Anything reading `not set` was not found. Check the filename and that it is in
 that exact folder.
 
 A corrupt or truncated icon is reported as `not set` rather than being used,
@@ -290,7 +290,7 @@ One command:
   distribute.
 - `-Installer` also produces the setup executable. Omit it for just the folder.
 
-The first run takes 5–10 minutes because it downloads the Qt libraries. You will
+The first run takes 5 to 10 minutes because it downloads the Qt libraries. You will
 see each stage announced:
 
 ```
@@ -306,7 +306,7 @@ see each stage announced:
 ```
 
 The build **stops at the first failure**, so if it reaches `Done` every stage
-passed — including the full test suite and a check that the packaged
+passed, including the full test suite and a check that the packaged
 application starts and can read its data files.
 
 If you are iterating on the icon and want to skip the tests:
@@ -333,7 +333,7 @@ installer in. It gives you a clean, throwaway Windows every time.
 Work through this list:
 
 1. **Install.** Run the setup. It should not prompt for an administrator
-   password — it installs per-user by default.
+   password, because it installs per-user by default.
 2. **Icon.** Check the Start-menu entry and the desktop shortcut show your icon
    rather than a generic one.
 3. **It opens.** Launch it. The window appears and the status bar reports that
@@ -342,7 +342,7 @@ Work through this list:
    `401k-finder.exe status --branding`. Every asset you supplied should be
    listed with a path inside `_internal`.
 5. **About dialog.** Help → About should show your logo.
-6. **The real test — download a form year.** Open the Data tab, pick 2023, and
+6. **The real test: download a form year.** Open the Data tab, pick 2023, and
    click *Download and import*. This is the step that exercises everything at
    once: the network, the ZIP extraction, the bundled DOL layouts, the importer
    and the database. **If the layouts failed to package, this is where it
@@ -362,7 +362,7 @@ python -m scripts.make_test_data --year 2023 --plans 48
 
 Copy the `test_data` folder to the test machine, then use **Data → Import files
 already on this computer**. This proves the layouts, importer and search all
-survived packaging in under a minute — but it does not test the download, so do
+survived packaging in under a minute, but it does not test the download, so do
 step 6 at least once before a real release.
 
 ---
@@ -379,7 +379,7 @@ or SSL.com. Expect a few hundred dollars a year and an identity check.
 
 - An **EV** certificate clears SmartScreen immediately but lives on a hardware
   token, so signing must happen on a machine with that token attached.
-- A standard **OV** certificate is cheaper but builds reputation gradually — the
+- A standard **OV** certificate is cheaper but builds reputation gradually. The
   warning fades after enough people have installed it.
 
 Sign both executables first, then the installer that wraps them:
@@ -404,7 +404,7 @@ whatever was signed while it was live.
 
 ## 8. Distribute it
 
-Ship **`dist\installer\401KFinderPro-Setup-2.0.0.exe`** — one file.
+Ship **`dist\installer\401KFinderPro-Setup-2.0.0.exe`**, one file.
 
 Publish a checksum next to it so people can verify the download:
 
@@ -417,16 +417,16 @@ Get-FileHash "dist\installer\401KFinderPro-Setup-2.0.0.exe" -Algorithm SHA256
 > Run the installer and open **401K Finder Pro** from the Start menu.
 >
 > The application starts empty. Open the **Data** tab and download a form year
-> from the Department of Labor — a few gigabytes, typically 15–60 minutes. You
+> from the Department of Labor: a few gigabytes, typically 15 to 60 minutes. You
 > only do this once per year of data, and you can keep using the application
 > while it runs.
 >
 > Everything stays on your computer. Nothing is uploaded.
 >
-> Each form year takes 20–60 GB. If you want more than a year or two and your
+> Each form year takes 20 to 60 GB. If you want more than a year or two and your
 > system disk cannot take it, plug in an external drive and use **Data → Where
 > the data is kept → Choose a drive…**. The drive has to be formatted exFAT or
-> NTFS — a FAT32 stick cannot hold a file large enough and will be refused.
+> NTFS. A FAT32 stick cannot hold a file large enough and will be refused.
 > Connect it before opening the application, and close the application before
 > ejecting it.
 
@@ -458,14 +458,14 @@ installed shows a clear message naming both versions rather than damaging it.
 
 | What you see | What it means |
 |---|---|
-| **It stops at *Preparing the virtual environment* and sits there** | Not a crash — it is slow. Creating the environment writes several thousand small files, and both OneDrive sync and antivirus scanning make that crawl. **Give it 5 minutes before assuming it is stuck.** If your project is on the Desktop or in Documents, those are OneDrive-synced by default: move it to `C:\dev\401k-finder`, or run `.\build.ps1 -VenvPath C:\venvs\401k` to keep just the environment out of sync. Pressing Ctrl+C here produces a `KeyboardInterrupt` traceback ending in `stdout.read()`. |
+| **It stops at *Preparing the virtual environment* and sits there** | Not a crash, just slow. Creating the environment writes several thousand small files, and both OneDrive sync and antivirus scanning make that crawl. **Give it 5 minutes before assuming it is stuck.** If your project is on the Desktop or in Documents, those are OneDrive-synced by default: move it to `C:\dev\401k-finder`, or run `.\build.ps1 -VenvPath C:\venvs\401k` to keep just the environment out of sync. Pressing Ctrl+C here produces a `KeyboardInterrupt` traceback ending in `stdout.read()`. |
 | `Failed to create the virtual environment` | Same causes as above. Delete any half-built `.venv` folder before retrying. |
 | `Python was not found` | Python is missing, or was installed without the PATH option. Re-run its installer, choose **Modify**, tick *Add python.exe to PATH*. |
 | `build.ps1 cannot be loaded because running scripts is disabled` | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window first. |
 | `Python 3.14 found, but this project requires...` | Install 3.12 or 3.13 alongside it. |
 | `Inno Setup 6 was not found` | Install it, or build without `-Installer`. |
-| `No module named pytest` | An older `build.ps1` that installed only the runtime dependencies. Update to the current version — it installs `requirements-dev.txt`, which carries pytest and PyInstaller. |
-| `Tests failed` | Something in the code is broken — the message names which test. Do not ship it. |
+| `No module named pytest` | An older `build.ps1` that installed only the runtime dependencies. Update to the current version, which installs `requirements-dev.txt` and carries pytest and PyInstaller. |
+| `Tests failed` | Something in the code is broken, and the message names which test. Do not ship it. |
 | The build stops at *Smoke-testing* | The packaged application could not read its data files. Rebuild with `-Clean`; if it persists, see the layouts section of [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md). |
 | Your icon does not appear | Windows caches icons aggressively. Sign out and back in, or run `ie4uinit.exe -show`. Confirm the file is there with `401k-finder.exe status --branding`. |
 | The window opens then vanishes | Read `%LOCALAPPDATA%\401K Finder Pro\logs\application.log`. |
@@ -484,7 +484,7 @@ Paste that path into the Explorer address bar to open it.
 
 ## Building without a Windows machine
 
-You cannot build a Windows executable on macOS or Linux — the packaging tool
+You cannot build a Windows executable on macOS or Linux. The packaging tool
 bundles the interpreter of whatever machine it runs on, so it needs Windows to
 produce a `.exe`.
 
@@ -493,5 +493,5 @@ gives you a Windows build machine free for public repositories.
 [`WINDOWS_APPLICATION.md`](WINDOWS_APPLICATION.md) contains a ready-to-use
 workflow that builds the installer on every tagged release.
 
-The application itself runs perfectly well from source on macOS and Linux — only
+The application itself runs perfectly well from source on macOS and Linux. Only
 the packaged `.exe` needs Windows.

@@ -1,17 +1,4 @@
-"""
-A stable identifier for the machine an installation is running on.
-
-Two properties matter, and they pull against each other:
-
-* **Stable** across reboots, updates and ordinary hardware changes. A customer
-  who adds RAM and is locked out will ask for a refund, and be right to.
-* **Distinct** between machines, so one licence key cannot be used everywhere.
-
-The identifiers are hashed before they ever leave the machine. The activation
-server sees an opaque digest, never a hardware serial — that keeps a licence
-check from turning into hardware inventory collection, which matters both for
-privacy law and for what the privacy policy has to promise.
-"""
+"""A stable identifier for the machine an installation is running on."""
 
 from __future__ import annotations
 
@@ -26,22 +13,13 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Mixed into the digest so the same machine yields a different value for a
-#: different application. Not a secret.
 _NAMESPACE = "401k-finder-pro/machine/v1"
 
-#: Length of the printed fingerprint. 32 hex characters is far beyond what is
-#: needed to avoid collisions and stays readable in a support email.
 _LENGTH = 32
 
 
 def _windows_machine_guid() -> str | None:
-    """
-    Read the installation GUID Windows generates when it is installed.
-
-    This is the single most stable identifier available: it survives hardware
-    changes and only differs after a reinstall of Windows itself.
-    """
+    """Read the installation GUID Windows generates when it is installed."""
 
     try:
         import winreg
@@ -115,12 +93,7 @@ def _macos_platform_uuid() -> str | None:
 
 
 def _components() -> list[str]:
-    """
-    Collect the identifiers available on this platform.
-
-    Every source is optional. A machine that yields only one is still
-    identified; the digest simply rests on fewer inputs.
-    """
+    """Collect the identifiers available on this platform."""
 
     system = platform.system()
     found: list[str] = []
@@ -136,9 +109,6 @@ def _components() -> list[str]:
             found.append(value)
 
     if not found:
-        # A MAC address is a poor identifier — virtual adapters and VPNs change
-        # it — but an unstable fingerprint beats no fingerprint at all, and this
-        # only applies to platforms none of the above matched.
         logger.warning(
             "No stable machine identifier was available; falling back to the "
             "network address, which may change."
@@ -157,12 +127,7 @@ def machine_fingerprint() -> str:
 
 
 def machine_label() -> str:
-    """
-    A human-readable name for the activation, shown in the customer's account.
-
-    The hostname makes an activation list meaningful — "which of my machines is
-    this?" — without revealing anything the customer does not already know.
-    """
+    """A human-readable name for the activation, shown in the customer's account."""
 
     try:
         host = platform.node() or "Unknown"

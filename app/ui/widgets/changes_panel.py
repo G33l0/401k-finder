@@ -1,15 +1,4 @@
-"""
-The "Provider changes" tab: which plans moved, and between whom.
-
-Written for the business use of this data. A recordkeeper, third-party
-administrator or advisory firm has one recurring question — *who did we lose,
-who did we win, and how big were they* — and the answer is already in the
-database, because every engagement is stored with the year it was filed for.
-
-The filters are the shape of that question rather than the shape of the schema:
-a firm name in "moved away from", a year, a size floor. What comes back is
-sorted by plan assets, because a list of losses is read largest first.
-"""
+"""The "Provider changes" tab: which plans moved, and between whom."""
 
 from __future__ import annotations
 
@@ -32,7 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.constants import US_STATES, ProviderRole
+from app.core.constants import BLANK_CELL, US_STATES, ProviderRole, year_span
 from app.dol.catalog import supported_years
 from app.providers.changes import ChangeQuery, ChangeReport
 from app.ui.widgets.results_table import format_count, format_money
@@ -73,8 +62,6 @@ class ChangesPanel(QWidget):
         self._report: ChangeReport | None = None
         self._build()
 
-    # ------------------------------------------------------------------
-
     def _build(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
@@ -100,12 +87,12 @@ class ChangesPanel(QWidget):
         form.addRow("Role:", self.role_combo)
 
         self.from_input = QLineEdit()
-        self.from_input.setPlaceholderText("e.g. Fidelity — plans that left this firm")
+        self.from_input.setPlaceholderText("e.g. Fidelity, to list plans that left this firm")
         self.from_input.returnPressed.connect(self._on_search)
         form.addRow("Moved away from:", self.from_input)
 
         self.to_input = QLineEdit()
-        self.to_input.setPlaceholderText("e.g. Empower — plans that moved to this firm")
+        self.to_input.setPlaceholderText("e.g. Empower, to list plans that moved to this firm")
         self.to_input.returnPressed.connect(self._on_search)
         form.addRow("Moved to:", self.to_input)
 
@@ -182,8 +169,6 @@ class ChangesPanel(QWidget):
         self.flows.setTextFormat(Qt.RichText)
         layout.addWidget(self.flows)
 
-    # ------------------------------------------------------------------
-
     def build_query(self) -> ChangeQuery:
         return ChangeQuery(
             role=self.role_combo.currentData(),
@@ -218,8 +203,6 @@ class ChangesPanel(QWidget):
     def changes(self) -> list:
         return list(self._report.changes) if self._report else []
 
-    # ------------------------------------------------------------------
-
     def show_report(self, report: ChangeReport) -> None:
         self._report = report
         self.set_busy(False)
@@ -230,19 +213,17 @@ class ChangesPanel(QWidget):
         self._fill_flows(report)
 
     def _fill_table(self, report: ChangeReport) -> None:
-        # Sorting is switched off while filling: with it on, every insert
-        # re-sorts and the rows land in the wrong places.
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(report.changes))
 
         for row, change in enumerate(report.changes):
             values = (
                 change.plan_name,
-                change.sponsor_name or "—",
+                change.sponsor_name or BLANK_CELL,
                 change.plan_key,
-                change.state or "—",
-                change.from_provider or "—",
-                change.to_provider or "—",
+                change.state or BLANK_CELL,
+                change.from_provider or BLANK_CELL,
+                change.to_provider or BLANK_CELL,
                 f"{change.from_year} → {change.to_year}",
                 format_count(change.participants),
                 format_money(change.total_assets),
@@ -264,11 +245,11 @@ class ChangesPanel(QWidget):
         if not report.years_compared:
             self.summary.setText(
                 "Nothing to compare. Provider changes need at least two form years "
-                "imported, with the schedules that name providers — check the Data tab."
+                "imported, with the schedules that name providers. Check the Data tab."
             )
             return
 
-        span = f"{report.years_compared[0]}–{report.years_compared[-1]}"
+        span = year_span(report.years_compared[0], report.years_compared[-1])
         role = report.query.role.replace("_", " ").lower()
 
         if not report.changes:

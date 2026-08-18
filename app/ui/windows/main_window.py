@@ -52,19 +52,11 @@ logger = get_logger(__name__)
 
 
 class MainWindow(QMainWindow):
-    """
-    The main window: search on the left, results and detail on the right.
-
-    Each long-running concern gets its own TaskRunner, so a sync in the
-    background never blocks a search in the foreground.
-    """
+    """The main window: search on the left, results and detail on the right."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         super().__init__()
 
-        # The entry point loads settings before the window exists, so it can
-        # apply the theme to the activation dialog too. Take what it loaded
-        # rather than reading the file twice and risking two views of it.
         self.settings = settings if settings is not None else Settings.load()
 
         self.search_runner = TaskRunner(self)
@@ -75,10 +67,6 @@ class MainWindow(QMainWindow):
         self.trace_runner = TaskRunner(self)
         self.changes_runner = TaskRunner(self)
 
-        # The entry point applies the theme before this window exists, so the
-        # activation dialog is already in the right scheme. Doing it again here
-        # is idempotent, and keeps the window correct when it is constructed
-        # directly — from a test, or an embedder — rather than through app.main.
         application = QApplication.instance()
         if application is not None:
             theme.apply(application, self.settings.theme)
@@ -89,16 +77,11 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._build_menu()
 
-        # Let the window paint before touching the database, so a slow first
-        # open does not look like a hang.
         QTimer.singleShot(0, self._startup)
-
-    # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
         self.tabs = QTabWidget()
 
-        # --- Search tab -----------------------------------------------
         search_tab = QWidget()
         search_layout = QVBoxLayout(search_tab)
         search_layout.setContentsMargins(0, 0, 0, 0)
@@ -131,29 +114,23 @@ class MainWindow(QMainWindow):
         search_layout.addWidget(outer)
         self.tabs.addTab(search_tab, "Find plans")
 
-        # --- Find my accounts tab -------------------------------------
-        # Placed before Providers: someone opening this to look for their own
-        # money should meet it early, not after two tabs of research tooling.
         self.trace_panel = TracePanel()
         self.trace_panel.trace_requested.connect(self.run_trace)
         self.trace_panel.export_requested.connect(self.export_trace)
         self.tabs.addTab(self.trace_panel, "Find my accounts")
 
-        # --- Providers tab --------------------------------------------
         self.provider_panel = ProviderPanel()
         self.provider_panel.search_requested.connect(self.run_provider_search)
         self.provider_panel.plans_requested.connect(self.search_by_provider)
         self.provider_panel.export_requested.connect(self.export_providers)
         self.tabs.addTab(self.provider_panel, "Providers")
 
-        # --- Provider changes tab -------------------------------------
         self.changes_panel = ChangesPanel()
         self.changes_panel.search_requested.connect(self.run_changes)
         self.changes_panel.export_requested.connect(self.export_changes)
         self.changes_panel.plan_selected.connect(self.open_plan)
         self.tabs.addTab(self.changes_panel, "Provider changes")
 
-        # --- Data tab -------------------------------------------------
         self.data_panel = DataManagerPanel()
         self.data_panel.sync_requested.connect(self.run_sync)
         self.data_panel.index_requested.connect(self.run_index)
@@ -211,15 +188,15 @@ class MainWindow(QMainWindow):
         view_menu = self.menuBar().addMenu("&View")
         theme_menu = view_menu.addMenu("&Theme")
 
-        # An action group makes the three mutually exclusive and gives the menu
-        # its radio marks, so the current theme is visible without opening a
-        # settings dialog.
         self._theme_group = QActionGroup(self)
         self._theme_group.setExclusive(True)
 
         active = theme.resolve(self.settings.theme).key
-        for palette in theme.available():
-            action = QAction(f"&{palette.label}", self)
+        palettes = theme.available()
+        labels = theme.accelerated([palette.label for palette in palettes])
+
+        for palette, label in zip(palettes, labels, strict=True):
+            action = QAction(label, self)
             action.setCheckable(True)
             action.setChecked(palette.key == active)
             action.setData(palette.key)
@@ -244,8 +221,6 @@ class MainWindow(QMainWindow):
         about.triggered.connect(self.show_about)
         help_menu.addAction(about)
 
-    # ------------------------------------------------------------------
-
     def _startup(self) -> None:
         self.data_panel.refresh_storage()
 
@@ -269,10 +244,6 @@ class MainWindow(QMainWindow):
     def _focus_search(self) -> None:
         self.tabs.setCurrentIndex(0)
         self.search_panel.focus()
-
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
 
     def run_search(self, query: PlanQuery) -> None:
         if query.is_empty():
@@ -304,8 +275,6 @@ class MainWindow(QMainWindow):
             self.detail_panel.clear()
         else:
             shown = len(results)
-            # A capped text search knows only a floor, so say so rather than
-            # presenting a number that is simply wrong.
             count = f"{total:,}+" if capped else f"{total:,}"
             self.status_message.setText(
                 f"{count} plan(s) matched"
@@ -322,8 +291,6 @@ class MainWindow(QMainWindow):
             self.detail_panel.clear()
             return
 
-        # Show what the result row already carries immediately, then load the
-        # full evidence in the background.
         self.detail_panel.set_summary(result)  # type: ignore[arg-type]
         self.load_plan_detail(result.plan_id)  # type: ignore[attr-defined]
 
@@ -342,20 +309,12 @@ class MainWindow(QMainWindow):
         self.tabs.setCurrentIndex(0)
         self.search_panel.set_provider(provider_name)
 
-    # ------------------------------------------------------------------
-    # Providers
-    # ------------------------------------------------------------------
-
     def run_provider_search(self, query: ProviderQuery) -> None:
         self.provider_runner.start(
             search_providers_task(query),
             on_finished=lambda results: self.provider_panel.set_results(results),  # type: ignore[arg-type]
             on_failed=self._on_task_failed,
         )
-
-    # ------------------------------------------------------------------
-    # Data
-    # ------------------------------------------------------------------
 
     def run_sync(self, form_year: int, core_only: bool, force: bool) -> None:
         if self.data_runner.busy:
@@ -456,9 +415,25 @@ class MainWindow(QMainWindow):
             f"{summary.parties:,} provider engagements · years {years}"
         )
 
-    # ------------------------------------------------------------------
-    # Export
-    # ------------------------------------------------------------------
+    def _ask_where_to_save(
+        self, title: str, suggested: str, filters: str
+    ) -> Path | None:
+        """
+        Ask for a filename, and make sure it keeps its extension.
+
+        Qt only appends the filter's suffix on some platforms, so a person who
+        typed "acme plans" over the suggested name got a file with no extension
+        that Windows would not open in anything.
+        """
+
+        chosen, _ = QFileDialog.getSaveFileName(self, title, suggested, filters)
+
+        if not chosen:
+            return None
+
+        path = Path(chosen)
+
+        return path if path.suffix else path.with_suffix(Path(suggested).suffix)
 
     def export_results_csv(self) -> None:
         results = self.plan_table.results()
@@ -467,12 +442,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "Run a search first.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export results", "plans.csv", "CSV files (*.csv)"
-        )
+        path = self._ask_where_to_save("Export results", "plans.csv", "CSV files (*.csv)")
 
         if path:
-            written = export_service.export_plans_csv(results, Path(path))
+            written = export_service.export_plans_csv(results, path)
             self.status_message.setText(f"Exported {len(results):,} plan(s) to {written}")
 
     def export_results_json(self) -> None:
@@ -482,12 +455,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "Run a search first.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export results", "plans.json", "JSON files (*.json)"
-        )
+        path = self._ask_where_to_save("Export results", "plans.json", "JSON files (*.json)")
 
         if path:
-            written = export_service.export_plans_json(results, Path(path))
+            written = export_service.export_plans_json(results, path)
             self.status_message.setText(f"Exported {len(results):,} plan(s) to {written}")
 
     def export_providers(self) -> None:
@@ -497,12 +468,12 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "Run a provider search first.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export providers", "providers.csv", "CSV files (*.csv)"
+        path = self._ask_where_to_save(
+            "Export providers", "providers.csv", "CSV files (*.csv)"
         )
 
         if path:
-            written = export_service.export_providers_csv(results, Path(path))
+            written = export_service.export_providers_csv(results, path)
             self.status_message.setText(f"Exported {len(results):,} provider(s) to {written}")
 
     def export_evidence(self, plan_id: int) -> None:
@@ -516,18 +487,15 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Nothing to export", "That plan is no longer available.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
+        path = self._ask_where_to_save(
             "Export evidence report",
             f"evidence-{package.plan_key}.txt",
             "Text files (*.txt)",
         )
 
         if path:
-            written = export_service.export_evidence_report(package, Path(path))
+            written = export_service.export_evidence_report(package, path)
             self.status_message.setText(f"Wrote evidence report to {written}")
-
-    # ------------------------------------------------------------------
 
     def open_data_folder(self) -> None:
         from PySide6.QtCore import QUrl
@@ -542,7 +510,7 @@ class MainWindow(QMainWindow):
             "This deletes every plan, provider and filing imported so far and "
             "starts from an empty database.\n\n"
             "The source files are public and can be "
-            "downloaded again, so nothing is permanently lost — but re-importing "
+            "downloaded again, so nothing is permanently lost, but re-importing "
             "them takes as long as the original import did.\n\n"
             "Rebuild the database now?",
             QMessageBox.Yes | QMessageBox.No,
@@ -572,15 +540,7 @@ class MainWindow(QMainWindow):
         self.refresh_status()
 
     def change_storage(self, target, move_existing: bool) -> None:  # noqa: ANN001
-        """
-        Move the data to another drive.
-
-        Run on the UI thread deliberately. It closes the database, and letting
-        a search start against a file that is being moved is exactly the race
-        this feature must not have. A long move blocks the window, which is
-        honest — the alternative is a responsive window over a database that
-        is not there.
-        """
+        """Move the data to another drive."""
 
         from app.services.relocate import RelocationError, relocate, revert_to_internal
 
@@ -612,8 +572,6 @@ class MainWindow(QMainWindow):
         self.data_panel.append_log(result.summary())
         self.data_panel.refresh_storage()
 
-        # The engine was disposed for the move; everything below reopens
-        # against the new location.
         self._startup()
 
         QMessageBox.information(self, "Data moved", result.summary())
@@ -624,10 +582,10 @@ class MainWindow(QMainWindow):
         self.data_panel.set_running(True)
         self.status_message.setText("Indexing every form year…")
 
-        self.data_runner.run(
+        self.data_runner.start(
             index_task(self.settings, force=force),
-            on_result=self._on_index_finished,
-            on_error=self._on_data_failed,
+            on_finished=self._on_index_finished,
+            on_failed=self._on_data_failed,
             on_progress=self.data_panel.set_progress,
         )
 
@@ -639,7 +597,7 @@ class MainWindow(QMainWindow):
 
         message = (
             f"Indexed {len(years)} form year(s)"
-            + (f", {years[0]}–{years[-1]}" if years else "")
+            + (f", {years[0]}-{years[-1]}" if years else "")
             + (f"; {failures} dataset(s) failed" if failures else "")
         )
         self.data_panel.append_log(message)
@@ -651,10 +609,10 @@ class MainWindow(QMainWindow):
 
         self.status_message.setText("Comparing filed years…")
 
-        self.changes_runner.run(
+        self.changes_runner.start(
             changes_task(query),
-            on_result=self._on_changes_finished,
-            on_error=self._on_changes_failed,
+            on_finished=self._on_changes_finished,
+            on_failed=self._on_changes_failed,
         )
 
     def _on_changes_finished(self, report) -> None:  # noqa: ANN001
@@ -667,14 +625,14 @@ class MainWindow(QMainWindow):
         QMessageBox.warning(self, "Comparison failed", message)
 
     def export_changes(self, report) -> None:  # noqa: ANN001
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export provider changes", "provider-changes.csv", "CSV files (*.csv)"
+        path = self._ask_where_to_save(
+            "Export provider changes", "provider-changes.csv", "CSV files (*.csv)"
         )
-        if not path:
+        if path is None:
             return
 
         try:
-            written = export_service.export_provider_changes_csv(report.changes, Path(path))
+            written = export_service.export_provider_changes_csv(report.changes, path)
         except OSError as exc:
             QMessageBox.warning(self, "Could not save", str(exc))
             return
@@ -692,10 +650,10 @@ class MainWindow(QMainWindow):
 
         self.status_message.setText(f"Searching {len(history)} employer(s)…")
 
-        self.trace_runner.run(
+        self.trace_runner.start(
             trace_task(history),
-            on_result=self._on_trace_finished,
-            on_error=self._on_trace_failed,
+            on_finished=self._on_trace_finished,
+            on_failed=self._on_trace_failed,
         )
 
     def _on_trace_finished(self, report) -> None:  # noqa: ANN001
@@ -715,11 +673,10 @@ class MainWindow(QMainWindow):
 
         from app.trace.packet import render_report
 
-        suggested = "retirement-account-trace.txt"
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save report", suggested, "Text files (*.txt);;All files (*)"
+        path = self._ask_where_to_save(
+            "Save report", "retirement-account-trace.txt", "Text files (*.txt);;All files (*)"
         )
-        if not path:
+        if path is None:
             return
 
         answer = QMessageBox.question(
@@ -743,21 +700,10 @@ class MainWindow(QMainWindow):
         self.status_message.setText(f"Wrote {path}")
 
     def apply_theme(self, name: str) -> None:
-        """
-        Switch colour scheme, and persist the choice.
-
-        Ordinary widgets repaint themselves when the application style sheet
-        changes. The detail panel does not — its content is HTML with the
-        colours already baked in — so it is told to render itself again.
-
-        The setting is saved here rather than only on exit, so a theme picked
-        just before a crash or a forced shutdown still survives.
-        """
+        """Switch colour scheme, and persist the choice."""
 
         palette = theme.apply(QApplication.instance(), name)
 
-        # Keep the menu marks honest when this is called from anywhere other
-        # than the menu itself.
         for action in self._theme_group.actions():
             action.setChecked(action.data() == palette.key)
 
@@ -765,8 +711,6 @@ class MainWindow(QMainWindow):
         try:
             self.settings.save()
         except OSError as exc:  # noqa: BLE001
-            # Not worth a dialog: the theme is applied either way, and the
-            # only loss is that it will not be remembered next time.
             logger.warning("Could not save the theme setting: %s", exc)
 
         self.detail_panel.retheme()
@@ -786,9 +730,9 @@ class MainWindow(QMainWindow):
         dialog.setText(
             f"<h3>401K Finder Pro {__version__}</h3>"
             "<p>Searches official Form 5500 filings to find "
-            "retirement plans — 401(k), 403(b), 457(b), SEP and SIMPLE, ESOP, "
-            "profit sharing, money purchase and defined benefit pensions — and "
-            "the firms that hold and administer them.</p>"
+            "retirement plans of every kind: 401(k), 403(b), 457(b), SEP and SIMPLE, "
+            "ESOP, profit sharing, money purchase and defined benefit pensions, "
+            "along with the firms that hold and administer them.</p>"
             "<p>All data comes from EBSA's public Form 5500 datasets and is "
             "stored locally. Every result cites the dataset, field and row it "
             "came from.</p>"

@@ -10,15 +10,10 @@ from enum import StrEnum
 class LicenseState(StrEnum):
     """What the application may do right now."""
 
-    #: A valid key for this machine is installed.
     ACTIVE = "ACTIVE"
-    #: No licence key has been entered on this machine.
     UNLICENSED = "UNLICENSED"
-    #: The text is not a key, or its signature does not check out.
     INVALID = "INVALID"
-    #: A genuine key, issued for a different computer.
     WRONG_MACHINE = "WRONG_MACHINE"
-    #: A genuine key for this computer, past its expiry date.
     EXPIRED = "EXPIRED"
 
     @property
@@ -50,7 +45,7 @@ class LicenseStatus:
                 who = f"Licensed to {self.label}" if self.label else "Licensed"
                 if self.expires is None:
                     return who
-                return f"{who} — expires {self.expires:%d %B %Y}"
+                return f"{who}, expires {self.expires:%d %B %Y}"
             case LicenseState.WRONG_MACHINE:
                 return "This licence key belongs to a different computer"
             case LicenseState.EXPIRED:

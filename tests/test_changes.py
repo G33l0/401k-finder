@@ -1,11 +1,4 @@
-"""
-Detecting plans that changed provider between filed years.
-
-This is sold to firms who will act on it — a list of losses becomes a call
-list — so the failure that matters is a change reported that did not happen.
-Two ways that goes wrong are covered explicitly: the same firm named twice with
-different spellings, and the same engagement filed on two schedules in one year.
-"""
+"""Detecting plans that changed provider between filed years."""
 
 from __future__ import annotations
 
@@ -18,12 +11,7 @@ from app.providers.changes import ChangeDetector, ChangeKind, ChangeQuery
 
 @pytest.fixture()
 def two_years(session, imported):
-    """
-    A second form year, so there is something to compare against.
-
-    The fixture rotates provider assignments per year for a quarter of the
-    plans, which is what produces changes to find.
-    """
+    """A second form year, so there is something to compare against."""
 
     import tempfile
     from pathlib import Path
@@ -40,9 +28,6 @@ def two_years(session, imported):
 
 def _detect(session, **kwargs) -> object:
     return ChangeDetector(session).find(ChangeQuery(**kwargs))
-
-
-# ----------------------------------------------------------------------
 
 
 def test_a_single_year_yields_no_changes(session, imported):
@@ -103,11 +88,6 @@ def test_a_plan_that_kept_its_provider_is_not_reported(two_years):
     assert 0 < len(moved) < len(total_plans)
 
 
-# ----------------------------------------------------------------------
-# Not inventing changes
-# ----------------------------------------------------------------------
-
-
 def test_the_same_firm_spelled_two_ways_is_not_a_change(session, imported):
     """
     Filers write the same firm differently between years. Reporting that as a
@@ -117,10 +97,6 @@ def test_the_same_firm_spelled_two_ways_is_not_a_change(session, imported):
     plan = session.execute(select(Plan)).scalars().first()
     assert plan is not None
 
-    # Distinct rows, because providers.name_key is unique -- two spellings that
-    # normalise identically are already merged at import time. What is under
-    # test is the detector's own comparison, for the case where they were not:
-    # a provider consolidated later, or one imported under an older key.
     left = Provider(name="FIDELITY INVESTMENTS INC", name_key="FIDELITY INVESTMENTS INC")
     right = Provider(name="Fidelity  Investments,  Inc.", name_key="FIDELITY INVESTMENTS")
     session.add_all([left, right])
@@ -140,8 +116,6 @@ def test_the_same_firm_spelled_two_ways_is_not_a_change(session, imported):
     )
     session.commit()
 
-    # Scoped to the pair under test: the fixture gives this plan a custodian in
-    # its own year too, and that later move is a real one.
     report = _detect(session, role="CUSTODIAN")
     between = [
         change
@@ -168,7 +142,6 @@ def test_one_engagement_filed_on_two_schedules_is_counted_once(session, imported
 
     session.add_all(
         [
-            # 2019: the same firm, twice, from two schedules.
             PlanParty(
                 plan_id=plan.id, provider_id=keeper.id, role="INSURER",
                 form_year=2019, schedule_code="C", source_field="A",
@@ -177,7 +150,6 @@ def test_one_engagement_filed_on_two_schedules_is_counted_once(session, imported
                 plan_id=plan.id, provider_id=keeper.id, role="INSURER",
                 form_year=2019, schedule_code="H", source_field="B",
             ),
-            # 2020: a genuine move.
             PlanParty(
                 plan_id=plan.id, provider_id=mover.id, role="INSURER",
                 form_year=2020, schedule_code="C", source_field="A",
@@ -197,7 +169,7 @@ def test_one_engagement_filed_on_two_schedules_is_counted_once(session, imported
 
 def test_a_missing_year_does_not_read_as_a_change(session, imported):
     """
-    Adjacent *observed* years are compared, not every year in the range — a
+    Adjacent *observed* years are compared, not every year in the range. A
     plan that skipped 2020 has not therefore changed anything.
     """
 
@@ -217,9 +189,6 @@ def test_a_missing_year_does_not_read_as_a_change(session, imported):
         )
     session.commit()
 
-    # Only the 2017 -> 2021 pair is under test. The fixture also names a
-    # trustee in its own year, and moving away from UNMOVING BANK to that one
-    # is a change that genuinely happened.
     changes = [
         change
         for change in _detect(session, role="TRUSTEE").changes
@@ -231,19 +200,13 @@ def test_a_missing_year_does_not_read_as_a_change(session, imported):
 
 def test_appearances_and_disappearances_are_off_by_default(two_years):
     """
-    A role vanishing usually means the schedule carrying it was not imported.
-    Reporting those by default would read as a wave of losses that never
-    happened.
+    A role vanishing usually means the schedule carrying it was not imported. Reporting
+    those by default would read as a wave of losses that never happened.
     """
 
     report = _detect(two_years)
 
     assert all(change.kind is ChangeKind.SWITCHED for change in report.changes)
-
-
-# ----------------------------------------------------------------------
-# Filters and shaping
-# ----------------------------------------------------------------------
 
 
 def test_filtering_by_the_firm_that_lost_the_plan(two_years):
@@ -310,11 +273,6 @@ def test_every_change_describes_itself(two_years):
     for change in _detect(two_years).changes:
         assert change.plan_name in change.describe()
         assert str(change.to_year) in change.describe()
-
-
-# ----------------------------------------------------------------------
-# Export
-# ----------------------------------------------------------------------
 
 
 def test_changes_export_to_csv(two_years, tmp_path):

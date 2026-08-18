@@ -1,9 +1,4 @@
-"""
-Export search results and evidence to files the user can keep.
-
-CSV for spreadsheets, JSON for downstream tooling, and a plain-text evidence
-report meant to be read by a person or attached to a file.
-"""
+"""Export search results and evidence to files the user can keep."""
 
 from __future__ import annotations
 
@@ -178,8 +173,6 @@ def export_providers_csv(results: list[ProviderResult], path: Path | None = None
     return target
 
 
-#: One row per plan that changed hands. Ordered so the columns a reader scans
-#: first -- who left whom, and how big -- come before the provenance.
 CHANGE_COLUMNS: tuple[str, ...] = (
     "plan_name",
     "sponsor_name",

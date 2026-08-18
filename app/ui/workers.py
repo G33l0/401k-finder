@@ -1,11 +1,4 @@
-"""
-Background workers.
-
-Every database or network operation runs on a QThread so the window stays
-responsive: a full-year sync takes hours, and a search over millions of plans
-can take seconds. Each worker owns its own session, because a SQLAlchemy session
-is not safe to share across threads.
-"""
+"""Background workers."""
 
 from __future__ import annotations
 
@@ -26,19 +19,11 @@ from app.search.query import PlanQuery, ProviderQuery, QueryOptions
 
 logger = get_logger(__name__)
 
-#: Work runs on a background thread and is handed a fresh session plus the
-#: worker itself, so long-running tasks can report progress and poll for
-#: cancellation without the caller having to wire either up.
 WorkFunction = Callable[[Any, "Worker"], object]
 
 
 class Worker(QObject):
-    """
-    Runs one callable on a background thread and reports the result.
-
-    Errors are delivered on ``failed`` rather than raised, so a failure in a
-    worker surfaces in the UI instead of tearing down the thread silently.
-    """
+    """Runs one callable on a background thread and reports the result."""
 
     finished = Signal(object)
     failed = Signal(str)
@@ -72,25 +57,13 @@ class Worker(QObject):
 
 
 class TaskRunner(QObject):
-    """
-    Owns a worker and its thread, and keeps them alive until the work is done.
-
-    Dropping the last Python reference to a running QThread makes Qt abort with
-    "QThread: Destroyed while thread is still running", so a thread is only
-    released once it has actually stopped — either during ``stop``, or later
-    from the ``_retiring`` list.
-    """
+    """Owns a worker and its thread, and keeps them alive until the work is done."""
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._thread: QThread | None = None
         self._worker: Worker | None = None
-        # Signals actually connected for the current worker. Disconnecting one
-        # that was never connected makes PySide emit a RuntimeWarning.
         self._connected: list[str] = []
-        # Threads that were asked to stop but had not finished yet. They are
-        # held here purely to keep a Python reference alive until Qt is done
-        # with them; see _drain.
         self._retiring: list[QThread] = []
 
     @property
@@ -139,16 +112,7 @@ class TaskRunner(QObject):
             self._worker.cancel()
 
     def stop(self, wait_ms: int = 250) -> None:
-        """
-        Cancel the current task and let it wind down.
-
-        The wait is deliberately short. This runs on the UI thread, and a search
-        is replaced every time the user types — blocking here for the length of
-        the previous query would freeze the window for exactly as long as that
-        query takes. A task that has not stopped within ``wait_ms`` is moved to
-        ``_retiring`` and finishes in its own time; its result is discarded
-        because the signals were disconnected first.
-        """
+        """Cancel the current task and let it wind down."""
 
         thread, self._thread = self._thread, None
         worker, self._worker = self._worker, None
@@ -161,11 +125,7 @@ class TaskRunner(QObject):
         if worker is not None:
             worker.cancel()
 
-            # Detach the callbacks so a late result cannot overwrite the newer
-            # task's output. Only signals that were connected are touched.
             for name in connected:
-                # RuntimeError/TypeError here means the C++ object is already
-                # gone, which is exactly the case we no longer need to detach.
                 with contextlib.suppress(RuntimeError, TypeError):
                     getattr(worker, name).disconnect()
 
@@ -182,12 +142,7 @@ class TaskRunner(QObject):
         self._retiring = [thread for thread in self._retiring if thread.isRunning()]
 
     def shutdown(self, wait_ms: int = 10_000) -> None:
-        """
-        Stop everything and wait properly. For application exit only.
-
-        Here a long wait is correct: the process is going away, and killing a
-        thread mid-transaction would risk the database.
-        """
+        """Stop everything and wait properly. For application exit only."""
 
         self.stop(wait_ms=0)
 
@@ -197,11 +152,6 @@ class TaskRunner(QObject):
                 logger.warning("A background task did not stop before shutdown.")
 
         self._retiring.clear()
-
-
-# ----------------------------------------------------------------------
-# Task factories
-# ----------------------------------------------------------------------
 
 
 def search_plans_task(query: PlanQuery, options: QueryOptions) -> WorkFunction:

@@ -1,9 +1,4 @@
-"""
-Query objects for plan and provider search.
-
-Keeping the query as a value object means the CLI, the UI and the tests all
-build searches the same way, and a saved search is just a serialisable record.
-"""
+"""Query objects for plan and provider search."""
 
 from __future__ import annotations
 
@@ -14,9 +9,7 @@ from enum import StrEnum
 from app.core.constants import PlanCategory, PlanFeature
 from app.dol.normalizer import normalize_ein, normalize_plan_number, normalize_state
 
-#: Anything that is nine digits once punctuation is removed is treated as an EIN.
 _EIN_PATTERN = re.compile(r"^\s*\d{2}\s*-?\s*\d{7}\s*$")
-#: 12-3456789-001 and 123456789/001 both address one plan directly.
 _PLAN_KEY_PATTERN = re.compile(r"^\s*(\d{2}-?\d{7})\s*[/\- ]\s*(\d{1,3})\s*$")
 
 
@@ -82,19 +75,10 @@ class PlanQuery:
 
     @classmethod
     def parse(cls, text: str, **overrides) -> PlanQuery:
-        """
-        Build a query from a single search box.
-
-        Typing an EIN, or an EIN and plan number, addresses a plan directly
-        rather than running a text search, which is what someone holding a
-        statement or a plan document will do first. A trailing two-letter state
-        token (``acme retirement TX``) is lifted into a state filter.
-        """
+        """Build a query from a single search box."""
 
         raw = text.strip()
 
-        # An explicitly supplied filter always wins over one inferred from the
-        # text, so `--state NY` is not silently overridden by a trailing token.
         def build(**inferred) -> PlanQuery:
             merged = {**inferred}
             merged.update({key: value for key, value in overrides.items() if value is not None})

@@ -8,9 +8,6 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Refuse to extract an archive that expands to more than this. DOL archives are
-#: large but bounded; a ratio far outside that range means a malformed or hostile
-#: file, and extracting it would fill the user's disk.
 MAX_COMPRESSION_RATIO = 200
 MAX_EXTRACTED_BYTES = 200 * 1024**3
 
@@ -40,12 +37,7 @@ def inspect_zip(archive: Path) -> tuple[int, int]:
 
 
 def safe_extract_zip(archive: Path, destination: Path) -> list[Path]:
-    """
-    Extract a ZIP archive, rejecting unsafe members before writing anything.
-
-    Every member is checked first so a malicious archive cannot write a few
-    good files and then escape the destination on a later entry.
-    """
+    """Extract a ZIP archive, rejecting unsafe members before writing anything."""
 
     if not archive.exists():
         raise ArchiveError(f"Archive does not exist: {archive}")

@@ -18,12 +18,7 @@ def repo_root() -> Path:
 
 @pytest.fixture(scope="session", autouse=True)
 def isolated_data_dir(tmp_path_factory) -> Path:
-    """
-    Point the application at a throwaway data directory for the whole session.
-
-    This is set before any app module is imported so nothing touches the real
-    user data directory or the developer's own database.
-    """
+    """Point the application at a throwaway data directory for the whole session."""
 
     path = tmp_path_factory.mktemp("finder-data")
     os.environ["FINDER_401K_DATA_DIR"] = str(path)

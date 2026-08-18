@@ -1,4 +1,4 @@
-"""Schedule C — service provider information, and its Part 1-3 detail tables."""
+"""Schedule C: service provider information, and its Part 1-3 detail tables."""
 
 from __future__ import annotations
 

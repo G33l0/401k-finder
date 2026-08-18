@@ -1,12 +1,4 @@
-"""
-The policy layer: may this installation be used right now?
-
-The whole check is local. A key is a signature over the machine it was issued
-for, so verifying it needs nothing but the public key compiled into the build —
-no network, no account, no server to keep running. That removes the failure
-this layer used to have to work around entirely: there is no outage that can
-lock out someone who has paid, because there is nothing to be down.
-"""
+"""The policy layer: may this installation be used right now?"""
 
 from __future__ import annotations
 
@@ -26,8 +18,6 @@ class LicenseGate:
 
     def __init__(self, config: LicenseConfig | None = None) -> None:
         self.config = config or get_config()
-
-    # ------------------------------------------------------------------
 
     def status(self, today: date | None = None) -> LicenseStatus:
         """Report the current licensing position."""
@@ -62,16 +52,8 @@ class LicenseGate:
     def allows_use(self) -> bool:
         return self.status().allows_use
 
-    # ------------------------------------------------------------------
-
     def activate(self, key: str, today: date | None = None) -> ActivationResult:
-        """
-        Install a licence key on this machine.
-
-        The key is stored only if it checks out, so a bad paste cannot leave
-        the application in a state where it refuses to start and offers no way
-        back in.
-        """
+        """Install a licence key on this machine."""
 
         if not key.strip():
             return ActivationResult(False, LicenseState.UNLICENSED, "Enter your licence key.")

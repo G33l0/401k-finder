@@ -1,11 +1,4 @@
-"""
-Plan classification from the filed characteristics codes.
-
-The code meanings are taken from the official Form 5500 instructions and have
-been stable across the 2009-2025 datasets, except that 2U-2X were introduced
-for 2022. These tests pin the mappings that matter most, because getting 2L/2M
-wrong would silently mislabel every 403(b) plan in the database.
-"""
+"""Plan classification from the filed characteristics codes."""
 
 from __future__ import annotations
 
@@ -48,7 +41,7 @@ def test_code_maps_to_feature(codes, expected_feature):
 
 
 def test_403b_codes_are_not_401k():
-    """2L and 2M are 403(b) arrangements, not 401(k) — an easy mapping to get wrong."""
+    """2L and 2M are 403(b) arrangements, not 401(k), an easy mapping to get wrong."""
 
     _, features = classify("2L2M")
     assert PlanFeature.B403.value in features
@@ -114,7 +107,7 @@ def test_457_detection_does_not_fire_on_unrelated_numbers():
 def test_plan_entity_code_sets_employer_structure():
     """
     TYPE_PLAN_ENTITY_CD is 1 = multiemployer, 2 = single-employer,
-    3 = multiple-employer, 4 = DFE — the reverse of the checkbox order on the
+    3 = multiple-employer, 4 = DFE, the reverse of the checkbox order on the
     form. Reading 1 and 2 the other way round labels almost every plan in the
     country as multiemployer, which is how this was originally caught.
     """
@@ -142,11 +135,6 @@ def test_unknown_codes_are_ignored_not_fatal():
     category, features = classify("9Z")
     assert category == PlanCategory.UNKNOWN.value
     assert features == ()
-
-
-# ----------------------------------------------------------------------
-# Schedule C service codes
-# ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

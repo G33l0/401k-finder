@@ -1,11 +1,4 @@
-"""
-Following a plan's assets when it merges or winds up.
-
-Schedule H Part 1 is the only place the filings say where the money went. The
-failure that matters is not "the chain is one hop short" — it is telling a
-participant "we do not know" when the answer was in a file we already had, or
-hanging on a chain that loops.
-"""
+"""Following a plan's assets when it merges or winds up."""
 
 from __future__ import annotations
 
@@ -16,10 +9,6 @@ from app.database.models import Plan, PlanTransfer
 from app.dol.transfers import extract_transfer
 from app.plans import follow_chain, resolve_transfers, transfer_counts, transfers_from
 from app.plans.successor import MAX_HOPS
-
-# ----------------------------------------------------------------------
-# Reading the dataset
-# ----------------------------------------------------------------------
 
 
 def test_a_transfer_row_is_read():
@@ -76,11 +65,6 @@ def test_the_dataset_is_downloaded_by_default():
     from app.dol.catalog import CORE_DATASET_NAMES
 
     assert "F_SCH_H_PART1" in CORE_DATASET_NAMES
-
-
-# ----------------------------------------------------------------------
-# Against real imported filings
-# ----------------------------------------------------------------------
 
 
 def test_transfers_are_recorded_on_import(session, imported):
@@ -176,11 +160,6 @@ def test_transfers_from_returns_newest_first(session, imported):
     assert rows == sorted(rows, key=lambda row: -row.form_year)
 
 
-# ----------------------------------------------------------------------
-# The walk has to terminate
-# ----------------------------------------------------------------------
-
-
 def _plan_pair(session) -> tuple[Plan, Plan]:
     plans = list(session.execute(select(Plan).limit(2)).scalars())
     assert len(plans) == 2
@@ -255,8 +234,6 @@ def test_a_self_transfer_is_never_linked(session, imported):
 def test_a_long_chain_is_truncated(session, imported):
     """A pathological chain must stop, and say that it stopped."""
 
-    # Only plans that report nothing already, or the fixture's own transfers
-    # join the chain and it ends early for a legitimate reason.
     plans = list(
         session.execute(
             select(Plan)
@@ -287,11 +264,6 @@ def test_a_long_chain_is_truncated(session, imported):
     assert len(chain) == MAX_HOPS
     assert chain.truncated
     assert "not followed further" in " ".join(chain.narrate())
-
-
-# ----------------------------------------------------------------------
-# What the participant is told
-# ----------------------------------------------------------------------
 
 
 def test_the_trace_reports_where_the_money_went(session, imported):
