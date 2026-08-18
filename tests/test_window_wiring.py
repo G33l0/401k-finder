@@ -225,7 +225,9 @@ def test_selecting_a_result_loads_its_detail(qt_app, window):
         ("evidence-12-3456789-001.txt", ".txt"),
     ],
 )
-def test_a_typed_filename_keeps_its_extension(qt_app, window, monkeypatch, suggested, expected):
+def test_a_typed_filename_keeps_its_extension(
+    qt_app, window, monkeypatch, tmp_path, suggested, expected
+):
     """
     Qt only appends the filter's suffix on some platforms. Somebody who typed
     "acme plans" over the suggested name got a file Windows would not open.
@@ -233,10 +235,9 @@ def test_a_typed_filename_keeps_its_extension(qt_app, window, monkeypatch, sugge
 
     from PySide6.QtWidgets import QFileDialog
 
+    typed = tmp_path / "acme plans"
     monkeypatch.setattr(
-        QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *a, **k: ("/tmp/acme plans", "")),
+        QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(typed), ""))
     )
 
     chosen = window._ask_where_to_save("Export", suggested, "Any (*)")
@@ -246,13 +247,12 @@ def test_a_typed_filename_keeps_its_extension(qt_app, window, monkeypatch, sugge
     assert chosen.stem == "acme plans"
 
 
-def test_an_extension_the_user_typed_is_respected(qt_app, window, monkeypatch):
+def test_an_extension_the_user_typed_is_respected(qt_app, window, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QFileDialog
 
+    typed = tmp_path / "acme.tsv"
     monkeypatch.setattr(
-        QFileDialog,
-        "getSaveFileName",
-        staticmethod(lambda *a, **k: ("/tmp/acme.tsv", "")),
+        QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(typed), ""))
     )
 
     assert window._ask_where_to_save("Export", "plans.csv", "Any (*)").suffix == ".tsv"

@@ -131,7 +131,7 @@ If you must keep the project in a synced folder, put the build environment
 elsewhere instead:
 
 ```powershell
-.\build.ps1 -Clean -Installer -VenvPath C:\venvs\401k
+.\build.cmd -Clean -Installer -VenvPath C:\venvs\401k
 ```
 
 You are now in the project folder. **Every command from here on assumes you are
@@ -140,15 +140,40 @@ continuing.
 
 ### Allow the build script to run
 
-Windows blocks downloaded scripts by default. Run this once per PowerShell
-window:
+Windows blocks unsigned scripts by default, so `.\build.ps1` may refuse to run
+with either *"running scripts is disabled"* or *"is not digitally signed"*.
+
+**The simplest way round it is not to use PowerShell for the launch.** A `.cmd`
+file is not subject to the policy at all:
+
+```powershell
+.\build.cmd -Clean -Installer
+```
+
+`build.cmd` runs `build.ps1` with the policy bypassed for that one invocation
+and passes every argument straight through. It changes nothing on the machine.
+You can also just double-click it in Explorer.
+
+If you would rather stay in PowerShell, relax the policy for the current window:
 
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-`-Scope Process` means it applies only to this window and reverts when you close
-it. It does not change your machine's settings.
+`-Scope Process` applies only to that window and reverts when you close it, so
+you need it again in each new window. It does not change your machine's
+settings.
+
+Two things that make the first command fail on its own:
+
+- **A managed or corporate machine** may lock the policy through Group Policy,
+  and `Set-ExecutionPolicy` will be refused. Use `build.cmd`, or start a shell
+  that bypasses it for one run:
+  `powershell -ExecutionPolicy Bypass -File .\build.ps1 -Clean -Installer`
+- **The project came from a downloaded ZIP** rather than `git clone`. Windows
+  marks every extracted file as coming from the internet, which produces the
+  *"not digitally signed"* wording even under a relaxed policy. Clear it once:
+  `Get-ChildItem -Recurse | Unblock-File`
 
 ---
 
@@ -283,12 +308,16 @@ because Windows renders a broken icon as a blank square with no error.
 One command:
 
 ```powershell
-.\build.ps1 -Clean -Installer
+.\build.cmd -Clean -Installer
 ```
 
 - `-Clean` throws away previous build output. Use it for anything you intend to
   distribute.
 - `-Installer` also produces the setup executable. Omit it for just the folder.
+
+`build.cmd` and `build.ps1` do the same thing and take the same arguments. The
+`.cmd` is the one to reach for, because PowerShell's execution policy does not
+apply to it, and it is what the rest of this guide uses.
 
 The first run takes 5 to 10 minutes because it downloads the Qt libraries. You will
 see each stage announced:
@@ -312,7 +341,7 @@ application starts and can read its data files.
 If you are iterating on the icon and want to skip the tests:
 
 ```powershell
-.\build.ps1 -SkipTests
+.\build.cmd -SkipTests
 ```
 
 Do not ship a build made with `-SkipTests`.
@@ -441,7 +470,7 @@ certificate in the Windows trust store.
 1. Open `app\__init__.py` and raise `__version__`, for example from `"2.0.0"` to
    `"2.0.1"`. The build reads it from there and passes it to the installer, so
    they can never disagree.
-2. Rebuild: `.\build.ps1 -Clean -Installer`
+2. Rebuild: `.\build.cmd -Clean -Installer`
 3. Sign, and distribute the new setup file.
 
 Users run the new installer over the old one. Because the installer keeps a
@@ -458,10 +487,10 @@ installed shows a clear message naming both versions rather than damaging it.
 
 | What you see | What it means |
 |---|---|
-| **It stops at *Preparing the virtual environment* and sits there** | Not a crash, just slow. Creating the environment writes several thousand small files, and both OneDrive sync and antivirus scanning make that crawl. **Give it 5 minutes before assuming it is stuck.** If your project is on the Desktop or in Documents, those are OneDrive-synced by default: move it to `C:\dev\401k-finder`, or run `.\build.ps1 -VenvPath C:\venvs\401k` to keep just the environment out of sync. Pressing Ctrl+C here produces a `KeyboardInterrupt` traceback ending in `stdout.read()`. |
+| **It stops at *Preparing the virtual environment* and sits there** | Not a crash, just slow. Creating the environment writes several thousand small files, and both OneDrive sync and antivirus scanning make that crawl. **Give it 5 minutes before assuming it is stuck.** If your project is on the Desktop or in Documents, those are OneDrive-synced by default: move it to `C:\dev\401k-finder`, or run `.\build.cmd -VenvPath C:\venvs\401k` to keep just the environment out of sync. Pressing Ctrl+C here produces a `KeyboardInterrupt` traceback ending in `stdout.read()`. |
 | `Failed to create the virtual environment` | Same causes as above. Delete any half-built `.venv` folder before retrying. |
 | `Python was not found` | Python is missing, or was installed without the PATH option. Re-run its installer, choose **Modify**, tick *Add python.exe to PATH*. |
-| `build.ps1 cannot be loaded because running scripts is disabled` | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window first. |
+| `build.ps1 cannot be loaded`, saying either *running scripts is disabled* or *is not digitally signed* | PowerShell's execution policy. Use `.\build.cmd` instead, which is not subject to it. Or run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` in the same window first. If that is itself refused, the policy is locked by Group Policy: use `powershell -ExecutionPolicy Bypass -File .\build.ps1`. If it still says *not digitally signed*, the files came from a downloaded ZIP and carry Windows' internet mark: `Get-ChildItem -Recurse | Unblock-File`. |
 | `Python 3.14 found, but this project requires...` | Install 3.12 or 3.13 alongside it. |
 | `Inno Setup 6 was not found` | Install it, or build without `-Installer`. |
 | `No module named pytest` | An older `build.ps1` that installed only the runtime dependencies. Update to the current version, which installs `requirements-dev.txt` and carries pytest and PyInstaller. |
