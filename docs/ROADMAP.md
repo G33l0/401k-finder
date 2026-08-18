@@ -129,7 +129,7 @@ against all 448 layouts.
 | **Column pruning on import** | M | 20 to 60 GB per form year is the biggest practical barrier to using the product. Most columns are never read. Importing only the columns the application uses would cut storage and import time several-fold |
 | **Incremental re-sync** | M | DOL republishes years as filings arrive. Detect changed files rather than re-downloading a whole year |
 | **Crash and support bundle** | S | One button that writes logs, schema version, imported years and licence status to a zip. Turns a confused email into a diagnosable one |
-| **Accessibility pass** | M | Keyboard navigation, screen-reader labels, and a font-size setting. Some of the audience for a lost-pension tool are older users |
+| **Accessibility pass** | M | The High contrast theme and the WCAG contrast floors on every scheme are done. What remains is keyboard navigation, screen-reader labels and a font-size setting. Some of the audience for a lost-pension tool are older users |
 | **Link checking in CI** | S | `scripts/check_resources.py` exists but is run by hand. A monthly scheduled run would catch a dead registry link before a customer does |
 
 ---
