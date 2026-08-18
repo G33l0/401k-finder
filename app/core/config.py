@@ -9,8 +9,6 @@ from platformdirs import user_data_dir
 
 APP_NAME = "401K Finder Pro"
 
-#: Set this to run against a scratch directory, which is how the test suite and
-#: the portable Windows build keep their data beside the executable.
 DATA_DIR_ENV_VAR = "FINDER_401K_DATA_DIR"
 
 
@@ -19,34 +17,21 @@ def get_app_data_dir() -> Path:
 
     override = os.environ.get(DATA_DIR_ENV_VAR)
 
-    # appauthor=False matters on Windows: passing an author name nests the data
-    # under %LOCALAPPDATA%\<author>\<appname>, which with an author equal to the
-    # application name produced "401K Finder Pro\401K Finder Pro". Every
-    # document refers to a single folder, so keep it that way.
     path = (
         Path(override).expanduser()
         if override
+        # appauthor=False: an author equal to the app name nests the folder twice.
         else Path(user_data_dir(APP_NAME, appauthor=False))
     )
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-#: Set to keep the bulk data somewhere other than the application folder --
-#: normally an external or USB drive. Overrides the stored pointer, which is
-#: what makes it useful for a portable build or a scripted run.
 STORAGE_DIR_ENV_VAR = "FINDER_401K_STORAGE_DIR"
 
 
 class StorageUnavailable(RuntimeError):
-    """
-    The configured storage location is not there.
-
-    Raised rather than quietly falling back, because the fallback would create
-    an empty database at the mount point and present it as an empty search
-    result -- which to somebody whose external drive is merely unplugged looks
-    exactly like losing everything.
-    """
+    """The configured storage location is not there."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -58,17 +43,7 @@ class StorageUnavailable(RuntimeError):
 
 
 def get_storage_dir(*, require: bool = True) -> Path:
-    """
-    Return where the bulk data lives: database, downloads, extracted CSVs.
-
-    Defaults to the application folder. A seventeen-year archive runs to
-    hundreds of gigabytes, so it can be pointed at another drive instead --
-    see :mod:`app.core.storage`.
-
-    Settings, logs and the licence deliberately do not move. They are tiny,
-    they are per-machine, and they have to be readable before anyone knows
-    whether the other drive is connected.
-    """
+    """Return where the bulk data lives: database, downloads, extracted CSVs."""
 
     from app.core import storage
 
@@ -143,27 +118,15 @@ def get_settings_path() -> Path:
 class Settings:
     """User-adjustable settings, persisted as JSON beside the database."""
 
-    #: Form years to work with by default.
     form_years: list[int] = field(default_factory=lambda: [2023])
-    #: "Latest" (one row per plan year) or "All" (every filing received).
     release: str = "Latest"
-    #: Restrict syncs to the datasets that carry provider information.
     core_datasets_only: bool = True
-    #: Keep downloaded ZIP archives after a successful import.
     keep_archives: bool = True
-    #: Keep extracted CSV files after a successful import.
     keep_extracted: bool = False
-    #: Rows buffered before each database flush during import.
     import_batch_size: int = 5000
-    #: Maximum search results returned to the UI.
     search_limit: int = 200
-    #: Seconds before a download request is abandoned.
     download_timeout: float = 120.0
-    #: Exclude welfare-only plans from search results.
     retirement_plans_only: bool = True
-    #: Colour scheme: "light", "dark" or "hacker". An unknown value falls back
-    #: to the default rather than failing, so hand-edited settings cannot stop
-    #: the application starting.
     theme: str = "light"
 
     @classmethod

@@ -39,8 +39,8 @@ def test_schedule_rows_attach_to_their_filings(session, imported):
 
 def test_schedule_rows_do_not_collapse_into_one_placeholder_plan(session, imported):
     """
-    Regression guard. Reading plan identity out of schedule rows — which do not
-    contain any — produced a single "UNKNOWN PLAN" that swallowed every row.
+    Regression guard. Reading plan identity out of schedule rows, which do not
+    contain any, produced a single "UNKNOWN PLAN" that swallowed every row.
     """
 
     unknown = session.execute(
@@ -66,7 +66,7 @@ def test_ack_ids_are_unique(session, imported):
 
 def test_large_plan_assets_come_from_schedule_h(session, imported):
     """
-    Form 5500 itself carries no financial totals — they are on Schedule H. A
+    Form 5500 itself carries no financial totals; they are on Schedule H. A
     plan filed on the main form must still end up with assets.
     """
 

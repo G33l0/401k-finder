@@ -1,4 +1,4 @@
-"""Schedules DCG and MEP — group and multiple-employer arrangements (2023 onward)."""
+"""Schedules DCG and MEP: group and multiple-employer arrangements (2023 onward)."""
 
 from __future__ import annotations
 

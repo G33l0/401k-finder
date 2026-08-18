@@ -1,10 +1,4 @@
-"""
-Plan and provider search over the local database.
-
-Text search uses SQLite FTS5 when it is available and falls back to LIKE when
-it is not, so the application still works against a Python build without the
-FTS5 module compiled in. Both paths return the same result shape.
-"""
+"""Plan and provider search over the local database."""
 
 from __future__ import annotations
 
@@ -22,13 +16,8 @@ from app.search.query import PlanQuery, ProviderQuery, QueryOptions, SortOrder
 
 logger = get_logger(__name__)
 
-#: FTS5 treats these as operators, so a user typing them must not break the query.
 _FTS_SPECIALS = re.compile(r'[":\^\*\(\)\-]+')
 
-#: Most text matches this many rows are fetched before filters are applied.
-#: A broad term such as "retirement" matches far more than anyone will read;
-#: the cap keeps the query bounded, and callers are told when it was reached so
-#: they can present the total as a lower bound rather than a wrong exact number.
 TEXT_MATCH_CAP = 5000
 
 
@@ -89,12 +78,7 @@ class PlanResult:
         return grouped
 
     def primary_providers(self) -> list[PartyResult]:
-        """
-        The parties that answer "who holds this account", most relevant first.
-
-        One entry per role: a firm reported on both Schedule C and Schedule H is
-        the same engagement seen twice, and showing it twice is just noise.
-        """
+        """The parties that answer "who holds this account", most relevant first."""
 
         seen: set[tuple[int, str]] = set()
         ordered: list[PartyResult] = []
@@ -143,12 +127,7 @@ def _fts_available(session: Session) -> bool:
 
 
 def build_match_expression(raw: str) -> str:
-    """
-    Turn user text into an FTS5 MATCH expression.
-
-    Every term is required and the last one is treated as a prefix, so typing
-    grows the result set narrower as you go rather than jumping around.
-    """
+    """Turn user text into an FTS5 MATCH expression."""
 
     cleaned = _FTS_SPECIALS.sub(" ", raw)
     terms = [term for term in cleaned.split() if term]
@@ -168,10 +147,6 @@ class SearchEngine:
     def __init__(self, session: Session) -> None:
         self.session = session
         self._use_fts = _fts_available(session)
-
-    # ------------------------------------------------------------------
-    # Plans
-    # ------------------------------------------------------------------
 
     def _text_filtered_ids(self, raw: str) -> list[int] | None:
         """Return plan ids matching the text, or None when there is no text."""
@@ -227,8 +202,6 @@ class SearchEngine:
             conditions.append(Plan.plan_category.in_(query.categories))
 
         for feature in query.features:
-            # Features are stored as a "|"-joined string; the delimiters on both
-            # sides stop 401K from matching a hypothetical 401K_SOMETHING.
             conditions.append(
                 or_(
                     Plan.plan_features == feature,
@@ -288,13 +261,7 @@ class SearchEngine:
         return statement
 
     def _apply_sort(self, statement: Select, query: PlanQuery) -> Select:
-        """
-        Apply an explicit sort.
-
-        Relevance is not expressible here — FTS5 has already ranked the ids and
-        that ordering is reapplied in Python after the rows come back, which is
-        both simpler and faster than rebuilding the ranking in SQL.
-        """
+        """Apply an explicit sort."""
 
         if query.sort is SortOrder.PLAN_NAME:
             return statement.order_by(Plan.plan_name)
@@ -307,8 +274,6 @@ class SearchEngine:
         if query.sort is SortOrder.YEAR:
             return statement.order_by(Plan.last_year.desc().nulls_last())
 
-        # Relevance with no text to rank by: biggest plans first is the more
-        # useful default when browsing.
         return statement.order_by(Plan.latest_participants.desc().nulls_last())
 
     def search_plans(
@@ -338,7 +303,6 @@ class SearchEngine:
         plans = list(self.session.execute(statement).scalars())
 
         if ranked:
-            # Restore the relevance order FTS5 produced, then page.
             rank = {plan_id: position for position, plan_id in enumerate(matched_ids or [])}
             plans.sort(key=lambda plan: rank.get(plan.id, len(rank)))
             plans = plans[query.offset : query.offset + query.limit]
@@ -437,14 +401,7 @@ class SearchEngine:
         return self.count_plans_detailed(query)[0]
 
     def count_plans_detailed(self, query: PlanQuery) -> tuple[int, bool]:
-        """
-        Return ``(count, is_lower_bound)``.
-
-        Text search reads at most ``TEXT_MATCH_CAP`` matches before filtering,
-        so for a broad term the count is a floor rather than a total. Saying
-        "5,000 matched" when the real figure is 60,000 would be simply wrong,
-        so the flag lets callers render it as "5,000+".
-        """
+        """Return ``(count, is_lower_bound)``."""
 
         matched_ids = self._text_filtered_ids(query.text)
         capped = matched_ids is not None and len(matched_ids) >= TEXT_MATCH_CAP
@@ -501,10 +458,6 @@ class SearchEngine:
                 .order_by(Filing.form_year.desc(), Filing.id.desc())
             ).scalars()
         )
-
-    # ------------------------------------------------------------------
-    # Providers
-    # ------------------------------------------------------------------
 
     def search_providers(self, query: ProviderQuery) -> list[ProviderResult]:
         statement = select(Provider)

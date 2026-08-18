@@ -1,22 +1,4 @@
-"""
-Form 5500 field schemas.
-
-Historically this package held a hand-written field list per form year. Those
-lists duplicated the layout files DOL publishes alongside each dataset, and a
-hand-maintained copy of 140 field definitions drifts the moment DOL revises a
-layout — silently, because nothing checks it.
-
-The published layouts are now vendored directly under :mod:`app.dol.layouts`
-and are the single source of truth. This module keeps a schema-shaped view over
-them, so code that wants "the 2025 Form 5500 schema" can still ask for it by
-name and get the fields DOL actually published.
-
-    from app.dol.schemas import get_schema
-
-    schema = get_schema(2025, "F_5500")
-    schema.get_field("SPONS_DFE_EIN").size   # 9
-    schema.identity_fields                    # fields that identify a filing
-"""
+"""Form 5500 field schemas."""
 
 from __future__ import annotations
 
@@ -24,7 +6,6 @@ from dataclasses import dataclass
 
 from app.dol.layouts import FieldDefinition, Layout, available_years, get_layout
 
-#: The fields that identify a filing and the plan behind it, per filing dataset.
 IDENTITY_FIELDS: dict[str, tuple[str, ...]] = {
     "F_5500": (
         "ACK_ID",
@@ -53,7 +34,6 @@ IDENTITY_FIELDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-#: Fields worth searching on, per filing dataset.
 SEARCH_FIELDS: dict[str, tuple[str, ...]] = {
     "F_5500": (
         "PLAN_NAME",
@@ -77,7 +57,6 @@ SEARCH_FIELDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-#: Form 5500 fields recording which schedules were attached to a filing.
 SCHEDULE_ATTACHMENT_FIELDS: tuple[str, ...] = (
     "SCH_R_ATTACHED_IND",
     "SCH_MB_ATTACHED_IND",

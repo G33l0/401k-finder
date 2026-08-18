@@ -1,21 +1,11 @@
-"""
-Turn a trace into something a person can act on.
-
-A list of plan names is not much use to someone trying to recover money. What
-they need is: this is the plan, this is its EIN and plan number, this firm was
-holding it, here is the letter to send, and here is where to go if that fails.
-
-Everything here is derived from the filings — no advice is invented, and where
-the filings cannot answer something (whether a balance exists, where a
-terminated plan's assets went) the report says so rather than guessing.
-"""
+"""Turn a trace into something a person can act on."""
 
 from __future__ import annotations
 
 import textwrap
 from datetime import date
 
-from app.core.constants import SOURCE_LABEL
+from app.core.constants import SOURCE_LABEL, year_span
 from app.trace.matcher import PlanMatch, TraceReport
 from app.trace.resources import Audience, Resource, for_audience
 
@@ -43,9 +33,6 @@ def next_steps(match: PlanMatch) -> list[str]:
     final = chain.final if chain else None
 
     if final is not None:
-        # The filings say where the assets went. This is the whole reason for
-        # reading Schedule H Part 1, and it changes the advice completely --
-        # from "we do not know" to "write to this plan".
         if match.terminated:
             steps.append(
                 f"This plan filed a final return for {match.final_year}, and the "
@@ -57,7 +44,7 @@ def next_steps(match: PlanMatch) -> list[str]:
         if match.successor_holders:
             successor = match.successor_holders[0]
             steps.append(
-                f"Contact {successor.name} — the "
+                f"Contact {successor.name}, the "
                 f"{successor.role_label.lower()} of {final.display_name}, the plan "
                 f"that received the assets. Quote EIN {final.to_ein or '?'} and plan "
                 f"number {final.to_plan_number or '?'} ({successor.citation()})."
@@ -82,7 +69,7 @@ def next_steps(match: PlanMatch) -> list[str]:
         steps.append(
             f"This plan filed a final return for {match.final_year}. It no longer "
             f"exists, and it did not report transferring its assets to another "
-            f"plan — so the money was most likely paid out, or rolled into an IRA "
+            f"plan. The money was most likely paid out, or rolled into an IRA "
             f"opened in your name."
         )
         if holder:
@@ -93,12 +80,12 @@ def next_steps(match: PlanMatch) -> list[str]:
             )
         steps.append(
             "Check the Retirement Savings Lost and Found and your state's "
-            "unclaimed property office — a small balance from a wound-up plan "
+            "unclaimed property office. A small balance from a wound-up plan "
             "often ends up in one of them."
         )
     elif holder:
         steps.append(
-            f"Contact {holder.name} — the {holder.role_label.lower()} named in the "
+            f"Contact {holder.name}, the {holder.role_label.lower()} named in the "
             f"plan's {holder.form_year} filing ({holder.citation()}). Ask whether "
             f"they hold an account for you under plan number "
             f"{match.plan_number or '(not reported)'}, EIN {match.ein or '(not reported)'}."
@@ -124,7 +111,7 @@ def next_steps(match: PlanMatch) -> list[str]:
     steps.append(
         f"Everything above comes from the {SOURCE_LABEL}. Quote EIN "
         f"{match.ein or match.plan_name} and plan number "
-        f"{match.plan_number or '(not reported)'} — that pair identifies the plan "
+        f"{match.plan_number or '(not reported)'}. That pair identifies the plan "
         f"to anyone who administers it."
     )
 
@@ -139,12 +126,12 @@ def claim_letter(match: PlanMatch, person: str = "") -> str:
 
     years = ""
     if match.first_year and match.last_year:
-        years = f" (filings on record for {match.first_year}–{match.last_year})"
+        years = f" (filings on record for {year_span(match.first_year, match.last_year, joiner=' to ')})"
 
     return f"""\
 To: {addressee}
 
-Subject: Request for benefit information — {match.plan_name}
+Subject: Request for benefit information: {match.plan_name}
 
 I am writing to ask whether you hold a retirement account in my name.
 
@@ -199,7 +186,7 @@ def _match_block(match: PlanMatch, index: int) -> list[str]:
         f"     Sponsor:      {match.sponsor_name or 'not reported'}",
         f"     EIN / plan:   {match.ein or '?'} / {match.plan_number or '?'}",
         f"     Location:     {location or 'not reported'}",
-        f"     Filed for:    {match.first_year or '?'}–{match.last_year or '?'}",
+        f"     Filed for:    {year_span(match.first_year, match.last_year, joiner=' to ')}",
         f"     Participants: {participants}",
         f"     Plan assets:  {_money(match.total_assets)}",
     ]
@@ -208,7 +195,7 @@ def _match_block(match: PlanMatch, index: int) -> list[str]:
         lines.append(f"     Filed then as: {match.matched_as}")
 
     if match.terminated:
-        lines.append(f"     ** Plan wound up — final return filed for {match.final_year} **")
+        lines.append(f"     ** Plan wound up. Final return filed for {match.final_year} **")
 
     if match.successor:
         lines.append("")
@@ -262,7 +249,7 @@ def _resource_block(report: TraceReport) -> list[str]:
         "This report is built from Form 5500, which employers file about their",
         "plans. It records plans, not people: there is no participant list, no",
         "Social Security number and no individual balance anywhere in it. That is",
-        "why nothing above can confirm an account exists in your name — only the",
+        "why nothing above can confirm an account exists in your name. Only the",
         "plan's own recordkeeper, or one of the registries below, can do that.",
         "",
         "These hold participant-level data and can be searched by name or SSN:",
@@ -284,7 +271,7 @@ def _resource_block(report: TraceReport) -> list[str]:
         lines.extend(
             _wrap(
                 f"Search the unclaimed property office of every state you have "
-                f"lived or worked in — from your history that includes: "
+                f"lived or worked in. From your history, that is: "
                 f"{', '.join(report.history.states)}.",
                 "  ",
             )
@@ -311,17 +298,17 @@ def render_report(report: TraceReport, *, letters: bool = False) -> str:
     lines.append(f"Jobs searched:  {len(history)}")
 
     if report.years_searched:
-        span = f"{report.years_searched[0]}–{report.years_searched[-1]}"
+        span = year_span(report.years_searched[0], report.years_searched[-1], joiner=' to ')
         lines.append(f"Form years held locally: {span}")
     else:
-        lines.append("Form years held locally: none — no data has been imported yet")
+        lines.append("Form years held locally: none. No data has been imported yet.")
 
     if report.index_only_years:
         thin = report.index_only_years
         lines.append("")
         lines.extend(
             _wrap(
-                f"Note: {len(thin)} of those years ({thin[0]}–{thin[-1]}) hold "
+                f"Note: {len(thin)} of those years ({year_span(thin[0], thin[-1], joiner=' to ')}) hold "
                 f"employer and plan records only. They can tell you which plan "
                 f"your employer ran, but not who was holding the money. Import "
                 f"those years in full to fill that in.",
@@ -343,7 +330,7 @@ def render_report(report: TraceReport, *, letters: bool = False) -> str:
             "",
             "It cannot tell you whether you personally have a balance. Form 5500",
             "carries no participant records at all. What it gives you is the plan's",
-            "exact identity and who to ask — which is what you need before anyone",
+            "exact identity and who to ask, which is what you need before anyone",
             "will look you up.",
             "",
         ]

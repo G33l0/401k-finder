@@ -1,27 +1,4 @@
-"""
-The official places an individual can look for a lost retirement account.
-
-This application searches Form 5500, which is plan-level: it names employers,
-plans and the firms that hold the money, and it is the fastest way to work out
-*who to write to*. It contains no participant records at all, so it can never
-answer "is there an account in my name" directly.
-
-The registries below can, because they hold participant-level data this
-application has no access to. Several of them identify you by Social Security
-number, which is exactly where an SSN belongs — behind government identity
-verification, not typed into a desktop application.
-
-Presenting these alongside the search results is not a disclaimer. For a
-participant whose old employer was acquired, dissolved, or terminated its plan,
-one of these is usually the answer, and the Form 5500 search is what tells them
-which one to try.
-
-.. note::
-
-   Government URLs and phone numbers drift. Check them before a release —
-   ``python -m scripts.check_resources`` fetches each one and reports what it
-   got.
-"""
+"""The official places an individual can look for a lost retirement account."""
 
 from __future__ import annotations
 
@@ -32,13 +9,9 @@ from enum import StrEnum
 class Audience(StrEnum):
     """Who a resource is useful to, so the UI can lead with the right ones."""
 
-    #: Everyone should try this.
     EVERYONE = "EVERYONE"
-    #: The plan was terminated, or the employer no longer exists.
     TERMINATED = "TERMINATED"
-    #: A defined benefit pension rather than an account balance.
     PENSION = "PENSION"
-    #: Small balances that were cashed out and handed to the state.
     ESCHEATED = "ESCHEATED"
 
 
@@ -50,11 +23,8 @@ class Resource:
     url: str
     audience: Audience
 
-    #: What this holds that Form 5500 does not.
     holds: str
-    #: What the person needs in order to use it.
     needs: str
-    #: The honest limitation.
     caveat: str = ""
     phone: str = ""
 
@@ -63,7 +33,6 @@ class Resource:
         return "Social Security number" in self.needs
 
 
-#: Ordered by how often they are the answer.
 RESOURCES: tuple[Resource, ...] = (
     Resource(
         name="Retirement Savings Lost and Found (U.S. Department of Labor)",
@@ -91,12 +60,12 @@ RESOURCES: tuple[Resource, ...] = (
         holds="Unclaimed balances that plan administrators have chosen to list.",
         needs="Your Social Security number. Searching is free.",
         caveat=(
-            "Private and voluntary — a plan only appears if its administrator "
+            "Private and voluntary. A plan only appears if its administrator "
             "signed up, so this covers a fraction of plans."
         ),
     ),
     Resource(
-        name="PBGC — find an unclaimed pension",
+        name="PBGC: find an unclaimed pension",
         url="https://www.pbgc.gov/workers-retirees/find-unclaimed-retirement-benefits/search-unclaimed",
         audience=Audience.TERMINATED,
         holds=(
@@ -109,7 +78,7 @@ RESOURCES: tuple[Resource, ...] = (
         phone="1-800-400-7242",
     ),
     Resource(
-        name="Social Security Administration — potential private pension benefits",
+        name="Social Security Administration: potential private pension benefits",
         url="https://www.ssa.gov/",
         audience=Audience.EVERYONE,
         holds=(
@@ -120,7 +89,7 @@ RESOURCES: tuple[Resource, ...] = (
         needs="Your Social Security number, in a request to SSA.",
         caveat=(
             "Form 8955-SSA is filed with the IRS and is not public, so no third "
-            "party can search it for you — you have to ask SSA yourself. SSA "
+            "party can search it for you. You have to ask SSA yourself. SSA "
             "normally sends the notice automatically when you claim benefits."
         ),
         phone="1-800-772-1213",
@@ -151,14 +120,14 @@ RESOURCES: tuple[Resource, ...] = (
         phone="1-866-444-3272",
     ),
     Resource(
-        name="EFAST2 — read the plan's own filings",
+        name="EFAST2: read the plan's own filings",
         url="https://www.efast.dol.gov/5500search/",
         audience=Audience.EVERYONE,
         holds=(
             "The complete Form 5500 filings behind everything this application "
             "shows, including the signed originals and attachments."
         ),
-        needs="The plan's name or the sponsor's EIN — both shown in your results.",
+        needs="The plan's name or the sponsor's EIN. Both are shown in your results.",
         caveat="Plan-level only. Like this application, it holds no participant records.",
     ),
 )

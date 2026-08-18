@@ -1,13 +1,4 @@
-"""
-The licence key kept on the customer's machine.
-
-Just the key text and when it was entered. There is deliberately no signed
-"activation record" here: the key is itself a signature over the machine it
-belongs to, so it can be re-checked from scratch on every launch. Nothing
-stored locally is trusted, which means there is nothing stored locally worth
-forging — copying this file to another computer gains the copier nothing,
-because the key inside it names the computer it was issued for.
-"""
+"""The licence key kept on the customer's machine."""
 
 from __future__ import annotations
 
@@ -56,13 +47,7 @@ def save(key: str) -> Path:
 
 
 def load() -> StoredLicense | None:
-    """
-    Read the stored licence, or None if there is not a readable one.
-
-    Anything unreadable is treated as absent rather than as an error: the
-    customer is then asked to enter their key, which is a state they can
-    actually get out of.
-    """
+    """Read the stored licence, or None if there is not a readable one."""
 
     target = license_path()
 

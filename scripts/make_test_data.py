@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate synthetic DOL-shaped CSV files for testing.
-
-Every file has the exact column set of the real published layout for its
-dataset and year, so the import pipeline can be exercised end to end without
-downloading gigabytes from DOL. Values are invented; only the structure is real.
-
-    python -m scripts.make_test_data --year 2023 --plans 50
-"""
+"""Generate synthetic DOL-shaped CSV files for testing."""
 
 from __future__ import annotations
 
@@ -45,7 +37,6 @@ PLAN_SUFFIXES = [
     "EMPLOYEE STOCK OWNERSHIP PLAN",
 ]
 
-# (pension codes, expected category) pairs covering the classifier's branches.
 PENSION_CODE_SETS = ["2E2G2J", "2J2K2S", "2E2F2G", "1A1I", "2L2M", "2N", "2O2P", "2C", "2G2J2W"]
 
 RECORDKEEPERS = [
@@ -81,7 +72,6 @@ ACCOUNTANTS = [
     "CROWE LLP",
 ]
 
-# Placeholder values the extractor must reject rather than store as providers.
 PLACEHOLDERS = ["N/A", "NONE", "SAME AS ABOVE", "-", "0"]
 
 
@@ -118,17 +108,7 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
     sch_h1: list[dict[str, str]] = []
 
     def _churn(index: int) -> int:
-        """
-        How far to rotate this plan's providers for this form year.
-
-        Every fourth plan changes provider each year; the rest keep theirs. A
-        fixture where nobody ever moves cannot exercise change detection, and
-        one where everybody moves cannot show that a steady plan is left alone.
-
-        Offset so plan 0 is never churned: it is the ACME plan the search tests
-        pin their provider assertions to, and rotating it would break them for
-        reasons that have nothing to do with what they are testing.
-        """
+        """How far to rotate this plan's providers for this form year."""
 
         return year if index % 4 == 1 else 0
 
@@ -139,11 +119,6 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
         plan_name = f"{sponsor.split()[0]} {PLAN_SUFFIXES[index % len(PLAN_SUFFIXES)]}"
         codes = PENSION_CODE_SETS[index % len(PENSION_CODE_SETS)]
         large_plan = index % 3 == 0
-        # The year must be in the acknowledgement id. DOL issues one per
-        # filing, and generating two form years with the same ids made the
-        # second import update the first year's filings instead of adding to
-        # them -- which looked like it worked, and quietly left one year in the
-        # database when the fixture claimed two.
         ack = f"{year}{index:08d}NAL{index:07d}001"
 
         participants = 120 + index * 37 if large_plan else 12 + index * 3
@@ -210,7 +185,6 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
                 }
             )
 
-            # Two Schedule C providers per large plan, with distinct service codes.
             for order, (name, service_codes) in enumerate(
                 (
                     (RECORDKEEPERS[(index + _churn(index)) % len(RECORDKEEPERS)], "1537645038"),
@@ -234,7 +208,6 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
                     }
                 )
 
-            # A placeholder row the extractor must discard.
             sch_c2.append(
                 {
                     "ACK_ID": ack,
@@ -335,12 +308,7 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
             }
         )
 
-    # --- A wind-up chain, so the successor walk has something real to follow.
     #
-    # 12 -> 15 -> 18 is a two-hop merger; 21 points at an EIN that is not in
-    # this fixture, which is the common case of a transferee whose year has
-    # never been imported. Every index used here is a multiple of 3, so all of
-    # them file the large-plan schedules.
     def _ein_for(index: int) -> str:
         return f"{10_000_000 + index * 137:09d}"
 
@@ -358,7 +326,6 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
         if source >= plan_count or (target is not None and target >= plan_count):
             continue
 
-        # The plan handing its assets over files a final return.
         for row in main_rows:
             if row["ACK_ID"] == _ack_for(source):
                 row["FINAL_FILING_IND"] = "1"

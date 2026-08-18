@@ -14,18 +14,7 @@ _engine: Engine | None = None
 
 
 def journal_mode_for(path: Path) -> str:
-    """
-    The journal mode that will actually work where the database lives.
-
-    WAL is much better for this workload -- it keeps the window responsive
-    while a multi-gigabyte import runs -- but it needs a shared-memory file
-    beside the database, which network filesystems do not implement. On a
-    remote path WAL fails at the first write, so those fall back to the
-    rollback journal.
-
-    A directly connected external or USB drive is an ordinary filesystem and
-    keeps WAL.
-    """
+    """The journal mode that will actually work where the database lives."""
 
     from app.core import storage
 
@@ -46,12 +35,7 @@ def journal_mode_for(path: Path) -> str:
 
 
 def _configure_connection(dbapi_connection, _record) -> None:  # noqa: ANN001
-    """
-    Apply per-connection SQLite settings.
-
-    Pragmas set on one connection do not carry to the next, so foreign keys and
-    the cache configuration have to be re-applied every time the pool opens one.
-    """
+    """Apply per-connection SQLite settings."""
 
     cursor = dbapi_connection.cursor()
     try:
@@ -60,27 +44,18 @@ def _configure_connection(dbapi_connection, _record) -> None:  # noqa: ANN001
         cursor.execute("PRAGMA synchronous = NORMAL")
         cursor.execute("PRAGMA temp_store = MEMORY")
         cursor.execute("PRAGMA cache_size = -262144")
-        # Generous, and it matters more on removable media: a USB drive under a
-        # long write can leave another connection waiting far longer than a
-        # local SSD would.
         cursor.execute("PRAGMA busy_timeout = 60000")
     finally:
         cursor.close()
 
 
-#: Resolved once per engine, because the pool opens connections on worker
-#: threads where deciding this again would mean a filesystem probe per query.
+# Resolved once per engine: the pool opens connections on worker threads,
+# where a filesystem probe per query would be wasteful.
 _JOURNAL_MODE = "WAL"
 
 
 def create_database_engine(path: Path | None = None, echo: bool = False) -> Engine:
-    """
-    Create a SQLite engine for the local plan database.
-
-    SQLite is the right fit here: the data is a single-user local cache of
-    public files, it needs no server, and the whole database is one file the
-    user can copy or delete.
-    """
+    """Create a SQLite engine for the local plan database."""
 
     global _JOURNAL_MODE
 
@@ -93,7 +68,6 @@ def create_database_engine(path: Path | None = None, echo: bool = False) -> Engi
         f"sqlite:///{database_path}",
         echo=echo,
         future=True,
-        # The Qt worker threads each take their own session from the pool.
         connect_args={"check_same_thread": False, "timeout": 30.0},
     )
 

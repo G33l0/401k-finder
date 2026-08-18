@@ -1,24 +1,4 @@
-"""
-Resolve the many spellings of one firm onto a single provider record.
-
-Across a form year the same recordkeeper appears as "FIDELITY INVESTMENTS
-INSTITUTIONAL OPERAT", "Fidelity Investments Institutional Operations Co",
-"FIDELITY INVESTMENTS INST. OPS. CO., INC." and dozens of further variants —
-Schedule C truncates the name field to 35 characters, which guarantees ragged
-spellings for any firm with a long name.
-
-Two mechanisms handle this:
-
-* a **name key** (punctuation folded, legal suffixes dropped) groups exact
-  variants cheaply and deterministically during import;
-* a **canonical brand table** maps known keys onto a single display name, so
-  results group under "Fidelity" rather than under twelve subsidiaries.
-
-Fuzzy matching is deliberately *not* used during import — it is O(n²) against
-hundreds of thousands of distinct names and would make a full-year import
-impractical. It is offered instead as a search-time affordance in
-:mod:`app.providers.matcher`.
-"""
+"""Resolve the many spellings of one firm onto a single provider record."""
 
 from __future__ import annotations
 
@@ -28,7 +8,6 @@ from dataclasses import dataclass
 from app.core.constants import ProviderRole
 from app.dol.normalizer import normalize_name_key, normalize_text
 
-#: Noise tokens that survive suffix stripping but carry no identity.
 _NOISE_TOKENS = frozenset(
     {
         "GROUP",
@@ -55,9 +34,6 @@ class Brand:
     default_role: ProviderRole | None = None
 
 
-#: Recognised brands, matched against the name key as a prefix or word run.
-#: This list makes results readable; it is never required for correctness, and
-#: an unrecognised provider is stored under its filed name exactly as reported.
 BRANDS: tuple[Brand, ...] = (
     Brand("Fidelity Investments", ("FIDELITY INVESTMENTS", "FIDELITY MANAGEMENT", "FMR "), ProviderRole.RECORDKEEPER),
     Brand("Empower", ("EMPOWER", "GREAT WEST LIFE", "GREAT WEST TRUST", "PRUDENTIAL RETIREMENT"), ProviderRole.RECORDKEEPER),
@@ -142,13 +118,7 @@ class NormalizedProvider:
 
 
 def _load_seed_brands() -> tuple[Brand, ...]:
-    """
-    Load extra brands from ``database/seeds/known_providers.json``.
-
-    This lets an installation recognise regional firms the built-in table does
-    not know about without editing code. A malformed or missing seed file is
-    ignored rather than fatal — a bad seed should never stop the tool starting.
-    """
+    """Load extra brands from ``database/seeds/known_providers.json``."""
 
     import json
     from pathlib import Path
@@ -194,8 +164,6 @@ def _load_seed_brands() -> tuple[Brand, ...]:
     return tuple(loaded)
 
 
-#: Seed brands are consulted first so an installation can override a built-in
-#: mapping it disagrees with.
 _ALL_BRANDS: tuple[Brand, ...] = _load_seed_brands() + BRANDS
 
 
@@ -213,19 +181,12 @@ _MULTI_SPACE = re.compile(r"\s+")
 
 
 def normalize_provider(name: str) -> NormalizedProvider:
-    """
-    Assign a grouping key and, where recognised, a canonical brand to a name.
-
-    The filed name is preserved verbatim as ``name``; nothing here rewrites what
-    the plan actually reported.
-    """
+    """Assign a grouping key and, where recognised, a canonical brand to a name."""
 
     filed = normalize_text(name)
     key = normalize_name_key(filed)
 
     if not key:
-        # Nothing survived normalisation (a name of only punctuation or legal
-        # suffixes). Fall back to the filed text so the row is still traceable.
         key = _MULTI_SPACE.sub(" ", filed.upper()).strip()
 
     brand = _brand_for_key(key)
@@ -239,12 +200,7 @@ def normalize_provider(name: str) -> NormalizedProvider:
 
 
 def strip_noise(name_key: str) -> str:
-    """
-    Drop generic tokens from a name key, for looser grouping.
-
-    Used by the fuzzy matcher rather than by import, since dropping "SERVICES"
-    from "PENSION SERVICES" would over-merge distinct small firms.
-    """
+    """Drop generic tokens from a name key, for looser grouping."""
 
     tokens = [token for token in name_key.split() if token not in _NOISE_TOKENS]
     return " ".join(tokens) or name_key

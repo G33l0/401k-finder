@@ -1,12 +1,4 @@
-"""
-Validate downloaded DOL files against their published layouts.
-
-Validation is layout-driven: a file is compared to the field list DOL published
-for that dataset and year. A missing key column is an error because the row
-cannot be attached to a filing without it; a missing or unexpected non-key
-column is a warning, since DOL does revise layouts and the importer reads by
-column name rather than position.
-"""
+"""Validate downloaded DOL files against their published layouts."""
 
 from __future__ import annotations
 
@@ -76,12 +68,7 @@ def validate_csv_file(
     dataset: str | None = None,
     form_year: int | None = None,
 ) -> ValidationResult:
-    """
-    Check one CSV file against the layout DOL published for it.
-
-    When the dataset and year are not supplied they are recovered from the
-    filename, which DOL names consistently after the archive.
-    """
+    """Check one CSV file against the layout DOL published for it."""
 
     result = ValidationResult()
 

@@ -1,11 +1,4 @@
-"""
-Turn a raw filing row into the normalized values the database stores.
-
-The three filing datasets describe the same concepts under different field
-prefixes — ``PLAN_NAME`` on Form 5500, ``SF_PLAN_NAME`` on the short form and
-``DCG_PLAN_NAME`` on Schedule DCG — so each dataset gets a field map and all of
-them produce the same :class:`ParsedFiling`.
-"""
+"""Turn a raw filing row into the normalized values the database stores."""
 
 from __future__ import annotations
 
@@ -164,8 +157,6 @@ FORM_5500_MAP = FieldMap(
     ein=("SPONS_DFE_EIN",),
     sponsor_name=("SPONSOR_DFE_NAME", "SPONS_DFE_NAME"),
     sponsor_dba_name=("SPONS_DFE_DBA_NAME",),
-    # Location address first: it is where the plan is actually administered,
-    # while the mailing address is often a PO box or an agent's office.
     sponsor_city=("SPONS_DFE_LOC_US_CITY", "SPONS_DFE_MAIL_US_CITY"),
     sponsor_state=("SPONS_DFE_LOC_US_STATE", "SPONS_DFE_MAIL_US_STATE"),
     sponsor_zip=("SPONS_DFE_LOC_US_ZIP", "SPONS_DFE_MAIL_US_ZIP"),
@@ -297,14 +288,7 @@ def classify_plan(
     schedule_r_401k: bool | None = None,
     plan_name: str | None = None,
 ) -> tuple[str, tuple[str, ...]]:
-    """
-    Derive the plan category and feature set from the filed characteristics codes.
-
-    The benefit codes are the authoritative signal. Two supplements are applied
-    where the codes are silent: the Schedule R / 5500-SF ``401K_PLAN_IND`` box,
-    and a plan-name check for 457(b) plans, which have no characteristics code
-    of their own but are named unambiguously in practice.
-    """
+    """Derive the plan category and feature set from the filed characteristics codes."""
 
     features: set[str] = set()
     saw_dc = False
@@ -348,9 +332,6 @@ def classify_plan(
         if category is PlanCategory.UNKNOWN:
             category = PlanCategory.DEFINED_CONTRIBUTION
 
-    # TYPE_PLAN_ENTITY_CD: 1 = multiemployer, 2 = single-employer,
-    # 3 = multiple-employer, 4 = DFE. Code 2 is by far the most common and adds
-    # nothing worth flagging, so only the shared-employer arrangements do.
     if plan_entity_code == MULTIEMPLOYER_ENTITY_CODE:
         features.add(PlanFeature.MULTIEMPLOYER.value)
     elif plan_entity_code == MULTIPLE_EMPLOYER_ENTITY_CODE:
@@ -364,8 +345,6 @@ def classify_plan(
     return category.value, tuple(sorted(features))
 
 
-#: Matches "457", "457(b)", "457 (B)" and "457b", but not a longer number that
-#: merely starts with 457, such as an account or plan number like 4570.
 _457_PATTERN = re.compile(
     r"\b457\s*(?:\(\s*[bfg]\s*\)|[bfg]\b)|\b457\b",
     re.IGNORECASE,
@@ -381,12 +360,7 @@ def parse_filing_row(
     dataset: str,
     form_year: int,
 ) -> ParsedFiling:
-    """
-    Parse one row of a filing dataset.
-
-    Rows that cannot be identified still come back — with ``errors`` populated —
-    so the importer can count and report them instead of silently dropping data.
-    """
+    """Parse one row of a filing dataset."""
 
     mapping = FIELD_MAPS.get(dataset.upper())
     if mapping is None:
@@ -492,13 +466,7 @@ _SCHEDULE_FILENAME = re.compile(
 
 
 def infer_dataset_from_filename(filename: str) -> tuple[str | None, int | None]:
-    """
-    Recover ``(dataset, form_year)`` from a DOL CSV filename.
-
-    DOL names the CSV inside each archive after the archive itself
-    (``F_SCH_C_PART1_ITEM2_2023_Latest.csv``), which makes a loose folder of
-    files importable without the caller having to say what each one is.
-    """
+    """Recover ``(dataset, form_year)`` from a DOL CSV filename."""
 
     match = _SCHEDULE_FILENAME.match(Path(filename).name)
     if not match:

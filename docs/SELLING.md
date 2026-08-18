@@ -60,7 +60,7 @@ about a *plan*, and across all 448 published record layouts there is no
 participant name, no SSN and no individual balance. A page saying "enter your
 SSN to find your lost 401(k)" would be describing a capability the software
 does not have, over a product that charges money, in a category regulators
-watch closely — and it is indistinguishable from the scams that operate in this
+watch closely, and it is indistinguishable from the scams that operate in this
 exact space.
 
 | Say this | Not this |
@@ -69,7 +69,7 @@ exact space.
 | "Identifies the plan, its EIN, and the recordkeeper to contact" | "Locates your account balance" |
 | "Built from public Department of Labor filings" | "Searches a nationwide database of retirement accounts" |
 
-The application enforces this from the inside — an SSN typed into the employer
+The application enforces this from the inside. An SSN typed into the employer
 box is refused, never stored, and the user is pointed at the Department of
 Labor's Retirement Savings Lost and Found, which does take one. Keep your
 marketing on the same side of that line.
@@ -81,7 +81,7 @@ marketing on the same side of that line.
 ```
 buyer opens the app     it shows a Machine ID and your email address
 buyer emails you        with that Machine ID
-you agree a price       however you like — the software is not involved
+you agree a price       however you like. The software is not involved
 you issue a key         signed with your private key, for that Machine ID
 buyer pastes the key    checked on the spot, offline, and stored
 every launch after      re-checked against the same machine. No network.
@@ -99,7 +99,7 @@ issue a key.
 
 The Machine ID is derived from the Windows `MachineGuid` and the system volume
 serial, then hashed. **It never leaves the customer's computer except when they
-choose to email it to you**, and it is a hash, not a hardware serial — so this
+choose to email it to you**, and it is a hash, not a hardware serial, so this
 is not hardware inventory collection and your privacy policy stays short.
 
 Because the key names one machine, handing it to a colleague does nothing. So
@@ -110,7 +110,7 @@ first machine.
 
 Keys are perpetual by default. Pass `--days 365` to issue an annual licence, and
 the application refuses to start the day after it lapses. Use this if you want
-to sell subscriptions — it is the only leverage you have, because **there is no
+to sell subscriptions. It is the only leverage you have, because **there is no
 revocation**. See section 7.
 
 ---
@@ -167,7 +167,7 @@ has no licence key configured"*.
 ### Testing without rebuilding
 
 An environment variable overrides the compiled configuration, but **only when
-the compiled configuration has licensing switched off** — so a released build
+the compiled configuration has licensing switched off**, so a released build
 cannot have its licensing disabled by setting a variable:
 
 ```powershell
@@ -184,7 +184,7 @@ The installer is around 200 MB, so this is a real bandwidth cost at volume.
 Because payment happens by email, you have a choice the automated route does
 not give you: **send the download link only to people who have paid.** A plain
 public link is fine if you would rather let anyone download it and gate on the
-licence instead — an unlicensed copy will not start.
+licence instead. An unlicensed copy will not start.
 
 If you host it yourself:
 
@@ -228,19 +228,19 @@ python -m scripts.issue_license `
     --email
 ```
 
-`--email` prints a complete reply — key, activation instructions and the terms —
+`--email` prints a complete reply, covering the key, activation instructions and the terms,
 ready to paste into your mail client. Without it you get just the key.
 
 Add `--days 365` for an annual licence, or `--expires 2027-03-31` for a fixed
 date.
 
-**5. They paste it in and click Activate.** Done — offline, instantly, and it
+**5. They paste it in and click Activate.** Done: offline, instantly, and it
 keeps working with no further contact.
 
 ### Moving a customer to a new computer
 
 They send the new Machine ID; you issue a new key. There is no seat to release
-and nothing to revoke, so decide your own policy — most people simply reissue.
+and nothing to revoke, so decide your own policy. Most people simply reissue.
 If that worries you, sell annual keys, which bound how long a duplicate is
 useful.
 
@@ -254,7 +254,7 @@ choices, with the thing that actually matters about each:
 | Method | Watch out for |
 |---|---|
 | **Bank transfer / invoice** | Best for business buyers, who often prefer it. No fees. Slow to clear. |
-| **PayPal invoice** | Fast and familiar. Buyer-friendly chargeback rules — and you cannot revoke a key after a reversal. |
+| **PayPal invoice** | Fast and familiar. Buyer-friendly chargeback rules, and you cannot revoke a key after a reversal. |
 | **Stripe payment link** | A link you paste into an email. Around 2.9% + 30¢. You handle your own tax. |
 | **Wise / Revolut** | Good for cross-border, low FX cost. |
 
@@ -275,7 +275,7 @@ vendor who claims otherwise is selling obfuscation theatre.**
 
 The application runs on hardware the customer controls. They can attach a
 debugger, patch the binary, or replace the public key with their own. **A
-PyInstaller build is softer than most** — the Python bytecode sits in the
+PyInstaller build is softer than most.** The Python bytecode sits in the
 archive and can be extracted and decompiled, so someone competent can find and
 remove the check in an afternoon.
 
@@ -288,7 +288,7 @@ Be clear about the one real gap in this design:
 
 What this system does achieve:
 
-- Handing a key to a colleague **fails** — it names one machine.
+- Handing a key to a colleague **fails**, because it names one machine.
 - Copying `license.json` to another machine **fails**, for the same reason.
 - Nobody can build a key generator from the shipped application, because it
   holds no secret capable of signing.
@@ -299,7 +299,7 @@ crack it were never going to pay; the people who would pay are not going to
 crack it. Spend your effort on the product.
 
 If you later want stronger protection, the meaningful step is not more
-obfuscation — it is **moving something valuable server-side**, so a cracked
+obfuscation. It is **moving something valuable server-side**, so a cracked
 client is missing a capability rather than just a check.
 
 ---
@@ -310,12 +310,12 @@ Not optional, and cheap to get right at the start.
 
 ### You need three documents
 
-1. **EULA / licence terms** — what the customer may do with the software, how
+1. **EULA / licence terms.** What the customer may do with the software, how
    many machines, no warranty, limitation of liability.
-2. **Privacy policy** — you receive an email address and a hashed machine
+2. **Privacy policy.** You receive an email address and a hashed machine
    identifier. Both must be disclosed, with a retention period and a contact for
    deletion requests. The hashed Machine ID is still personal data under GDPR.
-3. **Refund policy** — state it plainly. EU consumers have a 14-day right of
+3. **Refund policy.** State it plainly. EU consumers have a 14-day right of
    withdrawal for digital goods unless they explicitly waive it, and since you
    are selling directly, getting that waiver in writing before you send the key
    is on you.
@@ -334,8 +334,8 @@ otherwise:
 
 ### Keep a record of what you issued
 
-The application keeps none. Keep your own list — Machine ID, customer, date,
-expiry, what they paid — or you will not be able to answer "did this person
+The application keeps none. Keep your own list of Machine ID, customer, date,
+expiry and what they paid, or you will not be able to answer "did this person
 buy?" when they email you in two years. A spreadsheet is enough.
 
 ---
@@ -346,7 +346,7 @@ Four situations account for nearly all licence mail.
 
 **"My key does not work."** Ask for the output of
 `401k-finder.exe license status`. If it says *"issued for a different
-computer"*, the Machine ID changed — reissue. If it says *"not valid"*, the key
+computer"*, the Machine ID changed, so reissue. If it says *"not valid"*, the key
 was truncated in copying; send it again.
 
 **"I have a new computer."** They send the new Machine ID; you issue a new key.
@@ -380,7 +380,7 @@ Before announcing anything, do this on a clean machine.
    reason.
 9. **Issue an expiring key** with `--days 1`, set the machine clock forward, and
    confirm the application refuses to start and says why.
-10. **Confirm the data still works** — download a form year and run a search.
+10. **Confirm the data still works.** Download a form year and run a search.
     Licensing must not have broken the actual product.
 
 Step 8 is the one that decides whether you have a product or a giveaway.

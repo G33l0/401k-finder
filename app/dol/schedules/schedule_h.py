@@ -1,4 +1,4 @@
-"""Schedule H — large plan financial information."""
+"""Schedule H: large plan financial information."""
 
 from __future__ import annotations
 
@@ -37,11 +37,6 @@ def definitions(form_year: int) -> tuple[ScheduleDefinition, ...]:
                 name="Schedule H Part 1 - Transfers to Other Plans",
                 form_year=form_year,
                 dataset="F_SCH_H_PART1",
-                # Deliberately no provider columns. The name here is another
-                # *plan*, not a firm the plan paid, and filing it as a provider
-                # both polluted the provider list and discarded the EIN and plan
-                # number that make the transferee findable. It is read by
-                # app.dol.transfers into plan_transfers instead.
                 provider_columns=(),
                 notes=(
                     "Names the plan that assets were transferred to. The only "

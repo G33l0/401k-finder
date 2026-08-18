@@ -1,64 +1,26 @@
-"""
-The three colour schemes, and the machinery for applying one.
-
-    light     the default; a plain, bright document look
-    dark      low-light, neutral greys with a blue accent
-    hacker    near-black with a phosphor-green monospace treatment
-
-Everything a theme controls lives in :class:`Palette`. Widgets and the HTML
-detail views both read from it, which is the point: before this existed the
-detail panel wrote ``#fbfcfd`` cards straight into its markup, so any dark
-scheme would have painted white boxes onto a dark window.
-
-Three things have to change together for a theme to be complete, and missing
-any one of them leaves visible seams:
-
-* the **QPalette**, which is what unstyled and native widgets read — message
-  boxes, tooltips, combo pop-ups;
-* the **style sheet**, for everything the palette does not reach;
-* the **document CSS** used by the ``QTextBrowser`` panels, which have their
-  own rich-text renderer and ignore both of the above.
-
-The widget style is forced to Fusion. The native Windows style ignores the
-palette for many widgets and would render a light grey chrome around a dark
-window; Fusion honours it, and costs a little native feel to get themes that
-are actually themes.
-"""
+"""The three colour schemes, and the machinery for applying one."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-#: The value used when nothing is stored, or the stored value is not one we
-#: know.
 DEFAULT_THEME = "light"
 
-#: Fusion is the only built-in widget style that honours a custom palette on
-#: every platform. Without it the Windows style keeps its own light chrome and
-#: the dark themes come out half-applied.
 WIDGET_STYLE = "Fusion"
 
 
 @dataclass(frozen=True, slots=True)
 class Palette:
-    """
-    One theme, in semantic roles rather than colour names.
-
-    Roles are named for what they mean — ``danger``, ``muted``, ``accent`` —
-    so a scheme can be re-coloured without every call site having to agree on
-    whether "blue" is still blue.
-    """
+    """One theme, in semantic roles rather than colour names."""
 
     key: str
     label: str
 
-    #: True when this scheme is light-on-dark. Qt needs to be told, and a few
-    #: choices (icon tinting, shadow strength) key off it.
     dark: bool
 
     window: str  #: The application background.
     surface: str  #: Input fields, tables, text panes.
-    surface_alt: str  #: Cards and alternating rows; a step off ``surface``.
+    surface_alt: str
     border: str
     border_strong: str  #: Focus rings and header rules.
 
@@ -89,8 +51,6 @@ class Palette:
         return self.font_family
 
 
-#: The stack is quoted so a family with a space survives both Qt style sheets
-#: and the rich-text parser.
 _SANS = "'Segoe UI', 'Inter', system-ui, -apple-system, 'Noto Sans', sans-serif"
 _MONO = "'Cascadia Mono', 'JetBrains Mono', Consolas, 'DejaVu Sans Mono', monospace"
 
@@ -151,9 +111,6 @@ DARK = Palette(
 )
 
 
-#: Green-on-black, monospaced throughout. The green is deliberately pulled back
-#: from #00FF00 — full-intensity phosphor on pure black is unreadable for more
-#: than a minute, and this is a tool people sit in front of for an hour.
 HACKER = Palette(
     key="hacker",
     label="Hacker",
@@ -184,14 +141,8 @@ HACKER = Palette(
 
 THEMES: dict[str, Palette] = {theme.key: theme for theme in (LIGHT, DARK, HACKER)}
 
-#: The palette in force. Widgets that colour themselves at runtime — the
-#: activation dialog's success and failure messages — read this.
 _current: Palette = THEMES[DEFAULT_THEME]
 
-#: Extra style sheet appended after the theme's own, for deployments that drop
-#: an ``app.qss`` into the resources folder. Held here rather than applied once
-#: at start-up, because switching themes replaces the whole style sheet and
-#: would otherwise silently discard it.
 _overlay: str = ""
 
 
@@ -218,19 +169,8 @@ def current() -> Palette:
     return _current
 
 
-# ----------------------------------------------------------------------
-# The Qt side
-# ----------------------------------------------------------------------
-
-
 def qt_palette(palette: Palette):  # -> QPalette
-    """
-    Build the QPalette.
-
-    This is what reaches the widgets a style sheet does not: message boxes,
-    tooltips, combo-box pop-ups, and the text cursor. Skipping it is why
-    half-finished dark modes have one stubbornly white dialog.
-    """
+    """Build the QPalette."""
 
     from PySide6.QtGui import QColor
     from PySide6.QtGui import QPalette as QtPalette
@@ -261,8 +201,6 @@ def qt_palette(palette: Palette):  # -> QPalette
     paint(QtPalette.Link, palette.accent)
     paint(QtPalette.LinkVisited, palette.accent_hover)
 
-    # Disabled controls have to be dimmed explicitly, or they stay full
-    # strength and a greyed-out button looks enabled.
     for role, colour in (
         (QtPalette.WindowText, palette.text_faint),
         (QtPalette.Text, palette.text_faint),
@@ -541,15 +479,7 @@ QLabel[role="faint"] {{
 
 
 def document_css(palette: Palette) -> str:
-    """
-    The ``<style>`` block for the rich-text detail panels.
-
-    ``QTextBrowser`` renders with Qt's own rich-text engine, which reads none
-    of the widget style sheet, so the HTML has to carry its own colours. Only a
-    subset of CSS is supported — no flexbox, no custom properties, and
-    ``background`` on ``body`` does not fill the viewport, which is why the
-    widget background is set through the style sheet instead.
-    """
+    """The ``<style>`` block for the rich-text detail panels."""
 
     p = palette
 
@@ -571,10 +501,6 @@ def document_css(palette: Palette) -> str:
         f".hi{{color:{p.high};font-weight:bold;}}"
         f".med{{color:{p.medium};}}"
         f".low{{color:{p.low};}}"
-        # Cards are tables, not divs. Qt's rich-text engine paints a div's
-        # background behind its own first line only, so a div card with nested
-        # lines inside came out as a stripe with the rest of the content
-        # hanging below it. A single-cell table is drawn as one block.
         f"table.card{{width:100%;margin:8px 0;background:{p.surface_alt};"
         f"border:1px solid {p.border};}}"
         "table.card td{padding:8px 11px;}"
@@ -584,11 +510,7 @@ def document_css(palette: Palette) -> str:
 
 
 def apply(app, name: str | None) -> Palette:
-    """
-    Apply a theme to a running QApplication and return the palette used.
-
-    Safe to call repeatedly; switching themes at runtime is exactly this.
-    """
+    """Apply a theme to a running QApplication and return the palette used."""
 
     global _current
 

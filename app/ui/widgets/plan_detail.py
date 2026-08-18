@@ -15,13 +15,12 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.codes import describe_characteristic, describe_service_code
-from app.core.constants import SOURCE_LABEL
+from app.core.constants import NOT_REPORTED, SOURCE_LABEL, year_span
 from app.evidence.trail import PlanEvidence
 from app.search.engine import PlanResult
 from app.ui import theme
 from app.ui.widgets.results_table import format_count, format_money
 
-#: Roles shown under "Who holds this account", in order.
 HEADLINE_ROLES = (
     "RECORDKEEPER",
     "TRUSTEE",
@@ -85,8 +84,6 @@ class PlanDetailPanel(QWidget):
 
         self.clear()
 
-    # ------------------------------------------------------------------
-
     def _placeholder(self, heading: str, message: str) -> str:
         return (
             f"{self._style()}<div class='empty'>"
@@ -135,36 +132,18 @@ class PlanDetailPanel(QWidget):
             self.evidence_view.setHtml(self._evidence_html(evidence))
             self.filings_view.setHtml(self._filings_html(evidence))
         else:
-            # Still loading, or the load failed. Repainting these rather than
-            # leaving them is what stops a theme change from stranding two tabs
-            # in the previous scheme.
             loading = self._loading_html()
             self.evidence_view.setHtml(loading)
             self.filings_view.setHtml(loading)
 
     def retheme(self) -> None:
-        """
-        Re-render after a theme change.
-
-        The colours are baked into the HTML at render time, so unlike an
-        ordinary widget these views do not update themselves when the
-        application style sheet changes — they have to be drawn again.
-        """
+        """Re-render after a theme change."""
 
         self.set_detail(self._plan, self._evidence)
 
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _style() -> str:
-        """
-        The CSS every view on this panel is rendered with.
-
-        Read from the active theme rather than written inline, because these
-        panels are ``QTextBrowser`` widgets: Qt's rich-text engine ignores the
-        application style sheet, so hard-coded colours here would paint white
-        cards onto a dark window.
-        """
+        """The CSS every view on this panel is rendered with."""
 
         return theme.document_css(theme.current())
 
@@ -220,13 +199,13 @@ class PlanDetailPanel(QWidget):
 
 <h3>Plan identity</h3>
 <table>
-<tr><td class='k'>Sponsor EIN</td><td>{escape(plan.ein or '—')}</td></tr>
-<tr><td class='k'>Plan number</td><td>{escape(plan.plan_number or '—')}</td></tr>
+<tr><td class='k'>Sponsor EIN</td><td>{escape(plan.ein or NOT_REPORTED)}</td></tr>
+<tr><td class='k'>Plan number</td><td>{escape(plan.plan_number or NOT_REPORTED)}</td></tr>
 <tr><td class='k'>Category</td><td>{escape(_title(plan.plan_category or 'Unknown'))}</td></tr>
-<tr><td class='k'>Filing years</td><td>{plan.first_year or '—'} – {plan.last_year or '—'}</td></tr>
+<tr><td class='k'>Filing years</td><td>{year_span(plan.first_year, plan.last_year, joiner=' to ')}</td></tr>
 <tr><td class='k'>Participants</td><td>{format_count(plan.participants)}</td></tr>
 <tr><td class='k'>Total assets</td><td>{format_money(plan.total_assets)}</td></tr>
-<tr><td class='k'>Filings on record</td><td>{plan.filing_count or '—'}</td></tr>
+<tr><td class='k'>Filings on record</td><td>{plan.filing_count or NOT_REPORTED}</td></tr>
 </table>
 
 <h3>Plan characteristics as filed</h3>
@@ -319,7 +298,7 @@ plan or its recordkeeper for the underlying filing.</p>
                 f"<div class='src'>ACK_ID {escape(filing.ack_id)}</div>"
                 f"<div class='src'>Participants: {format_count(filing.total_participants)} "
                 f"· Assets: {format_money(filing.total_assets_eoy)} "
-                f"· Status: {escape(filing.filing_status or '—')}</div>"
+                f"· Status: {escape(filing.filing_status or NOT_REPORTED)}</div>"
                 f"<div class='src'>Source: {escape(filing.source_dataset or '?')} "
                 f"({escape(filing.source_release or '?')})</div></td></tr>"
             )
@@ -328,8 +307,6 @@ plan or its recordkeeper for the underlying filing.</p>
 <h2>Filings on record</h2>
 <table>{"".join(rows) or "<tr><td>No filings recorded.</td></tr>"}</table>
 """
-
-    # ------------------------------------------------------------------
 
     def _on_anchor(self, url) -> None:  # noqa: ANN001
         text = url.toString()

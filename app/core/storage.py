@@ -1,29 +1,4 @@
-"""
-Where the bulk data lives — including on an external or USB drive.
-
-A full seventeen years of Form 5500 runs to hundreds of gigabytes, and most
-laptops cannot give that up. So the database, the downloads and the extracted
-CSV files can be pointed at any drive, while the things that must stay with the
-machine — settings, logs, the licence — remain on the internal disk.
-
-**The pointer has to be local.** The setting that says where the data lives
-cannot itself live there, or an unplugged drive takes the answer with it. It is
-a small file in the application's own folder, and it is the only thing consulted
-before the storage location is known.
-
-Removable media is not just "a folder somewhere else", and the checks below
-exist because each of these has bitten somebody:
-
-* **FAT32 cannot hold a file over 4 GiB.** A single form year passes that. The
-  database would fail mid-import with a disk-full error that is nothing of the
-  kind, so FAT32 is refused outright rather than warned about.
-* **SQLite's WAL journal needs shared memory**, which network shares do not
-  provide. On a remote path the journal mode drops to one that works instead of
-  failing at the first write.
-* **A drive can be unplugged.** If the configured path is gone at start-up the
-  application must say so, not silently create an empty database at the mount
-  point and look like it lost everything.
-"""
+"""Where the bulk data lives, including on an external or USB drive."""
 
 from __future__ import annotations
 
@@ -34,19 +9,12 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-#: Written into the application's own folder — never onto the external drive.
 POINTER_FILE = "storage.json"
 
-#: The subdirectories that move. Settings, logs and the licence stay put: they
-#: are per-machine, tiny, and needed before the drive is known to be there.
 MANAGED_DIRECTORIES: tuple[str, ...] = ("database", "dol_data", "downloads", "exports")
 
-#: Rough disk needed per form year, imported in full, including the database
-#: growth and the extracted CSVs. Deliberately generous — running out part-way
-#: through a six-hour import is the worst way to learn this number.
 BYTES_PER_FORM_YEAR = 60 * 1024**3
 
-#: FAT32's hard limit on a single file. A form year's database exceeds it.
 FAT32_MAX_FILE = 4 * 1024**3
 
 GIB = 1024**3
@@ -67,11 +35,8 @@ def format_bytes(count: int) -> str:
 
 
 class Severity(StrEnum):
-    #: The location cannot be used. Refuse it.
     BLOCKER = "BLOCKER"
-    #: Usable, but the person should know.
     WARNING = "WARNING"
-    #: Worth saying, no action needed.
     NOTE = "NOTE"
 
 
@@ -94,7 +59,6 @@ class StorageInfo:
     exists: bool = False
     writable: bool = False
 
-    #: "NTFS", "exFAT", "FAT32", "ext4", "apfs"… empty when it cannot be read.
     filesystem: str = ""
 
     removable: bool = False
@@ -119,12 +83,7 @@ class StorageInfo:
 
     @property
     def supports_wal(self) -> bool:
-        """
-        Whether SQLite's write-ahead journal will work here.
-
-        WAL needs a shared-memory file alongside the database, which network
-        filesystems do not implement. A local external drive is fine.
-        """
+        """Whether SQLite's write-ahead journal will work here."""
 
         return not self.network
 
@@ -145,7 +104,7 @@ class StorageInfo:
 
         return (
             f"{format_bytes(self.free_bytes)} free of "
-            f"{format_bytes(self.total_bytes)} — {room}"
+            f"{format_bytes(self.total_bytes)}, {room}"
         )
 
     def describe(self) -> str:
@@ -162,11 +121,6 @@ class StorageInfo:
         return "  ·  ".join(parts)
 
 
-# ----------------------------------------------------------------------
-# Inspecting a location
-# ----------------------------------------------------------------------
-
-
 def _windows_volume(path: Path) -> tuple[str, bool, bool]:
     """(filesystem name, removable, network) for a Windows path."""
 
@@ -178,7 +132,6 @@ def _windows_volume(path: Path) -> tuple[str, bool, bool]:
 
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 
-    # 2 = DRIVE_REMOVABLE, 4 = DRIVE_REMOTE, per GetDriveTypeW.
     drive_type = kernel32.GetDriveTypeW(ctypes.c_wchar_p(root))
 
     name = ctypes.create_unicode_buffer(261)
@@ -201,9 +154,7 @@ def _windows_volume(path: Path) -> tuple[str, bool, bool]:
 def _posix_volume(path: Path) -> tuple[str, bool, bool]:
     """(filesystem name, removable, network) for a POSIX path."""
 
-    #: Filesystems served over a network. WAL does not work on these.
     remote = {"nfs", "nfs4", "cifs", "smbfs", "smb", "afpfs", "fuse.sshfs", "webdav"}
-    #: Mount points where removable media is conventionally attached.
     removable_roots = ("/media", "/run/media", "/mnt", "/Volumes")
 
     resolved = path.resolve()
@@ -222,8 +173,6 @@ def _posix_volume(path: Path) -> tuple[str, bool, bool]:
                     mount_point.rstrip("/") + "/"
                 )
 
-                # The longest matching mount point is the one it is really on:
-                # "/" matches everything, so a nested mount has to win.
                 if on_this_mount and len(mount_point) >= best:
                     best, filesystem = len(mount_point), fields[2]
     except OSError:
@@ -262,26 +211,12 @@ def _probe_writable(path: Path) -> bool:
 
 
 def inspect(path: Path, *, for_years: int = 0, create: bool = False) -> StorageInfo:
-    """
-    Examine a candidate storage location and report what would go wrong.
-
-    ``for_years`` is how many form years the person means to keep there; when
-    given, the free-space check is made against that rather than in general.
-
-    **Inspecting does not create anything** unless ``create`` is asked for. It
-    is called to answer "is the drive there?", and a version that made the
-    folder answered yes every time — which then let the application build an
-    empty database at the mount point of an unplugged drive and present it as
-    an empty search result.
-    """
+    """Examine a candidate storage location and report what would go wrong."""
 
     target = Path(path).expanduser()
     info = StorageInfo(path=target)
     info.exists = target.is_dir()
 
-    # Somewhere that exists has to be probed for the volume details: the target
-    # when it is there, otherwise its parent, which is what a "create this
-    # folder on the drive" request means.
     probe_at = target if info.exists else target.parent
 
     if not probe_at.is_dir():
@@ -289,7 +224,7 @@ def inspect(path: Path, *, for_years: int = 0, create: bool = False) -> StorageI
             Finding(
                 Severity.BLOCKER,
                 f"{target} is not available. If this is a removable drive, connect "
-                f"it and try again — the drive letter may also have changed.",
+                f"it and try again. The drive letter may also have changed.",
             )
         )
         return info
@@ -339,7 +274,7 @@ def _check_filesystem(info: StorageInfo) -> None:
                 f"This drive is formatted {info.filesystem}, which cannot hold a "
                 f"file larger than {FAT32_MAX_FILE // GIB} GB. A single form year "
                 f"passes that, so the database would fail part-way through an "
-                f"import. Reformat the drive as exFAT or NTFS first — that erases "
+                f"import. Reformat the drive as exFAT or NTFS first. That erases "
                 f"it, so copy anything you need off it beforehand.",
             )
         )
@@ -386,16 +321,11 @@ def _check_space(info: StorageInfo, for_years: int) -> None:
         info.findings.append(
             Finding(
                 Severity.WARNING,
-                f"Only {info.free_bytes / GIB:,.1f} GB free — less than one full "
-                f"form year needs. The employer index is far smaller and would "
+                f"Only {info.free_bytes / GIB:,.1f} GB free, less than one full form "
+                f"year needs. The employer index is far smaller and would "
                 f"still fit.",
             )
         )
-
-
-# ----------------------------------------------------------------------
-# The pointer
-# ----------------------------------------------------------------------
 
 
 def pointer_path(app_dir: Path) -> Path:
@@ -403,13 +333,7 @@ def pointer_path(app_dir: Path) -> Path:
 
 
 def read_location(app_dir: Path) -> Path | None:
-    """
-    The configured storage root, or None when the default is in use.
-
-    Anything unreadable is treated as unset. A corrupt pointer must not stop
-    the application starting — falling back to the internal disk is recoverable,
-    refusing to launch is not.
-    """
+    """The configured storage root, or None when the default is in use."""
 
     import json
 
@@ -448,18 +372,8 @@ def clear_location(app_dir: Path) -> None:
     pointer_path(app_dir).unlink(missing_ok=True)
 
 
-# ----------------------------------------------------------------------
-# Finding drives to offer
-# ----------------------------------------------------------------------
-
-
 def candidates() -> list[StorageInfo]:
-    """
-    Drives worth offering as a storage location.
-
-    Best-effort and cheap: a slow or sleeping drive must not hang the window,
-    so nothing here spins anything up beyond asking for free space.
-    """
+    """Drives worth offering as a storage location."""
 
     found: list[Path] = []
 
@@ -478,7 +392,6 @@ def candidates() -> list[StorageInfo]:
             try:
                 for entry in sorted(base.iterdir()):
                     if entry.is_dir():
-                        # /media/<user>/<label> on most Linux desktops.
                         nested = [item for item in entry.iterdir() if item.is_dir()]
                         found.extend(nested or [entry])
             except OSError:
@@ -492,11 +405,6 @@ def candidates() -> list[StorageInfo]:
             continue
 
     return results
-
-
-# ----------------------------------------------------------------------
-# Moving what is already there
-# ----------------------------------------------------------------------
 
 
 def managed_size(root: Path) -> int:
@@ -523,16 +431,7 @@ def relocate(
     target_root: Path,
     progress=None,  # noqa: ANN001 - Callable[[str, int, int], None]
 ) -> list[str]:
-    """
-    Move the bulk data from one root to another.
-
-    Moves rather than copies, so a drive with just enough room does not need
-    double the space. Each directory is moved whole and the source removed only
-    once the move returns, so an interruption leaves one of the two intact
-    rather than a half-copy in both.
-
-    Returns the names of the directories that were moved.
-    """
+    """Move the bulk data from one root to another."""
 
     source_root = Path(source_root).expanduser()
     target_root = Path(target_root).expanduser()
@@ -553,9 +452,6 @@ def relocate(
             progress(name, position, len(present))
 
         if destination.exists():
-            # Merge rather than fail: a previous attempt may have moved some of
-            # it, and refusing would leave the user stuck with data in two
-            # places and no way to finish.
             for entry in source.iterdir():
                 final = destination / entry.name
                 if final.exists():

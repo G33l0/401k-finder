@@ -32,14 +32,7 @@ __all__ = (
 
 
 def database_exists(path: Path | None = None) -> bool:
-    """
-    Whether there is a usable database, without creating one.
-
-    Merely opening a SQLite file creates it, so a caller that wants to *ask*
-    rather than *ensure* has to check the file itself. An empty or truncated
-    file counts as absent: the tables would be missing and every query against
-    it would fail.
-    """
+    """Whether there is a usable database, without creating one."""
 
     from app.core.config import get_database_path
 
@@ -61,13 +54,7 @@ def initialize_database(engine: Engine | None = None) -> int:
 
 
 def reset_database(path: Path | None = None) -> None:
-    """
-    Delete the database file and rebuild it empty.
-
-    The database is a cache of public DOL files, so discarding it loses no
-    original data — but it does discard every import, so callers should confirm
-    with the user first.
-    """
+    """Delete the database file and rebuild it empty."""
 
     from app.core.config import get_database_path
     from app.database.engine import dispose_engine

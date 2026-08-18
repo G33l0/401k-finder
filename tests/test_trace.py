@@ -1,14 +1,4 @@
-"""
-Tracing a work history to the plans that could hold someone's account.
-
-Two things are load-bearing here and both are tested hard:
-
-* **No Social Security number reaches storage.** Not because of a policy, but
-  because Form 5500 has nothing to match one against — so a number typed into
-  the wrong box is pure liability with no upside.
-* **A match is only useful if it names who to contact.** A plan name alone
-  leaves the person exactly where they started.
-"""
+"""Tracing a work history to the plans that could hold someone's account."""
 
 from __future__ import annotations
 
@@ -18,10 +8,6 @@ from app.trace import AccountTracer, Employment, WorkHistory, looks_like_ssn, re
 from app.trace.history import REDACTION
 from app.trace.packet import claim_letter, next_steps, render_report
 from app.trace.resources import RESOURCES, Audience, for_audience
-
-# ----------------------------------------------------------------------
-# The Form 5500 data holds no participants. This is the premise.
-# ----------------------------------------------------------------------
 
 
 def test_no_published_layout_contains_participant_identity():
@@ -48,11 +34,6 @@ def test_no_published_layout_contains_participant_identity():
     }
 
     assert not offenders, f"participant-level fields appeared: {sorted(offenders)[:5]}"
-
-
-# ----------------------------------------------------------------------
-# Keeping an SSN out
-# ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -139,11 +120,6 @@ def test_the_claim_letter_tells_the_reader_not_to_post_their_ssn(session, import
     assert "Social Security number" in letter
 
 
-# ----------------------------------------------------------------------
-# Employment
-# ----------------------------------------------------------------------
-
-
 def test_a_reversed_year_range_is_corrected():
     """People transpose these, and a reversed range silently matches nothing."""
 
@@ -196,11 +172,6 @@ def test_states_are_normalised_and_collected():
     assert history.states == ["OH", "TX"], "ZZ is not a state and must not be offered"
 
 
-# ----------------------------------------------------------------------
-# The CSV
-# ----------------------------------------------------------------------
-
-
 def test_a_hand_typed_csv_is_read(tmp_path):
     path = tmp_path / "history.csv"
     path.write_text(
@@ -235,11 +206,6 @@ def test_an_empty_csv_is_rejected(tmp_path):
         WorkHistory.from_csv(path)
 
 
-# ----------------------------------------------------------------------
-# Matching against real imported filings
-# ----------------------------------------------------------------------
-
-
 def test_a_known_employer_is_found(session, imported):
     history = WorkHistory()
     history.add("ACME MANUFACTURING INC", state="IL")
@@ -268,7 +234,6 @@ def test_a_match_names_who_to_contact(session, imported):
     assert holder is not None
     assert holder.name
     assert holder.role in {"RECORDKEEPER", "TRUSTEE", "CUSTODIAN", "INSURER"}
-    # Everything traces back to a named field of a named schedule.
     assert holder.schedule_code
     assert str(holder.form_year) in holder.citation()
 
@@ -327,11 +292,6 @@ def test_an_empty_employer_is_skipped(session):
     assert AccountTracer(session).trace_job(Employment("   ")) == []
 
 
-# ----------------------------------------------------------------------
-# The report
-# ----------------------------------------------------------------------
-
-
 def test_the_report_says_what_it_cannot_do(session, imported):
     """
     Someone reading this must not come away thinking a blank result proves no
@@ -343,8 +303,6 @@ def test_the_report_says_what_it_cannot_do(session, imported):
 
     text = render_report(AccountTracer(session).trace(history))
 
-    # The report is hard-wrapped, so a sentence spans lines. Normalise before
-    # asserting on wording, or the test breaks whenever the width changes.
     flowed = " ".join(text.split())
 
     assert "no participant records" in flowed.lower()
@@ -381,7 +339,6 @@ def test_next_steps_change_when_a_plan_was_wound_up(session, imported):
     match = AccountTracer(session).trace(history).traces[0].strongest
     assert match is not None
 
-    # Same match, forced into the terminated branch.
     match.final_year = 2019
     steps = " ".join(next_steps(match))
 
@@ -411,11 +368,6 @@ def test_report_renders_with_letters(session, imported):
 
     assert "LETTERS TO SEND" in text
     assert "Request for benefit information" in text
-
-
-# ----------------------------------------------------------------------
-# The resource list
-# ----------------------------------------------------------------------
 
 
 def test_every_resource_is_complete():

@@ -27,7 +27,7 @@ reasoning is the useful part, and because each has a limit worth knowing.
 ### 1.1 Follow the money when a plan is wound up ✅
 
 `F_SCH_H_PART1` carries `PLAN_TRANSFER_EIN`, `PLAN_TRANSFER_NAME` and
-`PLAN_TRANSFER_PN` — the plan that received a wound-up plan's assets. It is now
+`PLAN_TRANSFER_PN`, naming the plan that received a wound-up plan's assets. It is now
 read as a plan-to-plan link into `plan_transfers` (schema v5) rather than as a
 service provider, and the dataset joined the core download set.
 
@@ -35,8 +35,8 @@ The trace follows the chain across hops and reports who administers the plan at
 the far end, so *"your plan was wound up in 2016, merged into this one, and
 Empower holds it now"* replaces *"the filings do not record where it went"*.
 
-**Limits.** A transferee whose year has never been imported stays unresolved —
-its name and EIN are still reported, and the link fills in by itself when that
+**Limits.** A transferee whose year has never been imported stays unresolved.
+Its name and EIN are still reported, and the link fills in by itself when that
 year arrives. A plan that split assets across several transfers is followed
 down the traceable one, and the report says so rather than presenting a guess
 as a fact. Chains stop at 8 hops and detect loops, because real filings contain
@@ -44,8 +44,8 @@ both.
 
 ### 1.2 A lightweight index across every year ✅
 
-`401k-finder index` fetches the two filing forms for every published year — the
-identity columns employer matching needs — and the Data tab has **Index every
+`401k-finder index` fetches the two filing forms for every published year, which
+are the identity columns employer matching needs, and the Data tab has **Index every
 year**. Coverage is tracked per year at three depths, and both the trace report
 and `status` say which years are thin, so "no match" in an index-only year
 cannot be read as "no plan".
@@ -62,7 +62,7 @@ the plan, aggregate the flows, and export to CSV.
 
 **Limits.** A change means the filings named a different firm. Provider names
 are consolidated first and the same engagement filed on two schedules is counted
-once, but a plan can still rename or a filer spell a firm two ways — so every
+once, but a plan can still rename or a filer spell a firm two ways, so every
 row carries the schedule and field it was read from. Roles appearing and
 disappearing are off by default: that usually means an unimported schedule, and
 reporting it would read as a wave of losses that never happened.
@@ -71,7 +71,7 @@ reporting it would read as a wave of losses that never happened.
 
 Seventeen years is several hundred gigabytes, which was a hard ceiling on how
 much of the archive anyone could actually hold. The database, downloads and
-extracted CSVs now move to any drive — `401k-finder storage set E:\401k-data`,
+extracted CSVs now move to any drive, with `401k-finder storage set E:\401k-data`
 or **Data → Where the data is kept**. Settings, logs, the licence and the
 pointer itself stay on the machine, so the application still starts when the
 drive is out.
@@ -81,7 +81,7 @@ and a form year's database passes that, so an import would die half way through
 with a misleading disk-full error. Network shares work but drop to the rollback
 journal, because WAL needs shared memory that SMB and NFS do not implement. A
 missing drive at start-up gets a dialog, never a silently recreated empty
-database — an empty search result is indistinguishable from having lost
+database, because an empty search result is indistinguishable from having lost
 everything.
 
 ---
@@ -99,7 +99,7 @@ everything.
 
 **Not worth building:** anything that accepts a Social Security number. It is
 covered in the README and `SELLING.md`, and it does not become possible with
-more engineering — Form 5500 has no participant records. A test asserts this
+more engineering, because Form 5500 has no participant records. A test asserts this
 against all 448 layouts.
 
 ---
@@ -115,18 +115,18 @@ against all 448 layouts.
 | **Scheduled sync** | S | A business will not remember to press Download. A Windows scheduled task plus `401k-finder sync` |
 | **Shared database** | M | SQLite is per-machine. A read-only copy on a network share for a team, or an optional PostgreSQL backend. The data layer is already SQLAlchemy, so this is configuration and testing, not a rewrite |
 | **Provider name curation** | M | `app/providers/matcher.py` does fuzzy consolidation, but a curated alias table ("Fidelity Investments Institutional Operations Company" → "Fidelity") would sharply improve every rollup and count. Ship the table as data, like the layouts |
-| **Asset-mix analysis** | M | Schedule H breaks assets into categories — corporate debt, real estate, participant loans. Enables "plans like this hold X%" comparisons |
-| **A documented Python API** | S | The layering is already clean. A short, stable public API plus examples lets a firm integrate this into their own pipeline — and makes a higher-priced tier defensible |
+| **Asset-mix analysis** | M | Schedule H breaks assets into categories: corporate debt, real estate, participant loans. Enables "plans like this hold X%" comparisons |
+| **A documented Python API** | S | The layering is already clean. A short, stable public API plus examples lets a firm integrate this into their own pipeline, and makes a higher-priced tier defensible |
 
 ---
 
-## 4. Product health — both audiences
+## 4. Product health, for both audiences
 
 | Improvement | Effort | Why |
 |---|---|---|
 | **Code signing** | S | Already flagged in `WINDOWS_APPLICATION.md` and still not done. A paid download that opens with *"Windows protected your PC"* will bleed refunds. This is the highest-value hour in the whole list |
 | **Auto-update** | M | Customers currently have to be told a new version exists and reinstall by hand. With email-issued licences you have their address, but an in-app check is what actually gets people upgraded |
-| **Column pruning on import** | M | 20–60 GB per form year is the biggest practical barrier to using the product. Most columns are never read. Importing only the columns the application uses would cut storage and import time several-fold |
+| **Column pruning on import** | M | 20 to 60 GB per form year is the biggest practical barrier to using the product. Most columns are never read. Importing only the columns the application uses would cut storage and import time several-fold |
 | **Incremental re-sync** | M | DOL republishes years as filings arrive. Detect changed files rather than re-downloading a whole year |
 | **Crash and support bundle** | S | One button that writes logs, schema version, imported years and licence status to a zip. Turns a confused email into a diagnosable one |
 | **Accessibility pass** | M | Keyboard navigation, screen-reader labels, and a font-size setting. Some of the audience for a lost-pension tool are older users |
@@ -144,14 +144,14 @@ customer who discovers the limit themselves feels misled.
 
 **A hosted version changes the business, not just the code.** Everything above
 assumes the current shape: runs locally, no server, offline licence. A web
-version would remove the 20–60 GB download that is the main obstacle for
-individuals — but it also means hosting costs, a privacy policy covering data
+version would remove the 20 to 60 GB download that is the main obstacle for
+individuals, but it also means hosting costs, a privacy policy covering data
 you now hold, and a licence model that is no longer offline. Worth doing
 deliberately or not at all.
 
 **Pick one audience to lead with.** The individual features and the business
-features pull the product in different directions — one toward a guided,
+features pull the product in different directions: one toward a guided,
 single-purpose wizard, the other toward a data console. The application
 currently does both, which is fine while the feature set is small and will stop
-being fine. §1.3 serves businesses and §1.1–1.2 serve individuals; whichever you
+being fine. §1.3 serves businesses and §1.1 and §1.2 serve individuals; whichever you
 build first is a signal about which one you are selling to.

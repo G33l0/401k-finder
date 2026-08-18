@@ -1,12 +1,4 @@
-"""
-The three colour schemes.
-
-The interesting failures here are not "the wrong blue". They are a theme that
-leaves part of the interface in the previous scheme, and a stored setting that
-stops the application starting. Both are covered.
-
-Only :func:`app.ui.theme.apply` needs Qt, so most of this runs headless.
-"""
+"""The three colour schemes."""
 
 from __future__ import annotations
 
@@ -17,7 +9,6 @@ import pytest
 from app.core.config import Settings
 from app.ui import theme
 
-#: Every hex colour written into a style sheet or the document CSS.
 HEX = re.compile(r"#[0-9A-Fa-f]{3,8}\b")
 
 
@@ -35,11 +26,6 @@ def test_the_three_advertised_themes_exist():
 def test_light_is_the_only_light_scheme():
     assert not theme.LIGHT.dark
     assert theme.DARK.dark and theme.HACKER.dark
-
-
-# ----------------------------------------------------------------------
-# A stored setting must never stop the application starting
-# ----------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -70,11 +56,6 @@ def test_settings_round_trip_a_theme(tmp_path):
     assert Settings.load(path).theme == "hacker"
 
 
-# ----------------------------------------------------------------------
-# Completeness: a scheme that only half-applies is the real bug
-# ----------------------------------------------------------------------
-
-
 def test_every_palette_role_is_filled(palette):
     for name in theme.Palette.__slots__:
         value = getattr(palette, name)
@@ -82,12 +63,7 @@ def test_every_palette_role_is_filled(palette):
 
 
 def test_style_sheet_carries_no_colour_the_palette_did_not_supply(palette):
-    """
-    Guards against a colour being pasted straight into the style sheet.
-
-    That is exactly how a "dark mode" ends up with one white panel: a literal
-    survives the conversion and then never changes again.
-    """
+    """Guards against a colour being pasted straight into the style sheet."""
 
     allowed = {
         getattr(palette, name).upper()
@@ -118,12 +94,7 @@ def test_schemes_actually_differ(palette):
 
 
 def test_document_css_styles_every_class_the_detail_panel_emits(palette):
-    """
-    The detail panel's HTML and this CSS have to agree.
-
-    A class used in the markup but missing here renders in the default colours
-    — black on black under the dark schemes.
-    """
+    """The detail panel's HTML and this CSS have to agree."""
 
     css = theme.document_css(palette)
     for name in ("tag", "role", "src", "hi", "med", "low", "card", "empty", "sub"):
@@ -148,19 +119,9 @@ def test_detail_panel_holds_no_colours_of_its_own():
     assert not HEX.findall(source.read_text(encoding="utf-8"))
 
 
-# ----------------------------------------------------------------------
-# The overlay
-# ----------------------------------------------------------------------
-
-
 def test_overlay_defaults_to_empty():
     theme.set_overlay(None)
     assert theme._overlay == ""
-
-
-# ----------------------------------------------------------------------
-# Applying a theme for real
-# ----------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -203,12 +164,8 @@ class RecordingApp:
 
 def test_apply_forces_fusion(qt_app):
     """
-    The native Windows style ignores a custom palette, so without this a dark
-    theme comes out with light chrome around it.
-
-    Asserted against a stand-in rather than the live application because
-    setting a style sheet wraps the style in a ``QStyleSheetStyle``, which
-    reports neither its own name nor the base style underneath it.
+    The native Windows style ignores a custom palette, so without this a dark theme
+    comes out with light chrome around it.
     """
 
     recorder = RecordingApp()
@@ -247,9 +204,8 @@ def test_overlay_survives_a_theme_change(qt_app):
 
 def test_the_window_applies_its_stored_theme_when_built_directly(qt_app, tmp_path):
     """
-    Constructed outside app.main there is nothing else to apply the theme, so
-    the window would show a stored scheme in the menu while being painted in
-    the default one.
+    Constructed outside app.main there is nothing else to apply the theme, so the window
+    would show a stored scheme in the menu while being painted in the default one.
     """
 
     from app.ui.windows.main_window import MainWindow
@@ -308,19 +264,11 @@ def test_detail_panel_rerenders_on_a_theme_change(qt_app):
     theme.apply(qt_app, theme.DEFAULT_THEME)
 
 
-# ----------------------------------------------------------------------
-# Attribution
-# ----------------------------------------------------------------------
-
-
 def test_the_ui_shows_no_web_addresses():
     """
-    The application names its source rather than linking to it. A URL rendered
-    on screen invites the reader to go and use the website instead, and makes a
-    paid product look like a shim over a free one.
-
-    The addresses still exist in app/core/constants.py and app/dol — the
-    downloader needs them. This guards presentation only.
+    The application names its source rather than linking to it. A URL rendered on screen
+    invites the reader to go and use the website instead, and makes a paid product look
+    like a shim over a free one.
     """
 
     import re

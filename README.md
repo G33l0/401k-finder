@@ -1,12 +1,12 @@
 # 401K Finder Pro
 
-Find retirement plans — and the firms that hold and administer them — from the
+Find retirement plans, and the firms that hold and administer them, from the
 U.S. Department of Labor's public Form 5500 filings.
 
 Every U.S. employer-sponsored retirement plan covered by ERISA files a Form 5500
 each year, and EBSA publishes the whole dataset. Those files answer a question
 that is otherwise hard to answer: *who actually holds this 401(k), and who runs
-it?* They also make it awkward — the data arrives as two dozen separate CSV
+it?* They also make it awkward. The data arrives as two dozen separate CSV
 files per year, joined by an acknowledgement ID, with the provider information
 scattered across five different schedules.
 
@@ -37,16 +37,16 @@ classified from the plan characteristics codes filed on line 8a:
 |---|---|
 | 401(k) | code `2J`, or the Schedule R / 5500-SF `401K_PLAN_IND` box |
 | 403(b) | codes `2L` (annuity contracts) and `2M` (custodial accounts) |
-| 457(b) | plan name — 457 plans have no characteristics code of their own |
+| 457(b) | plan name. 457 plans have no characteristics code of their own |
 | SEP and SIMPLE | code `2N` (Code section 408 accounts and annuities) |
 | Profit sharing | codes `2E`, `2A` |
 | Money purchase / target benefit | codes `2C`, `2B` |
 | ESOP | codes `2O`, `2P`, `2Q`, and Schedule R's ESOP boxes |
 | Stock bonus | code `2I` |
-| Defined benefit pension | codes `1A`–`1I` |
+| Defined benefit pension | codes `1A` to `1I` |
 | Cash balance | code `1C` |
 | Pooled employer plans (PEP) | code `2W`, and Schedule MEP |
-| Multiemployer / multiple-employer | plan entity code, codes `2U`–`2X` |
+| Multiemployer / multiple-employer | plan entity code, codes `2U` to `2X` |
 
 Welfare benefit plans (health, dental, life) are parsed too, but filtered out of
 search results by default.
@@ -61,7 +61,7 @@ the tool works:
 - **Solo 401(k) and one-participant plans** file Form 5500-EZ with the IRS,
   which is not part of this public dataset.
 - **IRAs, and SEP/SIMPLE plans using individual IRAs**, generally have no
-  filing obligation — code 2N appears only where a pension plan is funded
+  filing obligation. Code 2N appears only where a pension plan is funded
   through Code section 408 accounts, which is rare.
 
 ## Where the provider answers come from
@@ -75,7 +75,7 @@ one it used:
 | **Schedule C Part 1 Item 2** | Service providers with service codes and what the plan paid them. Codes distinguish recordkeeper (15) from trustee (21), custodian (19), investment manager (28), auditor (10). | High |
 | **Schedule H** | Trustee or custodian, fiduciary trust, and the auditing accountant, for plans with 100+ participants. | High |
 | **Schedule I** | Trustee or custodian, for smaller plans. | High |
-| **Form 5500-SF** | Trustee or custodian, self-contained — the most productive source for small-employer plans. | High |
+| **Form 5500-SF** | Trustee or custodian, self-contained. The most productive source for small-employer plans. | High |
 | **Schedule A** | The insurance carrier holding annuity or insurance contracts. Often the only asset holder named for 403(b) and small plans. | High |
 | **Schedule D Part 1** | Master trusts, collective trusts and pooled separate accounts holding plan assets. | High |
 | **Schedule A Part 1** | Brokers receiving commissions. | High |
@@ -95,7 +95,7 @@ Download the installer from the releases page and run it. No Python required.
 It installs both the desktop application and `401k-finder.exe`, the same
 command line described below, in the install folder.
 
-To build it yourself, see **[docs/DEPLOY.md](docs/DEPLOY.md)** — a step-by-step
+To build it yourself, see **[docs/DEPLOY.md](docs/DEPLOY.md)**, a step-by-step
 guide that assumes no prior experience, and covers where to put your icon and
 logo. [docs/WINDOWS_APPLICATION.md](docs/WINDOWS_APPLICATION.md) is the
 reference on how the packaging works.
@@ -125,9 +125,9 @@ The application starts empty. Load a form year from DOL:
 401k-finder sync --year 2023
 ```
 
-This downloads the core datasets — the two main forms plus Schedules A, C Part 1
-Item 2, D Part 1, H, I, R, DCG and MEP — which carry every provider field.
-Expect a few gigabytes and 15–60 minutes depending on your connection.
+This downloads the core datasets: the two main forms plus Schedules A, C Part 1
+Item 2, D Part 1, H, I, R, DCG and MEP, which carry every provider field.
+Expect a few gigabytes and 15 to 60 minutes depending on your connection.
 
 For scale: the 2023 Form 5500 dataset alone is 231,725 filings covering 223,847
 plans, and imports in about three minutes on a modest machine. Adding the
@@ -144,7 +144,7 @@ skipped and a partial download continues where it stopped.
 
 ### Index every year first
 
-A full form year is 20–60 GB, so importing a decade to search a decade is not
+A full form year is 20 to 60 GB, so importing a decade to search a decade is not
 realistic. Matching an employer to a plan needs only the two filing forms:
 
 ```bash
@@ -153,7 +153,7 @@ realistic. Matching an employer to a plan needs only the two filing forms:
 ```
 
 That makes **Find my accounts** work across a whole career at a fraction of the
-size. It cannot name a provider — every asset holder is on a schedule — so once
+size. It cannot name a provider, because every asset holder is on a schedule. Once
 you know which years matter, `sync` those in full. `401k-finder status` reports
 which years are held at which depth, and the trace report says so too rather
 than letting a thin year read as an empty one.
@@ -173,7 +173,7 @@ Check what is loaded at any time:
 ### Latest vs All
 
 DOL publishes each year twice. **Latest** has one row per plan year, with
-superseded filings removed — this is what you want. **All** includes every
+superseded filings removed. This is what you want. **All** includes every
 filing received, including amendments and duplicates, and is useful only if you
 are studying filing behaviour itself.
 
@@ -181,7 +181,7 @@ are studying filing behaviour itself.
 
 A full seventeen years runs to several hundred gigabytes, which most laptops
 cannot give up. The database, the downloads and the extracted CSV files can live
-on any drive — external, USB, or a network share:
+on any drive: external, USB, or a network share.
 
 ```bash
 401k-finder storage              # where the data is now, and how much room is left
@@ -195,7 +195,7 @@ In the desktop application the same controls are on the **Data** tab, under
 there, so nothing has to be downloaded twice.
 
 Only the bulk data moves. Settings, logs and the licence stay on the machine,
-along with the small file recording where the data went — a pointer stored on
+along with the small file recording where the data went. A pointer stored on
 the drive it points at would leave with the drive.
 
 Three things about removable media the application handles for you:
@@ -203,7 +203,7 @@ Three things about removable media the application handles for you:
 - **FAT32 is refused.** It cannot hold a file over 4 GB and a single form year
   passes that, so an import would die half way through with a disk-full error
   that is nothing of the kind. Reformat as exFAT or NTFS first. (Reformatting
-  erases the drive — copy anything you need off it beforehand.)
+  erases the drive, so copy anything you need off it beforehand.)
 - **Network shares work, more slowly.** SQLite's write-ahead journal needs
   shared memory that network filesystems do not provide, so the database drops
   to the rollback journal there. A directly connected drive keeps the fast path.
@@ -228,7 +228,7 @@ before ejecting it.
 
 Five tabs: **Find plans** (search, results, and a detail panel with the
 provider list and full evidence), **Find my accounts** (trace your own old
-401(k) from a work history — see below), **Providers** (which firms hold the
+401(k) from a work history, described below), **Providers** (which firms hold the
 most plans, and drill into their book), **Provider changes** (which plans moved
 between firms, and when), and **Data** (download years, import local files, see
 what is loaded).
@@ -244,14 +244,14 @@ what is loaded).
 | **Hacker** | Near-black with a phosphor-green monospace treatment. |
 
 They are defined in [`app/ui/theme.py`](app/ui/theme.py) as palettes of
-semantic roles — `accent`, `text_muted`, `danger` — rather than as separate
+semantic roles such as `accent`, `text_muted` and `danger`, rather than as separate
 style sheets, so adding a fourth means adding one `Palette` and nothing else.
 A test asserts that no colour appears in a generated style sheet unless the
 palette supplied it, which is what stops a stray literal turning into the one
 panel that never goes dark.
 
 To adjust the look without editing the source, drop an `app.qss` into
-`app/ui/resources/` — it is appended after whichever theme is active, so its
+`app/ui/resources/`. It is appended after whichever theme is active, so its
 rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
 
 ### Command line
@@ -297,7 +297,7 @@ history:
 ```
 
 For each employer it reports the plan, its EIN and plan number, and **the firm
-that was holding the money in the years you worked there** — which is often not
+that was holding the money in the years you worked there**, which is often not
 the firm holding it today. It also detects when a plan was wound up, and reads
 the sponsor name *as filed at the time*, so an employer that has since been
 acquired still matches under the name you remember.
@@ -310,7 +310,7 @@ filled in.
 **It cannot take a Social Security number, and no tool built on this data can.**
 Form 5500 is what an employer files about a *plan*. Across all 448 published
 record layouts there is no participant name, no Social Security number and no
-individual balance — every participant field is a count or an aggregate. There
+individual balance. Every participant field is a count or an aggregate. There
 is nothing for an SSN to match against.
 
 So this tells you *which plan and who to ask*. It cannot confirm an account
@@ -335,7 +335,7 @@ more years imported the application can report which plans changed hands:
 ```
 
 For each plan it gives the firm before, the firm after, the years compared, the
-plan's size, and the schedule and field the later observation was read from — so
+plan's size, and the schedule and field the later observation was read from, so
 a surprising result can be checked against the filing rather than argued about.
 The **Provider changes** tab is the same thing with filters and a CSV export.
 
@@ -348,7 +348,7 @@ provider names are consolidated first and every row carries its source.
 ## How the data fits together
 
 The single most important fact about these files: **schedule datasets contain no
-plan identity.** A Schedule H row is an `ACK_ID` and a hundred dollar amounts —
+plan identity.** A Schedule H row is an `ACK_ID` and a hundred dollar amounts,
 no employer name, no EIN, no plan name. Schedules are joined to filings by
 `ACK_ID`, and only the filing datasets say which plan a filing belongs to.
 
@@ -364,8 +364,8 @@ Pass 2   F_SCH_A, F_SCH_C_PART1_ITEM2, F_SCH_D_PART1, F_SCH_H, F_SCH_I, ...
          → provider names extracted and attributed to the plan
 ```
 
-Financial totals need the same care. Form 5500 itself carries no asset figures —
-for a large plan they are on Schedule H, for a small one on Schedule I — so
+Financial totals need the same care. Form 5500 itself carries no asset figures:
+for a large plan they are on Schedule H, for a small one on Schedule I, so
 filings are enriched from those schedules as they import, and plan-level totals
 are rolled up at the end.
 
@@ -384,7 +384,7 @@ FIELD_POSITION,FIELD_NAME,TYPE,SIZE (only for text fields)
 2,FORM_PLAN_YEAR_BEGIN_DATE,TEXT,10
 ```
 
-All 448 of them — 28 datasets across 17 form years, 2009 to 2025 — are vendored
+All 448 of them, 28 datasets across 17 form years from 2009 to 2025, are vendored
 in [`app/dol/layouts/data/`](app/dol/layouts/data). Parsing, validation and
 provider extraction all read from these rather than from hard-coded field lists,
 so the application works offline and a layout change is a data change.
@@ -469,7 +469,7 @@ a misspelled field would otherwise fail silently and simply never find anyone.
   35 characters, so a firm appears under many spellings. Names are grouped by a
   normalized key and well-known firms are mapped to a canonical name; unknown
   firms keep their filed spelling exactly. Nothing is merged automatically on a
-  fuzzy match — that judgement is left to you, via
+  fuzzy match. That judgement is left to you, via
   `app/providers/matcher.py` and the seed file in `database/seeds/`.
 - **Not every plan names a provider.** A small plan filing a 5500-SF with no
   trustee named will show none. That is the filing, not a bug.
@@ -477,7 +477,7 @@ a misspelled field would otherwise fail silently and simply never find anyone.
   they say. It does not evaluate fees, fiduciary conduct or plan health, and it
   is not advice.
 - **Individual participants never appear.** Form 5500 reports plan-level data
-  only — counts and totals, never people. There is no personal data here.
+  only: counts and totals, never people. There is no personal data here.
 
 ## Source and licence of the data
 

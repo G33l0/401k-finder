@@ -1,16 +1,4 @@
-"""
-Application branding assets: the window icon, the logo and an optional theme.
-
-None of these files are required — the application runs with Qt's defaults if
-the folder is empty — so every accessor returns None rather than raising when an
-asset is absent. See ``docs/DEPLOY.md`` for the file specifications.
-
-Resolving the folder is the fiddly part. Running from source it sits next to
-this module, but in a PyInstaller build the Python modules live inside a
-compressed archive while the data files are unpacked beside the executable, so
-``__file__`` points somewhere that does not exist on disk. PyInstaller records
-the real location in ``sys._MEIPASS``, which is checked first.
-"""
+"""Application branding assets: the window icon, the logo and an optional theme."""
 
 from __future__ import annotations
 
@@ -18,12 +6,10 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 
-#: Filenames this module looks for, relative to the resources folder.
 ICON_FILE = "app.ico"
 LOGO_FILE = "logo.png"
 STYLESHEET_FILE = "app.qss"
 
-#: Fallbacks for the window icon on platforms that do not use .ico files.
 ICON_FALLBACKS = ("app.png", "logo.png")
 
 
@@ -48,12 +34,7 @@ def resource_path(name: str) -> Path | None:
 
 
 def icon_path() -> Path | None:
-    """
-    Return the application icon.
-
-    Windows wants an ``.ico``; other platforms cannot read one, so a PNG is
-    accepted as a fallback and Qt is left to scale it.
-    """
+    """Return the application icon."""
 
     for name in (ICON_FILE, *ICON_FALLBACKS):
         found = resource_path(name)
@@ -89,16 +70,7 @@ def load_stylesheet() -> str:
 
 
 def app_icon():  # -> QIcon | None
-    """
-    Return the application icon as a QIcon, or None.
-
-    A malformed icon file yields a QIcon that is not null but carries no images,
-    which would show as a blank square rather than an error. Both conditions are
-    treated as "no icon" so the application falls back to Qt's default instead.
-
-    Qt is imported lazily so that this module stays importable in a headless
-    process — the CLI and the test suite both import it without a display.
-    """
+    """Return the application icon as a QIcon, or None."""
 
     path = icon_path()
     if path is None:

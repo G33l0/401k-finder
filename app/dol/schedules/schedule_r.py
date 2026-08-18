@@ -1,4 +1,4 @@
-"""Schedule R — retirement plan information."""
+"""Schedule R: retirement plan information."""
 
 from __future__ import annotations
 

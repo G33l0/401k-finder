@@ -38,12 +38,7 @@ class PlanCategory(StrEnum):
 
 
 class PlanFeature(StrEnum):
-    """
-    Specific retirement-account types a plan can carry.
-
-    A single filing frequently carries several: a profit-sharing plan with a
-    401(k) feature that is also participant-directed reports 2E, 2J and 2G.
-    """
+    """Specific retirement-account types a plan can carry."""
 
     K401 = "401K"
     B403 = "403B"
@@ -89,7 +84,6 @@ class ProviderRole(StrEnum):
     TERMINATED_ACCOUNTANT = "TERMINATED_ACCOUNTANT_OR_ACTUARY"
 
 
-#: Roles that answer "who actually holds and runs the money in this account".
 CUSTODIAL_ROLES: tuple[str, ...] = (
     ProviderRole.RECORDKEEPER,
     ProviderRole.TRUSTEE,
@@ -98,7 +92,6 @@ CUSTODIAL_ROLES: tuple[str, ...] = (
     ProviderRole.INVESTMENT_MANAGER,
 )
 
-#: Ordering used when presenting a plan's parties, most relevant first.
 ROLE_PRIORITY: tuple[str, ...] = (
     ProviderRole.RECORDKEEPER,
     ProviderRole.TRUSTEE,
@@ -136,15 +129,11 @@ DOL_DATASET_PAGE_URL = (
 
 DOL_FILE_BASE_URL = "https://askebsa.dol.gov/FOIA%20Files"
 
-#: Public search UI EBSA runs over the same filings, used for evidence links.
 EFAST_FILING_URL = "https://www.efast.dol.gov/5500search/"
 
 USER_AGENT = "401K-Finder-Pro (DOL public-data research client)"
 
 
-#: The two-letter codes DOL uses in sponsor addresses. Kept here rather than in
-#: the search panel so headless code — the trace matcher, the CLI — can validate
-#: a state without importing Qt.
 US_STATES: tuple[str, ...] = (
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "DC", "FL", "GA", "HI",
     "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN",
@@ -154,10 +143,23 @@ US_STATES: tuple[str, ...] = (
 )
 
 
-#: How the data source is named wherever a person sees it.
-#:
-#: The application does not show DOL web addresses. It is a product, not a
-#: shim over a government website, and a raw URL on screen invites the reader
-#: to go and use the site instead. The download machinery still uses the real
-#: addresses above -- this constant governs presentation only.
 SOURCE_LABEL = "Department of Labour Database, USA"
+
+#: Shown in a table cell or detail row when the filing left the field blank.
+NOT_REPORTED = "Not reported"
+
+#: The same idea in a dense table, where a full phrase would crowd the column.
+BLANK_CELL = "-"
+
+
+def year_span(first: int | None, last: int | None, *, joiner: str = "-") -> str:
+    """A run of form years, collapsed when it covers only one."""
+
+    if first is None and last is None:
+        return "?"
+    if first is None or last is None:
+        return str(first if first is not None else last)
+    if first == last:
+        return str(first)
+
+    return f"{first}{joiner}{last}"

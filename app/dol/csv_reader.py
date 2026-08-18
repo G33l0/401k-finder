@@ -9,13 +9,8 @@ from typing import Any
 from app.core.exceptions import CSVReadError
 from app.dol.normalizer import normalize_column_name
 
-#: Tried in order. DOL files are mostly Windows-1252 with occasional UTF-8 BOMs;
-#: latin-1 is last because it decodes any byte and so must never pre-empt a
-#: more accurate guess.
 ENCODINGS: tuple[str, ...] = ("utf-8-sig", "utf-8", "cp1252", "latin-1")
 
-#: Some Schedule H rows carry free-text fields far larger than the csv module's
-#: default 128 KB field limit.
 _FIELD_SIZE_LIMIT = 8 * 1024 * 1024
 
 
@@ -34,16 +29,8 @@ _raise_field_limit()
 
 
 def detect_encoding(path: Path, sample_bytes: int = 1 << 20) -> str:
-    """
-    Return an encoding that decodes the file, checked against a leading sample.
+    """Return an encoding that decodes the file, checked against a leading sample."""
 
-    A 1 MB sample is enough to surface the non-ASCII characters that separate
-    cp1252 from UTF-8 in these files while staying fast on multi-gigabyte CSVs.
-    """
-
-    # The handle is closed before returning. Windows refuses to delete a file
-    # that is still open, and the sync service deletes these CSVs once the
-    # import finishes.
     try:
         with path.open("rb") as handle:
             raw = handle.read(sample_bytes)
@@ -82,17 +69,7 @@ def read_csv_rows(
     path: Path,
     normalize_keys: bool = True,
 ) -> Iterator[tuple[int, dict[str, Any]]]:
-    """
-    Yield ``(row_number, row)`` pairs, with row numbers matching the file.
-
-    Row numbers start at 2 so they line up with what a spreadsheet shows,
-    which matters because they are recorded as evidence.
-
-    Short rows are padded and over-long rows keep their surplus values under a
-    ``_EXTRA`` key rather than being dropped: a malformed row in one of these
-    files is still worth importing, and silently discarding it would leave a
-    plan looking like it has no provider.
-    """
+    """Yield ``(row_number, row)`` pairs, with row numbers matching the file."""
 
     if not path.exists():
         raise CSVReadError(f"CSV file does not exist: {path}")
@@ -142,13 +119,7 @@ def read_csv_rows(
 
 
 def count_rows(path: Path) -> int:
-    """
-    Count data rows, for progress reporting.
-
-    Counts newlines on the raw bytes rather than parsing, so it stays fast on
-    the multi-gigabyte files; embedded newlines inside quoted fields make this
-    an upper bound rather than an exact count.
-    """
+    """Count data rows, for progress reporting."""
 
     try:
         with path.open("rb") as handle:

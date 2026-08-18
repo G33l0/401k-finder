@@ -64,11 +64,6 @@ def test_icon_falls_back_to_png(monkeypatch, tmp_path):
     assert found is not None and found.name == "logo.png"
 
 
-# ----------------------------------------------------------------------
-# The shipped mark
-# ----------------------------------------------------------------------
-
-
 def test_the_mark_is_present_and_loadable():
     """
     The repository ships a real icon now, so the optional-asset paths above
@@ -83,8 +78,6 @@ def test_the_mark_is_present_and_loadable():
     with Image.open(path) as icon:
         sizes = set(icon.info.get("sizes", ()))
 
-    # Windows picks a frame per context: 16 in the title bar, 32 in the task
-    # bar, 256 for large tiles. Missing one makes it scale another and blur.
     assert {(16, 16), (32, 32), (48, 48), (256, 256)} <= sizes
 
 

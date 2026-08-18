@@ -13,8 +13,6 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-#: Called with (bytes_downloaded, bytes_total). ``total`` is 0 when the server
-#: does not send Content-Length.
 ProgressCallback = Callable[[int, int], None]
 CancelCallback = Callable[[], bool]
 
@@ -22,15 +20,7 @@ CHUNK_SIZE = 1 << 20
 
 
 class DOLDownloader:
-    """
-    Streams DOL dataset archives to disk.
-
-    Downloads land on a ``.part`` file and are moved into place only once
-    complete, so an interrupted download can never be mistaken for a good one.
-    A partial ``.part`` file is resumed with a Range request where the server
-    allows it — these archives run to several gigabytes and restarting from zero
-    on a dropped connection is painful.
-    """
+    """Streams DOL dataset archives to disk."""
 
     def __init__(self, timeout: float = 120.0, max_retries: int = 3) -> None:
         self.timeout = timeout
@@ -56,13 +46,7 @@ class DOLDownloader:
         return digest.hexdigest()
 
     def head(self, url: str) -> tuple[int, bool]:
-        """
-        Return ``(content_length, supports_range)`` for a dataset URL.
-
-        Failures are non-fatal — the download simply proceeds without knowing
-        the size — because a HEAD that a proxy refuses should not stop a GET
-        that would have worked.
-        """
+        """Return ``(content_length, supports_range)`` for a dataset URL."""
 
         try:
             with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
@@ -98,10 +82,6 @@ class DOLDownloader:
 
         for attempt in range(1, self.max_retries + 1):
             try:
-                # Resume on the first attempt too. A part file left by an
-                # earlier invocation is the main case worth resuming -- these
-                # archives run to gigabytes, and restarting from zero after a
-                # dropped connection is the behaviour this exists to avoid.
                 self._stream(
                     url=url,
                     temporary=temporary,
@@ -166,9 +146,6 @@ class DOLDownloader:
             headers=headers,
         ) as response:
             if already and response.status_code == 200:
-                # The server ignored the Range header and is sending the whole
-                # file, so the partial data must be discarded rather than
-                # appended to.
                 already = 0
 
             response.raise_for_status()

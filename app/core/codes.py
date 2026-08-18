@@ -1,12 +1,4 @@
-"""
-DOL / IRS code tables used to interpret Form 5500 filings.
-
-Descriptions are taken from the official "Instructions for Part I and Part II
-of Form 5500" (plan characteristics codes) and "Instructions for Schedule C"
-(service codes). The plan characteristics codes 1A-3J and 4A-4U have carried
-stable meanings across the 2009-2025 datasets; codes 2U, 2V, 2W and 2X were
-introduced for the 2022 form year and are marked accordingly.
-"""
+"""DOL / IRS code tables used to interpret Form 5500 filings."""
 
 from __future__ import annotations
 
@@ -39,12 +31,9 @@ def _db(code: str, description: str, *features: PlanFeature) -> PlanCharacterist
     return PlanCharacteristic(code, description, PlanCategory.DEFINED_BENEFIT, features)
 
 
-#: Plan characteristics codes reported on Form 5500 line 8a/8b
-#: (``TYPE_PENSION_BNFT_CODE`` and ``TYPE_WELFARE_BNFT_CODE``).
 PLAN_CHARACTERISTICS: dict[str, PlanCharacteristic] = {
     entry.code: entry
     for entry in (
-        # --- Defined benefit pension features -----------------------------
         _db("1A", "Benefits are primarily pay related.", PlanFeature.PENSION_DB),
         _db(
             "1B",
@@ -80,7 +69,6 @@ PLAN_CHARACTERISTICS: dict[str, PlanCharacteristic] = {
             PlanFeature.PENSION_DB,
         ),
         _db("1I", "Frozen plan; no participant receives new benefit accrual.", PlanFeature.PENSION_DB),
-        # --- Defined contribution pension features -------------------------
         _dc(
             "2A",
             "Age/service weighted or new comparability or similar allocation.",
@@ -161,7 +149,6 @@ PLAN_CHARACTERISTICS: dict[str, PlanCharacteristic] = {
             PlanFeature.MULTIPLE_EMPLOYER,
             since=2022,
         ),
-        # --- Other pension benefit features --------------------------------
         PlanCharacteristic(
             "3B", "Plan covered self-employed individuals in the return year.", PlanCategory.UNKNOWN
         ),
@@ -196,7 +183,6 @@ PLAN_CHARACTERISTICS: dict[str, PlanCharacteristic] = {
             "section 401 and Puerto Rico section 1165.",
             PlanCategory.UNKNOWN,
         ),
-        # --- Welfare benefit features --------------------------------------
         *(
             PlanCharacteristic(code, description, PlanCategory.WELFARE)
             for code, description in (
@@ -252,9 +238,6 @@ def _comp(code: str, description: str, role: ProviderRole | None = None) -> Serv
     return ServiceCode(code, description, role, True)
 
 
-#: Schedule C element (b) service/compensation codes. Codes 10-49 describe the
-#: kind of service performed and therefore drive role assignment; codes 50-99
-#: describe how the provider was paid and only refine an already-known role.
 SERVICE_CODES: dict[str, ServiceCode] = {
     entry.code: entry
     for entry in (
@@ -331,13 +314,6 @@ SERVICE_CODES: dict[str, ServiceCode] = {
 }
 
 
-#: Form 5500 Part I line A plan-entity codes (``TYPE_PLAN_ENTITY_CD``).
-#:
-#: Note the ordering: 1 is *multiemployer* and 2 is *single-employer*, which is
-#: the reverse of the order the checkboxes appear in on the form itself. The
-#: values are as documented in DOL's Form 5500 Private Pension Plan Research
-#: File user guide, and confirmed against the published data — single-employer
-#: plans are the overwhelming majority and they carry code 2.
 PLAN_ENTITY_CODES: dict[str, str] = {
     "1": "Multiemployer plan",
     "2": "Single-employer plan",
@@ -345,14 +321,11 @@ PLAN_ENTITY_CODES: dict[str, str] = {
     "4": "Direct filing entity (DFE)",
 }
 
-#: The subset of plan-entity codes that describe a shared-employer arrangement.
 MULTIEMPLOYER_ENTITY_CODE = "1"
 SINGLE_EMPLOYER_ENTITY_CODE = "2"
 MULTIPLE_EMPLOYER_ENTITY_CODE = "3"
 DFE_ENTITY_CODE = "4"
 
-#: Form 5500 line 1b direct-filing-entity codes (``TYPE_DFE_PLAN_ENTITY_CD``)
-#: and Schedule D entity codes.
 DFE_ENTITY_CODES: dict[str, str] = {
     "M": "Master trust investment account (MTIA)",
     "C": "Common/collective trust (CCT)",
@@ -361,7 +334,6 @@ DFE_ENTITY_CODES: dict[str, str] = {
     "G": "Group insurance arrangement (GIA)",
 }
 
-#: Schedule H/I independent qualified public accountant opinion codes.
 ACCOUNTANT_OPINION_CODES: dict[str, str] = {
     "1": "Unqualified",
     "2": "Qualified",
@@ -369,7 +341,6 @@ ACCOUNTANT_OPINION_CODES: dict[str, str] = {
     "4": "Adverse",
 }
 
-#: ``FILING_STATUS`` values published in the datasets.
 FILING_STATUS_DESCRIPTIONS: dict[str, str] = {
     "1": "Filing received",
     "2": "Processing stopped",

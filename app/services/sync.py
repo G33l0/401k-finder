@@ -1,11 +1,4 @@
-"""
-Fetch a form year from DOL and load it into the local database.
-
-One dataset moves through four steps — download, extract, validate, import —
-and each step records its outcome against an ``ImportedDataset`` row, so a run
-interrupted halfway through resumes rather than starting over. This matters:
-a full form year is tens of gigabytes.
-"""
+"""Fetch a form year from DOL and load it into the local database."""
 
 from __future__ import annotations
 
@@ -44,7 +37,6 @@ STATUS_COMPLETE = "COMPLETE"
 STATUS_FAILED = "FAILED"
 STATUS_SKIPPED = "SKIPPED"
 
-#: Called with (stage, dataset, done, total, message).
 SyncProgress = Callable[[str, str, int, int, str], None]
 CancelCheck = Callable[[], bool]
 
@@ -102,8 +94,6 @@ class SyncService:
         self.should_cancel = should_cancel
         self.downloader = DOLDownloader(timeout=self.settings.download_timeout)
 
-    # ------------------------------------------------------------------
-
     def _report(self, stage: str, dataset: str, done: int, total: int, message: str) -> None:
         if self.progress:
             self.progress(stage, dataset, done, total, message)
@@ -133,8 +123,6 @@ class SyncService:
             self.session.commit()
 
         return record
-
-    # ------------------------------------------------------------------
 
     def download(self, release: DatasetRelease, force: bool = False) -> Path:
         """Download one dataset archive, reusing an existing complete file."""
@@ -190,8 +178,6 @@ class SyncService:
 
         self._report("validate", release.name, 1, 1, result.summary())
         return result
-
-    # ------------------------------------------------------------------
 
     def sync_dataset(
         self,
@@ -306,12 +292,7 @@ class SyncService:
         force: bool = False,
         index_only: bool = False,
     ) -> SyncReport:
-        """
-        Sync a whole form year.
-
-        ``plan_sync`` orders filing datasets before schedules, which is what
-        allows the schedule rows to attach to their filings in one pass.
-        """
+        """Sync a whole form year."""
 
         chosen_release = release or Release(self.settings.release)
         use_core = self.settings.core_datasets_only if core_only is None else core_only
@@ -368,18 +349,7 @@ class SyncService:
         release: Release | None = None,
         force: bool = False,
     ) -> list[SyncReport]:
-        """
-        Fetch the employer index for many years.
-
-        This is what makes a whole working life searchable: the two filing
-        forms carry every sponsor name, EIN and plan number, and nothing else
-        is needed to answer "which plan did my employer run". The schedules —
-        which is where the size is — are left for the years that actually
-        matched.
-
-        A year already held at any depth is skipped unless ``force``, so this
-        is safe to re-run and safe to interrupt.
-        """
+        """Fetch the employer index for many years."""
 
         wanted = list(years) if years is not None else list(supported_years())
         reports: list[SyncReport] = []
@@ -400,7 +370,6 @@ class SyncService:
                     )
                 )
             except DatasetError as exc:
-                # A year DOL has not published is not a failure of the run.
                 logger.info("Skipping %s: %s", form_year, exc)
 
         return reports
@@ -409,9 +378,6 @@ class SyncService:
         """Recompute rollups and search indexes after an import."""
 
         self._report("finalize", "", 0, 4, "Linking asset transfers")
-        # A transfer only links once both plans exist, and the receiving plan
-        # may have arrived in this run or an earlier one, so this runs on every
-        # sync rather than only when Schedule H Part 1 was fetched.
         resolve_transfers(self.session)
 
         self._report("finalize", "", 1, 4, "Updating plan totals")
@@ -426,8 +392,6 @@ class SyncService:
         analyze(engine)
 
         self._report("finalize", "", 4, 4, "Done")
-
-    # ------------------------------------------------------------------
 
     def status(self, form_year: int | None = None) -> list[ImportedDataset]:
         """Return what has been imported, newest year first."""

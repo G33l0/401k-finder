@@ -1,9 +1,4 @@
-"""
-Regression tests for bugs found by auditing rather than by a failing test.
-
-Each one pins behaviour that was wrong at some point, so the fix cannot quietly
-come undone.
-"""
+"""Regression tests for bugs found by auditing rather than by a failing test."""
 
 from __future__ import annotations
 
@@ -17,11 +12,10 @@ from app.search.query import PlanQuery
 
 
 def test_windows_data_dir_is_not_nested_twice():
-    """
-    platformdirs nests under the author name on Windows. Passing an author
-    equal to the application name produced
-    "%LOCALAPPDATA%\\401K Finder Pro\\401K Finder Pro", while every document
-    describes a single folder.
+    r"""
+    platformdirs nests under the author name on Windows. Passing an author equal to the
+    application name produced "%LOCALAPPDATA%\401K Finder Pro\401K Finder Pro", while
+    every document describes a single folder.
     """
 
     from platformdirs.windows import Windows
@@ -56,7 +50,6 @@ def test_detect_encoding_closes_its_handle(tmp_path):
 
     detect_encoding(sample)
 
-    # On Windows an open handle makes this raise PermissionError.
     sample.unlink()
     assert not sample.exists()
 
@@ -69,7 +62,6 @@ def test_capped_text_search_reports_a_lower_bound(session, imported, monkeypatch
 
     engine = SearchEngine(session)
 
-    # Pretend the cap is 1 so the fixture is large enough to trip it.
     monkeypatch.setattr("app.search.engine.TEXT_MATCH_CAP", 1)
 
     total, capped = engine.count_plans_detailed(PlanQuery(text="acme"))
@@ -110,8 +102,6 @@ def test_importer_does_not_preload_every_engagement():
 
     source = Path("app/dol/importer.py").read_text(encoding="utf-8")
 
-    # The per-batch set is fine; it is the instance-wide cache that grew without
-    # bound and was loaded up front by load_caches().
     assert "self._party_keys" not in source
     assert 'prefix_with("OR IGNORE")' in source
 
@@ -138,11 +128,6 @@ def test_reimport_still_deduplicates_engagements(session, dol_files, imported):
     after = session.execute(select(func.count(PlanParty.id))).scalar()
 
     assert before == after
-
-
-# ----------------------------------------------------------------------
-# Build script — checked as text, since PowerShell cannot run here
-# ----------------------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
@@ -199,15 +184,10 @@ def test_installer_ships_both_executables():
     assert "{#CliExeName}" in script
 
 
-# ----------------------------------------------------------------------
-# Evidence uniqueness (schema v4)
-# ----------------------------------------------------------------------
-
-
 def test_reimport_does_not_duplicate_evidence(session, dol_files, imported):
     """
     Only engagements had a unique constraint, so a second import appended a
-    fresh copy of every citation — inflating the trail while adding nothing.
+    fresh copy of every citation, inflating the trail while adding nothing.
     """
 
     from sqlalchemy import func, select
@@ -246,7 +226,6 @@ def test_migration_removes_pre_existing_duplicate_evidence(tmp_path):
 
     path = tmp_path / "legacy.sqlite3"
 
-    # Build the table as schema 3 had it — no uniqueness — and duplicate a row.
     raw = sqlite3.connect(path)
     raw.executescript(
         """
@@ -287,7 +266,7 @@ def test_migration_removes_pre_existing_duplicate_evidence(tmp_path):
 
 def test_status_does_not_crash_before_the_database_exists(tmp_path, capsys, monkeypatch):
     """
-    'status' is the first command a fresh installation runs — the deployment
+    'status' is the first command a fresh installation runs, and the deployment
     guide says to run it to confirm the branding was picked up. It used to
     query the plans table straight away and fail with a SQLAlchemy traceback on
     a machine where the application had never been opened.
@@ -328,7 +307,7 @@ def test_an_existing_v4_database_gains_the_transfers_table(tmp_path):
     """
     Customers upgrading arrive at schema 4 with no plan_transfers table.
     Step 1 creates every table in the current metadata, so a database built
-    today already has it — this simulates the real starting point instead.
+    today already has it, so this simulates the real starting point instead.
     """
 
     import sqlite3

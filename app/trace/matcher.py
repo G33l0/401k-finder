@@ -1,28 +1,4 @@
-"""
-Match a work history against filed plans.
-
-This is the part that earns its keep. Given "a machine shop in Ohio, around
-2010", it finds the plan, names the firm that was holding the money *at the
-time*, and cites the filing that says so — which is the information a
-participant needs before anyone will talk to them.
-
-Three things make this more than a name search:
-
-**Historical sponsor names.** Employers get acquired and renamed. The plans
-table carries the name from the most recent filing, so an employer that no
-longer exists under the name the person remembers would never match. Every
-filing keeps the sponsor name as filed *that year*, so those are searched too —
-and when the match comes from an old name, the report says which one, because
-"we found it, it is called something else now" is the answer.
-
-**The provider as of the right year.** The recordkeeper in 2010 is often not the
-recordkeeper today. Engagements are stored per form year, so the trace reports
-who held the money during the employment, and separately who holds it now.
-
-**Whether the plan still exists.** A final filing changes the advice completely:
-the money went somewhere, and the destination is a different search. That is
-detected rather than left for the reader to notice.
-"""
+"""Match a work history against filed plans."""
 
 from __future__ import annotations
 
@@ -31,7 +7,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.constants import ROLE_PRIORITY
+from app.core.constants import ROLE_PRIORITY, year_span
 from app.core.logging import get_logger
 from app.database.models import Filing, Plan, PlanParty, Provider
 from app.dol.normalizer import normalize_name_key
@@ -47,7 +23,6 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     _HAVE_RAPIDFUZZ = False
 
-#: Roles that answer "who is holding the money", best first.
 HOLDER_ROLES: tuple[str, ...] = (
     "RECORDKEEPER",
     "TRUSTEE",
@@ -60,14 +35,10 @@ HOLDER_ROLES: tuple[str, ...] = (
     "ADMINISTRATOR",
 )
 
-#: Below this, a candidate is noise. Deliberately permissive — a participant
-#: would rather scan ten plans than miss the one that is theirs.
 MIN_SCORE = 55.0
 
-#: Candidate rows pulled from the database per job before scoring.
 CANDIDATE_LIMIT = 400
 
-#: Words that carry no identifying weight in an employer name.
 _NOISE = frozenset(
     # fmt: off
     (
@@ -86,7 +57,7 @@ def _tokens(value: str) -> set[str]:
 
 
 def _similarity(needle: str, candidate: str) -> float:
-    """How alike two employer names are, 0–100."""
+    """How alike two employer names are, on a scale of 0 to 100."""
 
     left, right = normalize_name_key(needle), normalize_name_key(candidate)
 
@@ -96,10 +67,6 @@ def _similarity(needle: str, candidate: str) -> float:
         return 100.0
 
     if _HAVE_RAPIDFUZZ:
-        # token_set_ratio handles "Acme Manufacturing" against "Acme
-        # Manufacturing Company Inc Retirement Plan" — a containment case that
-        # plain ratio scores badly and that happens constantly here, because
-        # plan names embed the sponsor name.
         return max(
             fuzz.token_set_ratio(left, right),
             fuzz.partial_ratio(left, right) * 0.95,
@@ -161,25 +128,15 @@ class PlanMatch:
     score: float
     reasons: list[str] = field(default_factory=list)
 
-    #: The name the employer filed under during the employment, when it differs
-    #: from the name on the plan today.
     matched_as: str | None = None
 
-    #: Holders during the years worked, best role first.
     holders_then: list[Holder] = field(default_factory=list)
-    #: Holders on the most recent filing.
     holders_now: list[Holder] = field(default_factory=list)
 
-    #: The plan filed a final return in this year, so it no longer exists.
     final_year: int | None = None
 
-    #: Where the assets went, when the filings say. Populated for any plan that
-    #: reported a transfer, not only terminated ones -- a plan can move part of
-    #: its assets and carry on.
     successor: SuccessorChain | None = None
 
-    #: Who holds the plan at the end of the chain. This is the answer for
-    #: somebody whose own plan no longer exists.
     successor_holders: list[Holder] = field(default_factory=list)
 
     @property
@@ -231,13 +188,8 @@ class TraceReport:
     history: WorkHistory
     traces: list[JobTrace] = field(default_factory=list)
 
-    #: Form years present in the database, so the report can say what was
-    #: actually searched rather than implying it covered everything.
     years_searched: tuple[int, ...] = ()
 
-    #: How completely each year is held. An index-only year can match an
-    #: employer but can never name a provider, and a reader who is not told
-    #: that reads "no holder named" as "nobody holds it".
     coverage: list = field(default_factory=list)
 
     @property
@@ -280,8 +232,6 @@ class AccountTracer:
         self.session = session
         self.min_score = min_score
 
-    # ------------------------------------------------------------------
-
     def trace(self, history: WorkHistory, limit_per_job: int = 8) -> TraceReport:
         from app.services.coverage import coverage
 
@@ -312,9 +262,6 @@ class AccountTracer:
             if match is None:
                 continue
 
-            # A plan can surface from both its current and a historical name.
-            # Keep whichever scored better, but prefer to remember the old name,
-            # since that is the part the reader needs explaining.
             existing = scored.get(plan.id)
             if existing is None or match.score > existing.score:
                 if existing is not None and existing.matched_as and not match.matched_as:
@@ -330,8 +277,6 @@ class AccountTracer:
 
         return ranked
 
-    # ------------------------------------------------------------------
-
     def _imported_years(self) -> tuple[int, ...]:
         rows = self.session.execute(
             select(Filing.form_year).distinct().order_by(Filing.form_year)
@@ -339,13 +284,7 @@ class AccountTracer:
         return tuple(rows)
 
     def _candidates(self, job: Employment) -> list[tuple[Plan, str | None]]:
-        """
-        Pull plausible plans out of the database, cheaply.
-
-        Two passes: the plans table for the employer as it is known now, and
-        the filings table for the name it filed under at the time. The second
-        is what finds a company that has since been acquired.
-        """
+        """Pull plausible plans out of the database, cheaply."""
 
         found: list[tuple[Plan, str | None]] = []
         seen: set[int] = set()
@@ -366,8 +305,6 @@ class AccountTracer:
         """The distinctive words to search on."""
 
         words = [word for word in _tokens(job.employer) if len(word) > 2]
-        # Longest first: the rarest token is the most selective, and SQLite will
-        # use the index on the first LIKE it can.
         return sorted(words, key=len, reverse=True)[:3] or [
             normalize_name_key(job.employer)
         ]
@@ -436,8 +373,6 @@ class AccountTracer:
 
         return [(plan, by_plan[plan.id]) for plan in plans]
 
-    # ------------------------------------------------------------------
-
     def _score(
         self, job: Employment, plan: Plan, matched_as: str | None
     ) -> PlanMatch | None:
@@ -448,10 +383,6 @@ class AccountTracer:
 
         reasons: list[str] = []
 
-        # The name is the bulk of the score. A plan name usually contains the
-        # sponsor name, so it is scored too, at a discount — matching "Acme" in
-        # "Acme 401(k) Plan" is real evidence but weaker than matching the
-        # sponsor field itself.
         candidates = [
             (plan.sponsor_name, 1.00, "sponsor name"),
             (matched_as, 1.00, "sponsor name as filed at the time"),
@@ -478,7 +409,7 @@ class AccountTracer:
             plan.sponsor_name or ""
         ):
             reasons.append(
-                f"Filed as “{matched_as}” at the time; now “{plan.sponsor_name}”"
+                f"Filed as \"{matched_as}\" at the time; now \"{plan.sponsor_name}\""
             )
 
         if job.state and plan.sponsor_state == job.state:
@@ -487,7 +418,7 @@ class AccountTracer:
         elif job.state and plan.sponsor_state:
             score -= 10
             reasons.append(
-                f"Sponsor is in {plan.sponsor_state}, not {job.state} — "
+                f"Sponsor is in {plan.sponsor_state}, not {job.state}, so "
                 f"the plan may be filed from a head office"
             )
 
@@ -502,11 +433,9 @@ class AccountTracer:
         features = tuple((plan.plan_features or "").split("|")) if plan.plan_features else ()
         features = tuple(value for value in features if value)
 
-        # An account balance is what someone is looking for; a defined benefit
-        # pension is a different conversation but still worth surfacing.
         if plan.plan_category == "DEFINED_CONTRIBUTION":
             score += 5
-            reasons.append("Defined contribution — an account with a balance")
+            reasons.append("Defined contribution, meaning an account with a balance")
         elif plan.plan_category == "DEFINED_BENEFIT":
             reasons.append("Defined benefit pension, not an account balance")
 
@@ -515,7 +444,7 @@ class AccountTracer:
             if covered:
                 score += 5
                 reasons.append(
-                    f"Filed for {covered[0]}–{covered[-1]}, covering when you were there"
+                    f"Filed for {year_span(covered[0], covered[-1], joiner=' to ')}, covering when you were there"
                 )
             else:
                 score -= 15
@@ -547,8 +476,6 @@ class AccountTracer:
 
         wanted = job.years(plan.first_year, plan.last_year)
         return [year for year in wanted if plan.first_year <= year <= plan.last_year]
-
-    # ------------------------------------------------------------------
 
     _PRIORITY = {role: index for index, role in enumerate(ROLE_PRIORITY)}
 
@@ -625,7 +552,7 @@ class AccountTracer:
 
     @staticmethod
     def _dedupe(holders: list[Holder]) -> list[Holder]:
-        """One entry per firm and role — the same engagement is filed on several schedules."""
+        """One entry per firm and role. The same engagement is filed on several schedules."""
 
         seen: set[tuple[str, str]] = set()
         kept: list[Holder] = []
@@ -640,13 +567,7 @@ class AccountTracer:
         return kept
 
     def _attach_successor(self, match: PlanMatch) -> None:
-        """
-        Follow the assets forward, and find who holds them at the far end.
-
-        This is the payoff of reading Schedule H Part 1: a participant whose
-        plan was wound up gets told which plan it became and who administers
-        that one, rather than being left to guess.
-        """
+        """Follow the assets forward, and find who holds them at the far end."""
 
         chain = follow_chain(self.session, match.plan_id)
         if not chain:
@@ -667,7 +588,7 @@ class AccountTracer:
         )
 
     def _attach_termination(self, match: PlanMatch) -> None:
-        """A final filing means the plan no longer exists — the advice changes."""
+        """A final filing means the plan no longer exists, so the advice changes."""
 
         final_year = self.session.execute(
             select(func.max(Filing.form_year)).where(
@@ -677,8 +598,6 @@ class AccountTracer:
 
         if final_year is not None:
             match.final_year = int(final_year)
-            # Deliberately says only that it wound up. Whether the destination
-            # is known is decided by _attach_successor, which runs next.
             match.reasons.append(
                 f"The plan filed a final return for {final_year} and no longer exists"
             )

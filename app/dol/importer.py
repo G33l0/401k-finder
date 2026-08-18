@@ -1,25 +1,4 @@
-"""
-Import DOL Form 5500 files into the local database.
-
-The import runs in two passes because that is how the data is actually shaped:
-
-    Pass 1  Filing datasets (F_5500, F_5500_SF, F_SCH_DCG) carry plan identity —
-            sponsor EIN, plan number, plan name — and create the Plan and Filing
-            rows. Every filing is keyed by its DOL ACK_ID.
-
-    Pass 2  Schedule datasets carry no plan identity at all; a Schedule H row is
-            just an ACK_ID and a hundred dollar amounts. They are joined to the
-            filings from pass 1 by ACK_ID.
-
-Running pass 2 without pass 1 would leave every schedule row unattached, which
-is the failure the previous single-pass importer produced: it read plan identity
-out of schedule rows that do not contain any, so every schedule row in a file
-collapsed onto one placeholder "UNKNOWN PLAN".
-
-Throughput matters here — a single form year is several million rows — so the
-importer buffers rows and writes them with SQLAlchemy Core bulk inserts, holding
-only the ACK_ID and provider maps in memory.
-"""
+"""Import DOL Form 5500 files into the local database."""
 
 from __future__ import annotations
 
@@ -64,10 +43,8 @@ from app.providers.normalizer import normalize_provider
 
 logger = get_logger(__name__)
 
-#: Called with (rows_processed, rows_total_estimate, message).
 ProgressCallback = Callable[[int, int, str], None]
 
-#: Called before each batch; returning True aborts the import.
 CancelCallback = Callable[[], bool]
 
 
@@ -133,13 +110,7 @@ def _utcnow() -> datetime:
 
 
 class DOLImporter:
-    """
-    Imports DOL CSV files into the database.
-
-    One importer instance should be used for a whole form year: it caches the
-    plan, filing and provider lookups it builds, so importing ten datasets costs
-    one set of lookups rather than ten.
-    """
+    """Imports DOL CSV files into the database."""
 
     def __init__(
         self,
@@ -153,27 +124,14 @@ class DOLImporter:
         self.progress = progress
         self.should_cancel = should_cancel
 
-        # (ein, plan_number) -> plan id
         self._plan_ids: dict[tuple[str | None, str | None], int] = {}
-        # ack_id -> (filing id, plan id)
         self._filing_ids: dict[str, tuple[int, int]] = {}
-        # provider name key -> provider id
         self._provider_ids: dict[str, int] = {}
 
         self._caches_loaded = False
 
-    # ------------------------------------------------------------------
-    # Lookup caches
-    # ------------------------------------------------------------------
-
     def load_caches(self) -> None:
-        """
-        Load the identity maps the import needs, once per session.
-
-        Loading these up front turns what would be three SELECTs per row into a
-        dictionary lookup, which is the difference between an import that takes
-        minutes and one that takes days.
-        """
+        """Load the identity maps the import needs, once per session."""
 
         if self._caches_loaded:
             return
@@ -195,12 +153,6 @@ class DOLImporter:
         ):
             self._provider_ids[name_key] = provider_id
 
-        # Engagements are deliberately not cached. There is one row per
-        # plan-provider-role-year-schedule, which across a full form year runs
-        # into the millions -- holding them all in a set costs more memory than
-        # the rest of the import put together. The table's unique constraint
-        # does the same job, enforced by INSERT OR IGNORE at write time.
-
         self._caches_loaded = True
 
         logger.info(
@@ -218,10 +170,6 @@ class DOLImporter:
     def _report(self, done: int, total: int, message: str) -> None:
         if self.progress:
             self.progress(done, total, message)
-
-    # ------------------------------------------------------------------
-    # Entry point
-    # ------------------------------------------------------------------
 
     def import_file(
         self,
@@ -263,10 +211,6 @@ class DOLImporter:
         logger.info("%s %s: %s", form_year, dataset, stats.summary())
         return stats
 
-    # ------------------------------------------------------------------
-    # Pass 1: filing datasets
-    # ------------------------------------------------------------------
-
     def _import_filing_file(
         self,
         path: Path,
@@ -303,14 +247,11 @@ class DOLImporter:
                 continue
 
             if parsed.ack_id in self._filing_ids:
-                # Already imported, e.g. re-running a partially completed year.
                 stats.rows_skipped += 1
                 continue
 
             plan_key = parsed.plan_key
             if plan_key[0] is None and plan_key[1] is None:
-                # Without an EIN and plan number there is no stable identity to
-                # merge this filing onto in later years, so key it by ACK_ID.
                 plan_key = (None, f"ACK:{parsed.ack_id[:40]}")
 
             if plan_key not in self._plan_ids:
@@ -412,13 +353,7 @@ class DOLImporter:
         }
 
     def _update_plan(self, plan_id: int, parsed: ParsedFiling, stats: ImportStats) -> None:
-        """
-        Fold a newer filing's values onto an existing plan.
-
-        Only a filing at least as recent as what the plan already carries may
-        overwrite its display fields, so importing 2019 after 2023 does not make
-        the plan look stale.
-        """
+        """Fold a newer filing's values onto an existing plan."""
 
         plan = self.session.get(Plan, plan_id)
         if plan is None:
@@ -462,8 +397,6 @@ class DOLImporter:
         if not buffer:
             return
 
-        # A file can name the same plan twice (an original and an amended
-        # filing); keep the first and let the later one update it.
         unique: dict[tuple[str | None, str | None], dict[str, Any]] = {}
         for values in buffer:
             unique.setdefault(values["_key"], values)
@@ -473,10 +406,6 @@ class DOLImporter:
             for values in unique.values()
         ]
 
-        # RETURNING gives back the generated ids in insert order, so the new
-        # plans can be cached without a second lookup query. Selecting them back
-        # by (ein, plan_number) instead would have to scan on plan_number, which
-        # only has 999 distinct values and so matches almost the whole table.
         assigned = self.session.execute(
             insert(Plan).returning(Plan.id, Plan.ein, Plan.plan_number),
             rows,
@@ -522,14 +451,6 @@ class DOLImporter:
 
         buffer.clear()
 
-    # ------------------------------------------------------------------
-    # Schedule-sourced enrichment of filing-level facts
-    # ------------------------------------------------------------------
-
-    #: Schedule fields that fill in filing values the main form does not carry.
-    #: A Form 5500 filing has no financial totals of its own — for a large plan
-    #: those live on Schedule H, and for a small one on Schedule I — so without
-    #: this step every Form 5500 plan would show no assets at all.
     _FILING_ENRICHMENT: dict[str, dict[str, tuple[str, ...]]] = {
         "F_SCH_H": {
             "total_assets_boy": ("TOT_ASSETS_BOY_AMT",),
@@ -574,8 +495,6 @@ class DOLImporter:
         if not buffer:
             return
 
-        # Later rows for the same filing win; DOL can emit more than one
-        # schedule row per filing when a plan year was amended.
         merged: dict[int, dict[str, Any]] = {}
         for values in buffer:
             merged.setdefault(values["id"], {}).update(values)
@@ -621,10 +540,6 @@ class DOLImporter:
             if plan.plan_category in (None, PlanCategory.UNKNOWN, PlanCategory.WELFARE):
                 plan.plan_category = PlanCategory.DEFINED_CONTRIBUTION
 
-    # ------------------------------------------------------------------
-    # Pass 2: schedule datasets
-    # ------------------------------------------------------------------
-
     def _import_schedule_file(
         self,
         path: Path,
@@ -653,10 +568,6 @@ class DOLImporter:
                 self._flush_filing_updates(filing_updates)
                 self._flush_providers(pending_providers, form_year, source_file, stats)
 
-                # Scoped to the batch, not the file. A duplicate spanning two
-                # batches is caught by the existence check in the flush, and a
-                # file-wide set would grow to one entry per row -- hundreds of
-                # megabytes on the larger schedules.
                 seen_records.clear()
 
                 self._report(
@@ -672,10 +583,6 @@ class DOLImporter:
 
             link = self._filing_ids.get(ack_id)
             if link is None:
-                # The schedule row belongs to a filing this database does not
-                # have — normally because the matching filing dataset has not
-                # been imported for this year. Keep the row so it links up when
-                # the filing arrives, but do not invent a plan for it.
                 stats.unmatched_ack_ids += 1
                 filing_id, plan_id = None, None
             else:
@@ -763,8 +670,6 @@ class DOLImporter:
         if not buffer:
             return
 
-        # Guard the (ack_id, dataset, row_order) unique constraint against rows
-        # already present from an earlier partial run.
         existing = set(
             self.session.execute(
                 select(ScheduleRecord.ack_id, ScheduleRecord.row_order).where(
@@ -785,10 +690,6 @@ class DOLImporter:
 
         stats.rows_skipped += len(buffer) - len(rows)
         buffer.clear()
-
-    # ------------------------------------------------------------------
-    # Providers, parties and evidence
-    # ------------------------------------------------------------------
 
     def _flush_providers(
         self,
@@ -821,8 +722,6 @@ class DOLImporter:
                 if provider_id is None:
                     continue
 
-                # Deduplicate within this batch; the unique constraint plus
-                # INSERT OR IGNORE handles collisions with rows already stored.
                 party_key = (plan_id, provider_id, candidate.role, form_year, schedule_code)
                 if party_key in batch_party_keys:
                     continue
@@ -867,8 +766,6 @@ class DOLImporter:
                     }
                 )
 
-        # OR IGNORE lets a re-run skip rows already recorded without needing
-        # every existing key held in memory first.
         if party_rows:
             stats.parties_created += self._insert_ignoring_duplicates(PlanParty, party_rows)
 
@@ -881,13 +778,7 @@ class DOLImporter:
         buffer.clear()
 
     def _flush_transfers(self, buffer: list[dict[str, Any]], stats: ImportStats) -> None:
-        """
-        Write the plan-to-plan transfers collected from Schedule H Part 1.
-
-        ``INSERT OR IGNORE`` against the unique constraint makes a re-import
-        idempotent, which matters here because a year is commonly re-imported
-        after the matching filing dataset arrives.
-        """
+        """Write the plan-to-plan transfers collected from Schedule H Part 1."""
 
         if not buffer:
             return
@@ -896,14 +787,7 @@ class DOLImporter:
         buffer.clear()
 
     def _insert_ignoring_duplicates(self, model, rows: list[dict[str, Any]]) -> int:
-        """
-        Bulk-insert rows, skipping any that violate a unique constraint.
-
-        Returns how many rows were actually written. An executemany result does
-        not carry a usable rowcount, so SQLite's own change counter is read
-        either side of the statement; where that is unavailable the count falls
-        back to the number offered.
-        """
+        """Bulk-insert rows, skipping any that violate a unique constraint."""
 
         raw = getattr(self.session.connection().connection, "dbapi_connection", None)
         before = getattr(raw, "total_changes", None)
@@ -968,20 +852,7 @@ def _drop_temp(session: Session, name: str) -> None:
 
 
 def refresh_provider_rollups(session: Session) -> int:
-    """
-    Recompute each provider's plan count, participants and assets.
-
-    Run once after an import rather than per row: these are aggregates over
-    every engagement, and maintaining them incrementally would mean re-reading
-    every provider on every row that mentions it.
-
-    The totals are built into an indexed temporary table first, then joined in.
-    Expressing them as correlated subqueries directly against `plan_parties`
-    makes SQLite rescan that table once per provider per column, which turns a
-    one-second step into a multi-minute one on a real form year.
-
-    Returns the number of providers updated.
-    """
+    """Recompute each provider's plan count, participants and assets."""
 
     _drop_temp(session, "provider_totals")
 
@@ -1004,7 +875,6 @@ def refresh_provider_rollups(session: Session) -> int:
         text("CREATE UNIQUE INDEX temp.ix_provider_totals ON provider_totals(provider_id)")
     )
 
-    # The role a provider is engaged in most often across all its plans.
     _drop_temp(session, "provider_primary_role")
     session.execute(
         text(
@@ -1056,20 +926,7 @@ def refresh_provider_rollups(session: Session) -> int:
 
 
 def refresh_plan_rollups(session: Session) -> int:
-    """
-    Copy each plan's headline numbers down from its most recent filing.
-
-    Schedule H and Schedule I carry the financials for Form 5500 filers, so a
-    plan's asset total is only known once those schedules have been imported and
-    folded into the filing. This step runs after every import to pick that up.
-
-    The most recent filing per plan is materialised into an indexed temporary
-    table rather than left as a CTE: an unindexed CTE is rescanned for every
-    plan row, which on a real form year (220k plans, 230k filings) does not
-    finish in any reasonable time.
-
-    Returns the number of plans updated.
-    """
+    """Copy each plan's headline numbers down from its most recent filing."""
 
     _drop_temp(session, "latest_filing")
 
@@ -1125,22 +982,13 @@ def refresh_plan_rollups(session: Session) -> int:
     return int(result.rowcount or 0)
 
 
-#: Release label for files imported from disk rather than downloaded. Kept
-#: distinct from DOL's own "Latest" and "All" so a local import never looks like
-#: a completed sync of the published release.
 LOCAL_RELEASE = "Local"
 
 
 def _record_local_import(
     session: Session, form_year: int, dataset: str, path: Path, stats: ImportStats
 ) -> None:
-    """
-    Note that a dataset arrived, however it arrived.
-
-    Without this, importing files from disk left no record, so anything asking
-    "which years do we hold, and how completely" -- the Data tab, the coverage
-    report the trace leans on -- saw nothing at all.
-    """
+    """Note that a dataset arrived, however it arrived."""
 
     from app.database.models import ImportedDataset
 
@@ -1179,12 +1027,7 @@ def import_directory(
     batch_size: int = 5000,
     progress: ProgressCallback | None = None,
 ) -> ImportStats:
-    """
-    Import every DOL CSV found under a directory.
-
-    Files are ordered so filing datasets import before schedules, which is what
-    lets the schedule rows find their filings.
-    """
+    """Import every DOL CSV found under a directory."""
 
     from app.dol.filing_parser import infer_dataset_from_filename
 
@@ -1225,10 +1068,6 @@ def import_directory(
             total.errors.append(f"{path.name}: {exc}")
             logger.exception("Failed to import %s", path)
 
-    # Rollups run last: they aggregate over everything just imported, and the
-    # provider figures depend on the plan figures being current. Transfers are
-    # resolved first because a transfer only links once both plans exist, and
-    # the plan that received the assets may have arrived in this same run.
     resolve_transfers(session)
     refresh_plan_rollups(session)
     refresh_provider_rollups(session)

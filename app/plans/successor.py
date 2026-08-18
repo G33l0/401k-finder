@@ -1,21 +1,4 @@
-"""
-Following a plan's assets from one plan to the next.
-
-When a plan merges or winds up, Schedule H Part 1 names the plan that received
-its assets. Chained together, those rows answer the question a participant of a
-dissolved plan actually has — *where did my money go* — and the answer is often
-two or three hops away from where they started.
-
-Two jobs live here:
-
-:func:`resolve_transfers`
-    Turns the reported EIN and plan number into a link to a plan this database
-    already holds, so the chain can be walked. Runs after an import.
-
-:func:`follow_chain`
-    Walks the links, guarding against the cycles that real filings contain.
-    Plans do report transfers to each other, and a naive walk over that hangs.
-"""
+"""Following a plan's assets from one plan to the next."""
 
 from __future__ import annotations
 
@@ -29,26 +12,12 @@ from app.database.models import Plan, PlanTransfer
 
 logger = get_logger(__name__)
 
-#: How far to follow a chain of mergers. Real chains are one or two hops; this
-#: is a guard against pathological data, not a real limit.
 MAX_HOPS = 8
 
 
 def resolve_transfers(session: Session) -> int:
-    """
-    Point every transfer at the receiving plan, where we hold it.
+    """Point every transfer at the receiving plan, where we hold it."""
 
-    Matching is on (EIN, plan number), which is how DOL identifies a plan. A
-    transfer whose target is not in the database keeps its reported name, EIN
-    and plan number — that is still enough for a person to write to, and the
-    link resolves by itself once the missing year is imported.
-
-    Returns the number of transfers newly linked.
-    """
-
-    # A correlated subquery per row would rescan the plans table for every
-    # transfer. One indexed join over the unresolved rows does it in a single
-    # pass, which matters when a year brings tens of thousands of them.
     matched = (
         select(PlanTransfer.id.label("transfer_id"), Plan.id.label("plan_id"))
         .join(
@@ -60,8 +29,6 @@ def resolve_transfers(session: Session) -> int:
             PlanTransfer.to_plan_id.is_(None),
             PlanTransfer.to_ein.is_not(None),
             PlanTransfer.to_plan_number.is_not(None),
-            # A plan reporting a transfer to itself is a filing error, and
-            # linking it would build a self-loop for the walker to trip over.
             Plan.id != PlanTransfer.from_plan_id,
         )
         .subquery()
@@ -92,12 +59,8 @@ class SuccessorStep:
     to_ein: str | None
     to_plan_number: str | None
 
-    #: How many other transfers the same plan reported that year. A plan can
-    #: split its assets across several, and a chain that silently picks one
-    #: would present a guess as a fact.
     alternatives: int = 0
 
-    #: Set when the receiving plan is in this database.
     to_plan_id: int | None = None
     to_plan_name: str | None = None
     to_sponsor_name: str | None = None
@@ -122,7 +85,7 @@ class SuccessorStep:
 
         if self.alternatives:
             text += (
-                f", one of {self.alternatives + 1} plans named that year — the "
+                f", one of {self.alternatives + 1} plans named that year, so the "
                 f"balance may have been split"
             )
 
@@ -135,9 +98,7 @@ class SuccessorChain:
 
     steps: list[SuccessorStep] = field(default_factory=list)
 
-    #: True when the walk stopped because it came back to a plan already seen.
     looped: bool = False
-    #: True when the walk stopped at MAX_HOPS rather than at an end.
     truncated: bool = False
 
     def __bool__(self) -> bool:
@@ -176,21 +137,14 @@ class SuccessorChain:
 
 
 def transfers_from(session: Session, plan_id: int) -> list[PlanTransfer]:
-    """
-    Every transfer reported by one plan, best first.
-
-    Ordered by year descending, then by whether the target is a plan we
-    actually hold. A plan that reports several transfers in one year has split
-    its assets, and of the destinations the traceable one is the only one this
-    application can say anything further about — so it leads. Taking them in
-    file order instead meant a followable chain could be abandoned in favour of
-    a dead end that merely happened to be listed first.
-    """
+    """Every transfer reported by one plan, best first."""
 
     return list(
         session.execute(
             select(PlanTransfer)
             .where(PlanTransfer.from_plan_id == plan_id)
+            # A destination that resolved to a known plan sorts first, so the
+            # chain follows a link it can actually walk.
             .order_by(
                 PlanTransfer.form_year.desc(),
                 PlanTransfer.to_plan_id.is_(None),
@@ -224,14 +178,7 @@ def _build_step(session: Session, transfer: PlanTransfer) -> SuccessorStep:
 
 
 def follow_chain(session: Session, plan_id: int, max_hops: int = MAX_HOPS) -> SuccessorChain:
-    """
-    Follow a plan's assets forward as far as the filings go.
-
-    At each hop the most recent transfer is taken, because a plan winding up
-    over two years reports the final destination last. Plans that have been
-    visited are remembered: filings do contain loops, and without this the walk
-    does not terminate.
-    """
+    """Follow a plan's assets forward as far as the filings go."""
 
     chain = SuccessorChain()
     seen = {plan_id}
@@ -251,8 +198,6 @@ def follow_chain(session: Session, plan_id: int, max_hops: int = MAX_HOPS) -> Su
         chain.steps.append(step)
 
         if step.to_plan_id is None:
-            # The trail leaves the data we hold. The reported name and EIN are
-            # still on the step, which is what the person writes to.
             return chain
 
         if step.to_plan_id in seen:

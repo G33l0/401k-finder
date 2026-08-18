@@ -1,12 +1,4 @@
-"""
-Fuzzy provider matching, used at search time rather than at import time.
-
-Schedule C truncates provider names to 35 characters, so the same firm arrives
-with ragged spellings that exact-key grouping cannot merge. Matching them costs
-a pairwise comparison, which is fine against a candidate shortlist but not
-against every name in the database during an import — so this is offered as a
-search affordance and as an offline consolidation report, never on the hot path.
-"""
+"""Fuzzy provider matching, used at search time rather than at import time."""
 
 from __future__ import annotations
 
@@ -66,12 +58,7 @@ def find_similar_providers(
     limit: int = 10,
     threshold: float = 82.0,
 ) -> list[ProviderMatch]:
-    """
-    Return providers whose names are close to ``name``.
-
-    The candidate set is narrowed by first token before scoring, so this stays
-    fast even with hundreds of thousands of distinct provider names.
-    """
+    """Return providers whose names are close to ``name``."""
 
     identity = normalize_provider(name)
     needle = strip_noise(identity.name_key)
@@ -128,12 +115,7 @@ def find_similar_providers(
 
 
 def expand_provider_ids(session: Session, name: str, threshold: float = 88.0) -> list[int]:
-    """
-    Return provider ids to search as one firm.
-
-    Used by "find every plan at this recordkeeper", where matching only the
-    exact spelling would miss most of the plans.
-    """
+    """Return provider ids to search as one firm."""
 
     matches = find_similar_providers(session, name, limit=50, threshold=threshold)
     return [match.provider_id for match in matches]
@@ -145,12 +127,7 @@ def consolidation_report(
     threshold: float = 90.0,
     limit: int = 200,
 ) -> list[tuple[ProviderMatch, list[ProviderMatch]]]:
-    """
-    Find provider records that probably describe the same firm.
-
-    Offered as a report rather than applied automatically: merging providers is
-    destructive and the judgement call belongs to the person reading the data.
-    """
+    """Find provider records that probably describe the same firm."""
 
     anchors = list(
         session.execute(

@@ -9,9 +9,6 @@ _WHITESPACE = re.compile(r"\s+")
 _NON_ALNUM = re.compile(r"[^A-Z0-9]+")
 _NON_DIGIT = re.compile(r"\D+")
 
-# Corporate suffixes stripped when building a provider matching key. The goal is
-# that "FIDELITY INVESTMENTS INSTITUTIONAL, INC." and "Fidelity Investments
-# Institutional Inc" collapse onto the same key.
 _LEGAL_SUFFIXES = frozenset(
     {
         "INC",
@@ -71,14 +68,7 @@ def normalize_text(value: Any) -> str:
 
 
 def normalize_ein(value: Any) -> str | None:
-    """
-    Return a nine-digit EIN, or None when the value is not a usable EIN.
-
-    DOL exports carry EINs with and without the ``12-3456789`` hyphen, and
-    occasionally with a lost leading zero. Values that are all zeros or that
-    cannot reach nine digits are rejected rather than silently padded into a
-    plausible-looking EIN.
-    """
+    """Return a nine-digit EIN, or None when the value is not a usable EIN."""
 
     text = normalize_text(value)
     if not text:
@@ -96,12 +86,7 @@ def normalize_ein(value: Any) -> str | None:
 
 
 def normalize_plan_number(value: Any) -> str | None:
-    """
-    Return a three-digit plan number (``PN``), or None.
-
-    Plan numbers are zero-padded to three digits so that ``1``, ``01`` and
-    ``001`` resolve to the same plan.
-    """
+    """Return a three-digit plan number (``PN``), or None."""
 
     text = normalize_text(value)
     if not text:
@@ -145,13 +130,7 @@ def normalize_zip(value: Any) -> str | None:
 
 
 def normalize_name_key(value: Any) -> str:
-    """
-    Build the matching key used to deduplicate organisation names.
-
-    Punctuation is dropped, casing is folded, and common legal suffixes are
-    removed. The key is for grouping only — the original name is always kept
-    alongside it so results stay traceable to the filed text.
-    """
+    """Build the matching key used to deduplicate organisation names."""
 
     text = normalize_text(value).upper()
     if not text:
@@ -171,13 +150,7 @@ def normalize_name_key(value: Any) -> str:
 
 
 def normalize_indicator(value: Any) -> bool | None:
-    """
-    Interpret a DOL ``*_IND`` field.
-
-    Returns True/False for recognised values and None when the field is blank
-    or carries something unexpected, so callers can tell "filed as no" apart
-    from "not filed".
-    """
+    """Interpret a DOL ``*_IND`` field."""
 
     if value is None:
         return None
@@ -231,12 +204,7 @@ def parse_decimal(value: Any) -> Decimal | None:
 
 
 def parse_money(value: Any) -> float | None:
-    """
-    Parse a DOL amount into a float for storage and aggregation.
-
-    Plan balances are reported to the dollar and are only ever summed or
-    compared here, so float is precise enough and keeps SQLite queries fast.
-    """
+    """Parse a DOL amount into a float for storage and aggregation."""
 
     parsed = parse_decimal(value)
     return None if parsed is None else float(parsed)
@@ -271,13 +239,7 @@ def parse_year(value: Any) -> int | None:
 
 
 def split_codes(value: Any) -> tuple[str, ...]:
-    """
-    Split a DOL packed code field into individual codes.
-
-    ``TYPE_PENSION_BNFT_CODE`` and the Schedule C service-code fields pack
-    several codes into one column, variously separated by spaces, commas or
-    nothing at all (``2E2G2J``).
-    """
+    """Split a DOL packed code field into individual codes."""
 
     text = normalize_text(value).upper()
     if not text:
@@ -306,12 +268,7 @@ def split_codes(value: Any) -> tuple[str, ...]:
 
 
 def split_numeric_codes(value: Any, width: int = 2) -> tuple[str, ...]:
-    """
-    Split a packed numeric code field, such as Schedule C service codes.
-
-    Schedule C packs two-digit service codes end to end (``1521273449``). When
-    the value is already delimited the delimiter wins.
-    """
+    """Split a packed numeric code field, such as Schedule C service codes."""
 
     text = normalize_text(value)
     if not text:

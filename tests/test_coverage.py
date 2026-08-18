@@ -1,11 +1,4 @@
-"""
-Knowing what has been imported, and how completely.
-
-The point of this is a single distinction: a search that finds nothing because
-the year was never fetched, versus one that finds nothing because there is
-nothing to find. Confusing the two sends somebody away believing there is no
-account when nobody has looked yet.
-"""
+"""Knowing what has been imported, and how completely."""
 
 from __future__ import annotations
 
@@ -21,10 +14,6 @@ from app.services.coverage import (
     summarise,
     years_without_providers,
 )
-
-# ----------------------------------------------------------------------
-# The index set
-# ----------------------------------------------------------------------
 
 
 def test_the_index_is_only_the_filing_forms():
@@ -66,11 +55,6 @@ def test_provider_schedules_excludes_the_filing_forms():
     assert schedules
     assert not schedules & set(INDEX_DATASET_NAMES)
     assert "F_SCH_C_PART1_ITEM2" in schedules
-
-
-# ----------------------------------------------------------------------
-# Depth
-# ----------------------------------------------------------------------
 
 
 def _record(session, form_year: int, dataset: str, status: str = "COMPLETED") -> None:
@@ -151,11 +135,6 @@ def test_a_local_import_is_recorded(session, imported):
     assert any(entry.has_providers for entry in entries)
 
 
-# ----------------------------------------------------------------------
-# What it says
-# ----------------------------------------------------------------------
-
-
 def test_an_empty_database_says_so():
     assert summarise([]) == "no form years imported"
 
@@ -166,7 +145,7 @@ def test_a_thin_run_is_described_honestly():
     text = summarise(entries)
 
     assert "3 year(s) searchable" in text
-    assert "2009–2011" in text
+    assert "2009-2011" in text
     assert "none with the schedules that name providers" in text
 
 
@@ -194,16 +173,10 @@ def test_every_depth_has_a_label(depth):
     assert depth.label
 
 
-# ----------------------------------------------------------------------
-# The trace leans on this
-# ----------------------------------------------------------------------
-
-
 def test_the_trace_report_warns_about_index_only_years(session, imported):
     from app.trace import AccountTracer, WorkHistory
     from app.trace.packet import render_report
 
-    # An older year held at index depth only, alongside the fully imported one.
     for dataset in INDEX_DATASET_NAMES:
         _record(session, 2011, dataset)
 

@@ -1,17 +1,4 @@
-"""
-Reading Schedule H Part 1: where a plan's assets went.
-
-A plan that merges into another, or winds up and hands its assets over, reports
-the receiving plan here — by name, EIN and plan number. That triple is the only
-statement in the whole Form 5500 dataset about *where the money went*, and it is
-what turns "your plan no longer exists" into "your plan became this one, and
-here is who holds it now".
-
-It was previously read as a service provider, which was wrong in a way that
-mattered: a transferee is not a firm the plan paid, it is another plan, and
-filing it as a provider both polluted the provider list and threw away the EIN
-and plan number that make it findable.
-"""
+"""Reading Schedule H Part 1: where a plan's assets went."""
 
 from __future__ import annotations
 
@@ -37,12 +24,7 @@ class TransferTarget:
 
     @property
     def is_identifiable(self) -> bool:
-        """
-        Whether this is worth storing.
-
-        A name on its own is still worth keeping — it is what the person writes
-        to. A row with nothing in it at all is not.
-        """
+        """Whether this is worth storing."""
 
         return bool(self.name or self.ein)
 

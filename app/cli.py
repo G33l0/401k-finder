@@ -1,15 +1,4 @@
-"""
-Command-line interface.
-
-    401k-finder sync --year 2023
-    401k-finder search "acme manufacturing"
-    401k-finder plan 12-3456789/001 --evidence
-    401k-finder providers --role RECORDKEEPER
-
-The CLI is a first-class entry point, not a debugging aid: everything the
-desktop application does is available here, which is what makes the tool usable
-on a server, in a scheduled job, or over SSH.
-"""
+"""Command-line interface."""
 
 from __future__ import annotations
 
@@ -24,7 +13,7 @@ from app.core.config import (
     get_app_data_dir,
     get_database_path,
 )
-from app.core.constants import LATEST_FORM_YEAR, ProviderRole
+from app.core.constants import LATEST_FORM_YEAR, ProviderRole, year_span
 from app.core.exceptions import FinderError, ImportCancelled
 from app.core.logging import configure_logging
 from app.database.init_db import database_exists, initialize_database, reset_database
@@ -65,11 +54,6 @@ def _print_progress(stage: str, dataset: str, done: int, total: int, message: st
 
     if stage == "finalize" and done == total:
         sys.stderr.write("\n")
-
-
-# ----------------------------------------------------------------------
-# Commands
-# ----------------------------------------------------------------------
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -188,7 +172,6 @@ def cmd_search(args: argparse.Namespace) -> int:
             print("Run '401k-finder status' to check which years have been imported.")
             return 1
 
-        # "+" marks a floor: a broad text search stops counting at the cap.
         print(f"{total:,}{'+' if capped else ''} plan(s) matched; showing {len(results)}.\n")
 
         for result in results:
@@ -203,7 +186,7 @@ def cmd_search(args: argparse.Namespace) -> int:
                 f"{' [' + ', '.join(result.features) + ']' if result.features else ''}"
                 f"  |  {result.participants or '-'} participants"
                 f"  |  {_money(result.total_assets)}"
-                f"  |  years {result.first_year}-{result.last_year}"
+                f"  |  years {year_span(result.first_year, result.last_year)}"
             )
 
             for party in result.primary_providers()[: args.providers]:
@@ -373,7 +356,6 @@ def cmd_storage(args: argparse.Namespace) -> int:
         print(f"\n{result.summary()}")
         return 0
 
-    # Default: report where things are.
     location = current_location()
     info = storage.inspect(location)
 
@@ -385,7 +367,7 @@ def cmd_storage(args: argparse.Namespace) -> int:
 
     if not location.is_dir():
         print(
-            "\n  NOT AVAILABLE. If this is a removable drive, connect it — the "
+            "\n  NOT AVAILABLE. If this is a removable drive, connect it. The "
             "drive letter\n  may also have changed. "
             "'401k-finder storage reset' returns to internal storage.",
             file=sys.stderr,
@@ -423,9 +405,9 @@ def cmd_index(args: argparse.Namespace) -> int:
     years = args.year or list(supported_years())
 
     print(
-        f"Indexing {len(years)} form year(s): {years[0]}–{years[-1]}.\n"
-        f"This fetches the two filing forms only — enough to match an employer "
-        f"to a plan.\nProvider detail needs a full sync of the years that matter; "
+        f"Indexing {len(years)} form year(s): {years[0]} to {years[-1]}.\n"
+        f"This fetches the two filing forms only, which is enough to match an "
+        f"employer to a plan.\nProvider detail needs a full sync of the years that matter; "
         f"'401k-finder sync --year N'\ndoes that once you know which they are.\n"
     )
 
@@ -484,13 +466,13 @@ def cmd_changes(args: argparse.Namespace) -> int:
     if not report.years_compared:
         print(
             "Nothing to compare. Provider changes need at least two form years "
-            "imported\nwith the schedules that name providers — see "
+            "imported\nwith the schedules that name providers. See "
             "'401k-finder status'.",
             file=sys.stderr,
         )
         return 1
 
-    span = f"{report.years_compared[0]}–{report.years_compared[-1]}"
+    span = year_span(report.years_compared[0], report.years_compared[-1])
     print(f"{report.total:,} {args.role.lower().replace('_', ' ')} change(s) across {span}.\n")
 
     if not report.total:
@@ -529,10 +511,6 @@ def cmd_trace(args: argparse.Namespace) -> int:
     from app.trace import AccountTracer, WorkHistory, looks_like_ssn
     from app.trace.packet import render_report
 
-    # Checked on the raw arguments, before anything is constructed. Employment
-    # redacts on the way in, so by the time a history exists the number is gone
-    # -- which is right for the log and the database, but would leave the person
-    # staring at an empty report with no idea why.
     raw = " ".join(filter(None, [*(args.employer or []), args.name or ""]))
     if args.history and args.history.is_file():
         with contextlib.suppress(OSError):
@@ -634,7 +612,6 @@ def cmd_license(args: argparse.Namespace) -> int:
         print(result.message)
         return 0 if result.ok else 1
 
-    # Default: report the current position.
     status = gate.status()
 
     print(status.headline())
@@ -651,8 +628,6 @@ def cmd_license(args: argparse.Namespace) -> int:
     if status.activated_at:
         print(f"  Activated:    {status.activated_at:%Y-%m-%d %H:%M} UTC")
 
-    # The Machine ID is what a customer sends to buy or move a licence, so it
-    # is printed whether or not anything is activated.
     print(f"  Machine ID:   {machine_fingerprint()}")
     print(f"  Machine:      {machine_label()}")
 
@@ -670,19 +645,12 @@ def cmd_status(args: argparse.Namespace) -> int:
     from app.ui import resources
 
     if args.branding:
-        # Confirms which branding assets a build actually resolved. In a
-        # packaged application this reports the unpacked bundle directory, so it
-        # is the quickest way to tell whether an icon made it into the build.
         found = resources.describe()
         print(f"Resource folder: {found['resource_dir']}")
         for slot in ("icon", "logo", "stylesheet"):
             print(f"  {slot + ':':12} {found[slot] or 'not set (using Qt default)'}")
         print()
 
-    # On a machine where the application has never been opened there is no
-    # database yet, and every count below would fail on a missing table. This
-    # is the first command a new installation runs — reporting "nothing yet" is
-    # the answer, not a traceback.
     if not database_exists():
         print(f"Database: {get_database_path()}")
         print("  Not created yet. Run 'init', or open the application once.")
@@ -790,9 +758,6 @@ def cmd_reset(args: argparse.Namespace) -> int:
     reset_database()
     print("Database rebuilt empty.")
     return 0
-
-
-# ----------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1045,9 +1010,6 @@ def main(argv: list[str] | None = None) -> int:
         print("\nInterrupted.", file=sys.stderr)
         return 130
     except StorageUnavailable as exc:
-        # The data lives on a drive that is not connected. Said plainly,
-        # because the alternative is a stack trace about a missing table for
-        # somebody whose only problem is an unplugged USB stick.
         print(f"\n{exc}\n", file=sys.stderr)
         print("  401k-finder storage          show where the data should be", file=sys.stderr)
         print("  401k-finder storage reset    go back to internal storage", file=sys.stderr)

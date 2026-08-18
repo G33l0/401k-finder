@@ -1,14 +1,4 @@
-"""
-What has actually been imported, and how completely.
-
-A search that finds nothing means two entirely different things depending on
-this. If the year was never fetched, "no match" says nothing at all. If the year
-was fetched in full and still found nothing, that is a real answer.
-
-The distinction matters most in the account trace, where somebody is deciding
-whether to keep looking. So coverage is reported per year and per depth rather
-than as a single "years imported" list.
-"""
+"""What has actually been imported, and how completely."""
 
 from __future__ import annotations
 
@@ -18,6 +8,7 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.constants import year_span
 from app.database.models import ImportedDataset
 from app.dol.catalog import CORE_DATASET_NAMES, INDEX_DATASET_NAMES
 from app.dol.schedules import build_registry
@@ -26,14 +17,7 @@ COMPLETED = "COMPLETED"
 
 
 def provider_schedules() -> frozenset[str]:
-    """
-    The schedules that name an asset holder.
-
-    Derived from the schedule definitions rather than listed here, so a new
-    provider source added to the registry is picked up without anyone
-    remembering to update this. The two filing forms are excluded: they are
-    what an index-only year already has.
-    """
+    """The schedules that name an asset holder."""
 
     return frozenset(
         definition.dataset
@@ -45,13 +29,9 @@ def provider_schedules() -> frozenset[str]:
 class Depth(StrEnum):
     """How much of a form year is held."""
 
-    #: Nothing at all.
     NONE = "NONE"
-    #: The filing forms only. Employers and plans are searchable; no providers.
     INDEX = "INDEX"
-    #: The core set — every dataset that names an asset holder.
     CORE = "CORE"
-    #: Core, plus the schedules beyond it.
     FULL = "FULL"
 
     @property
@@ -62,9 +42,6 @@ class Depth(StrEnum):
     def label(self) -> str:
         return {
             Depth.NONE: "not imported",
-            # Not quite "no providers": a 5500-SF filer names its trustee on
-            # the form itself. What is missing is every schedule, which is
-            # where the recordkeeper of a larger plan is named.
             Depth.INDEX: "employers and plans; no provider schedules",
             Depth.CORE: "employers, plans and providers",
             Depth.FULL: "everything published for the year",
@@ -84,16 +61,11 @@ class YearCoverage:
 
 def _depth_for(names: set[str]) -> Depth:
     if not names & set(INDEX_DATASET_NAMES):
-        # Schedules without a filing dataset cannot be searched by employer at
-        # all — the rows have nothing to attach to.
         return Depth.NONE
 
     if not names & provider_schedules():
         return Depth.INDEX
 
-    # Deliberately not "the whole core set". DOL does not publish every core
-    # dataset for every year — DCG and MEP only exist for recent ones — so
-    # demanding all of them would report a perfectly complete 2011 as thin.
     return Depth.FULL if len(names) > len(CORE_DATASET_NAMES) else Depth.CORE
 
 
@@ -126,7 +98,7 @@ def summarise(entries: list[YearCoverage]) -> str:
     indexed = [entry.form_year for entry in entries]
     detailed = [entry.form_year for entry in entries if entry.has_providers]
 
-    span = f"{min(indexed)}–{max(indexed)}" if len(indexed) > 1 else str(indexed[0])
+    span = year_span(min(indexed), max(indexed))
     text = f"{len(indexed)} year(s) searchable ({span})"
 
     if not detailed:
@@ -136,7 +108,7 @@ def summarise(entries: list[YearCoverage]) -> str:
         return f"{text}, all with provider detail"
 
     detail_span = (
-        f"{min(detailed)}–{max(detailed)}" if len(detailed) > 1 else str(detailed[0])
+        year_span(min(detailed), max(detailed))
     )
     return f"{text}; provider detail for {len(detailed)} of them ({detail_span})"
 

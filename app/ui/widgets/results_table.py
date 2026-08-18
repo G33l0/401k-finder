@@ -6,12 +6,13 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableView, QWidget
 
+from app.core.constants import BLANK_CELL, year_span
 from app.search.engine import PlanResult, ProviderResult
 
 
 def format_money(value: float | None) -> str:
     if value is None:
-        return "—"
+        return BLANK_CELL
     if abs(value) >= 1_000_000_000:
         return f"${value / 1_000_000_000:,.2f}B"
     if abs(value) >= 1_000_000:
@@ -22,7 +23,7 @@ def format_money(value: float | None) -> str:
 
 
 def format_count(value: int | None) -> str:
-    return "—" if value is None else f"{value:,}"
+    return BLANK_CELL if value is None else f"{value:,}"
 
 
 def _title(role: str) -> str:
@@ -30,13 +31,7 @@ def _title(role: str) -> str:
 
 
 class PlanTableModel(QAbstractTableModel):
-    """
-    Presents plan results, with the providers folded into columns.
-
-    Recordkeeper and trustee get their own columns because they are the answer
-    to the question the tool exists to answer; everything else is on the detail
-    panel.
-    """
+    """Presents plan results, with the providers folded into columns."""
 
     COLUMNS = (
         ("Plan", 300),
@@ -82,7 +77,7 @@ class PlanTableModel(QAbstractTableModel):
         for party in result.parties:
             if party.role in roles and party.display_name not in names:
                 names.append(party.display_name)
-        return ", ".join(names) if names else "—"
+        return ", ".join(names) if names else BLANK_CELL
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid():
@@ -96,15 +91,15 @@ class PlanTableModel(QAbstractTableModel):
                 case 0:
                     return result.plan_name
                 case 1:
-                    return result.sponsor_name or "—"
+                    return result.sponsor_name or BLANK_CELL
                 case 2:
                     return result.plan_key
                 case 3:
-                    return result.state or "—"
+                    return result.state or BLANK_CELL
                 case 4:
                     return ", ".join(
                         feature.replace("_", " ").title() for feature in result.features[:3]
-                    ) or (result.plan_category or "—").replace("_", " ").title()
+                    ) or (result.plan_category or BLANK_CELL).replace("_", " ").title()
                 case 5:
                     return self._providers(result, "RECORDKEEPER")
                 case 6:
@@ -114,9 +109,7 @@ class PlanTableModel(QAbstractTableModel):
                 case 8:
                     return format_money(result.total_assets)
                 case 9:
-                    if result.first_year == result.last_year:
-                        return str(result.first_year or "—")
-                    return f"{result.first_year}–{result.last_year}"
+                    return year_span(result.first_year, result.last_year)
 
         elif role == Qt.TextAlignmentRole and column in (7, 8):
             return int(Qt.AlignRight | Qt.AlignVCenter)
@@ -239,9 +232,9 @@ class ProviderTableModel(QAbstractTableModel):
                 case 0:
                     return result.display_name
                 case 1:
-                    return _title(result.primary_role or "—")
+                    return _title(result.primary_role or BLANK_CELL)
                 case 2:
-                    return result.state or "—"
+                    return result.state or BLANK_CELL
                 case 3:
                     return f"{result.plan_count:,}"
                 case 4:
