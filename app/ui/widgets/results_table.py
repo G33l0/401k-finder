@@ -7,6 +7,8 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableView, QWidget
 
 from app.core.constants import BLANK_CELL, year_span
+from app.providers.directory import DISCLAIMER as DIRECTORY_DISCLAIMER
+from app.providers.servicing import ServicingHistory, servicing_history
 from app.search.engine import PlanResult, ProviderResult
 
 
@@ -34,26 +36,39 @@ class PlanTableModel(QAbstractTableModel):
     """Presents plan results, with the providers folded into columns."""
 
     COLUMNS = (
-        ("Plan", 300),
-        ("Sponsor", 220),
-        ("EIN / PN", 120),
+        ("Plan", 280),
+        ("Sponsor", 200),
+        ("EIN / PN", 115),
         ("State", 55),
-        ("Type", 150),
+        ("Type", 130),
         ("Recordkeeper", 190),
         ("Trustee / Custodian", 190),
-        ("Participants", 100),
-        ("Assets", 100),
-        ("Years", 90),
+        ("Service providers by year", 300),
+        ("Contact", 180),
+        ("Participants", 95),
+        ("Assets", 95),
+        ("Years", 85),
     )
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._results: list[PlanResult] = []
+        self._servicing: dict[int, ServicingHistory] = {}
 
     def set_results(self, results: list[PlanResult]) -> None:
         self.beginResetModel()
         self._results = results
+        self._servicing.clear()
         self.endResetModel()
+
+    def servicing(self, result: PlanResult) -> ServicingHistory:
+        """Folded once per plan; data() is called for every cell and repaint."""
+
+        history = self._servicing.get(result.plan_id)
+        if history is None:
+            history = servicing_history(result.parties)
+            self._servicing[result.plan_id] = history
+        return history
 
     def result_at(self, row: int) -> PlanResult | None:
         if 0 <= row < len(self._results):
@@ -71,13 +86,48 @@ class PlanTableModel(QAbstractTableModel):
             return None
         return self.COLUMNS[section][0]
 
-    @staticmethod
-    def _providers(result: PlanResult, *roles: str) -> str:
-        names: list[str] = []
-        for party in result.parties:
-            if party.role in roles and party.display_name not in names:
-                names.append(party.display_name)
-        return ", ".join(names) if names else BLANK_CELL
+    def _providers(self, result: PlanResult, *roles: str) -> str:
+        """The firms in these roles, each with the years it was filed for."""
+
+        entries = [item for item in self.servicing(result) if item.role in roles]
+        return ", ".join(item.summary() for item in entries) if entries else BLANK_CELL
+
+    def _contact(self, result: PlanResult) -> str:
+        """Where to reach whoever is most likely to hold the money."""
+
+        best = self.servicing(result).best_contact()
+        if best is None or best.contact is None:
+            return BLANK_CELL
+
+        parts = [best.contact.phone, best.contact.website]
+        return "  ".join(part for part in parts if part) or BLANK_CELL
+
+    def _servicing_tooltip(self, result: PlanResult) -> str:
+        """Every firm, its years, and how to reach it."""
+
+        history = self.servicing(result)
+        if not len(history):
+            return "No service provider is named in the filings held for this plan."
+
+        lines = [f"{result.plan_name}", ""]
+
+        for item in history:
+            marker = "*" if item.holds_money else " "
+            lines.append(f"{marker} {item.role_label}: {item.name}  [{item.span}]")
+
+            if item.contact is not None:
+                if item.contact.phone:
+                    lines.append(f"      Telephone: {item.contact.phone}")
+                if item.contact.website:
+                    lines.append(f"      Website:   {item.contact.website}")
+                if item.contact.successor:
+                    lines.append(f"      Note:      {item.contact.successor}")
+
+        lines.append("")
+        lines.append("* holds or administers the money, so worth contacting first.")
+        lines.append(DIRECTORY_DISCLAIMER)
+
+        return "\n".join(lines)
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid():
@@ -105,13 +155,17 @@ class PlanTableModel(QAbstractTableModel):
                 case 6:
                     return self._providers(result, "TRUSTEE", "CUSTODIAN", "TRUST")
                 case 7:
-                    return format_count(result.participants)
+                    return self.servicing(result).column_text(limit=4) or BLANK_CELL
                 case 8:
-                    return format_money(result.total_assets)
+                    return self._contact(result)
                 case 9:
+                    return format_count(result.participants)
+                case 10:
+                    return format_money(result.total_assets)
+                case 11:
                     return year_span(result.first_year, result.last_year)
 
-        elif role == Qt.TextAlignmentRole and column in (7, 8):
+        elif role == Qt.TextAlignmentRole and column in (9, 10):
             return int(Qt.AlignRight | Qt.AlignVCenter)
 
         elif role == Qt.FontRole and column == 0:
@@ -120,6 +174,9 @@ class PlanTableModel(QAbstractTableModel):
             return font
 
         elif role == Qt.ToolTipRole:
+            if column in (5, 6, 7, 8):
+                return self._servicing_tooltip(result)
+
             lines = [result.plan_name, f"Sponsor: {result.sponsor_name or 'unknown'}"]
             if result.features:
                 lines.append("Type: " + ", ".join(result.features))
@@ -255,6 +312,7 @@ class ProviderTable(QTableView):
     """Provider results table."""
 
     provider_activated = Signal(object)
+    selection_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -275,6 +333,7 @@ class ProviderTable(QTableView):
 
     def set_results(self, results: list[ProviderResult]) -> None:
         self._model.set_results(results)
+        self.selection_changed.emit(None)
 
     def results(self) -> list[ProviderResult]:
         return list(self._model._results)  # noqa: SLF001
@@ -289,3 +348,7 @@ class ProviderTable(QTableView):
         result = self._model.result_at(index.row())
         if result is not None:
             self.provider_activated.emit(result)
+
+    def selectionChanged(self, selected, deselected) -> None:  # noqa: ANN001, N802
+        super().selectionChanged(selected, deselected)
+        self.selection_changed.emit(self.current_result())

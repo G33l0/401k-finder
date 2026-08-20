@@ -41,6 +41,7 @@ from app.ui.workers import (
     import_task,
     index_task,
     plan_detail_task,
+    plans_for_provider_task,
     search_plans_task,
     search_providers_task,
     summary_task,
@@ -66,6 +67,7 @@ class MainWindow(QMainWindow):
         self.summary_runner = TaskRunner(self)
         self.trace_runner = TaskRunner(self)
         self.changes_runner = TaskRunner(self)
+        self.companies_runner = TaskRunner(self)
 
         application = QApplication.instance()
         if application is not None:
@@ -122,6 +124,7 @@ class MainWindow(QMainWindow):
         self.provider_panel = ProviderPanel()
         self.provider_panel.search_requested.connect(self.run_provider_search)
         self.provider_panel.plans_requested.connect(self.search_by_provider)
+        self.provider_panel.companies_requested.connect(self.run_companies_for_provider)
         self.provider_panel.export_requested.connect(self.export_providers)
         self.tabs.addTab(self.provider_panel, "Providers")
 
@@ -217,6 +220,13 @@ class MainWindow(QMainWindow):
 
         help_menu = self.menuBar().addMenu("&Help")
 
+        guide = QAction("&User guide", self)
+        guide.setShortcut(QKeySequence.HelpContents)
+        guide.triggered.connect(self.show_user_guide)
+        help_menu.addAction(guide)
+
+        help_menu.addSeparator()
+
         about = QAction("&About", self)
         about.triggered.connect(self.show_about)
         help_menu.addAction(about)
@@ -308,6 +318,33 @@ class MainWindow(QMainWindow):
     def search_by_provider(self, provider_name: str) -> None:
         self.tabs.setCurrentIndex(0)
         self.search_panel.set_provider(provider_name)
+
+    def _runners(self) -> tuple[TaskRunner, ...]:
+        """
+        Every background runner the window owns.
+
+        Derived rather than listed. Two hand-written copies of this list had
+        already drifted, leaving the trace and changes threads running at exit.
+        """
+
+        return tuple(
+            value
+            for name, value in vars(self).items()
+            if name.endswith("_runner") and isinstance(value, TaskRunner)
+        )
+
+    def run_companies_for_provider(self, provider_name: str) -> None:
+        """Fill the Providers tab's lower pane with every company using this firm."""
+
+        self.companies_runner.start(
+            plans_for_provider_task(provider_name),
+            on_finished=self._on_companies_finished,
+            on_failed=self._on_task_failed,
+        )
+
+    def _on_companies_finished(self, payload: object) -> None:
+        provider_name, results = payload  # type: ignore[misc]
+        self.provider_panel.set_companies(provider_name, results)
 
     def run_provider_search(self, query: ProviderQuery) -> None:
         self.provider_runner.start(
@@ -520,13 +557,7 @@ class MainWindow(QMainWindow):
         if confirm != QMessageBox.Yes:
             return
 
-        for runner in (
-            self.search_runner,
-            self.detail_runner,
-            self.provider_runner,
-            self.data_runner,
-            self.summary_runner,
-        ):
+        for runner in self._runners():
             runner.shutdown()
 
         try:
@@ -716,6 +747,11 @@ class MainWindow(QMainWindow):
         self.detail_panel.retheme()
         self.trace_panel.retheme()
 
+    def show_user_guide(self) -> None:
+        from app.ui.windows.guide_dialog import show_guide
+
+        show_guide(self)
+
     def show_about(self) -> None:
         from app.ui import resources
 
@@ -758,13 +794,7 @@ class MainWindow(QMainWindow):
                 event.ignore()
                 return
 
-        for runner in (
-            self.search_runner,
-            self.detail_runner,
-            self.provider_runner,
-            self.data_runner,
-            self.summary_runner,
-        ):
+        for runner in self._runners():
             runner.shutdown()
 
         self.settings.save()

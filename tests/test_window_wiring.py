@@ -111,15 +111,6 @@ def test_the_runner_still_offers_what_the_window_expects(name):
 # Driving the real tabs
 # ----------------------------------------------------------------------
 
-RUNNERS = (
-    "search_runner",
-    "detail_runner",
-    "provider_runner",
-    "data_runner",
-    "summary_runner",
-    "trace_runner",
-    "changes_runner",
-)
 
 
 @pytest.fixture()
@@ -155,12 +146,14 @@ def window(qt_app, imported, monkeypatch):
 
 
 def settle(app, window, seconds: float = 20.0) -> None:
+    """Wait for every runner the window owns, not a list that can drift."""
+
     import time
 
     deadline = time.time() + seconds
     while time.time() < deadline:
         app.processEvents()
-        if not any(getattr(window, name).busy for name in RUNNERS):
+        if not any(runner.busy for runner in window._runners()):
             break
         time.sleep(0.005)
 
@@ -293,3 +286,159 @@ def test_every_export_writes_a_readable_file(qt_app, window, monkeypatch, tmp_pa
         assert path.stat().st_size > 0
         assert path.suffix in {".csv", ".json"}
         path.read_text(encoding="utf-8-sig")
+
+
+# ----------------------------------------------------------------------
+# Service providers, and the companies that use them
+# ----------------------------------------------------------------------
+
+
+def test_the_plan_table_shows_providers_with_their_years(qt_app, window):
+    """The point of the column: who held the money, and when."""
+
+    from PySide6.QtCore import Qt
+
+    window.search_panel.query_input.setText("acme")
+    window.search_panel._emit_search()
+    settle(qt_app, window)
+
+    model = window.plan_table.model()
+    headers = [model.COLUMNS[i][0] for i in range(model.columnCount())]
+
+    assert "Service providers by year" in headers
+    assert "Contact" in headers
+
+    column = headers.index("Service providers by year")
+    texts = [
+        model.data(model.index(row, column), Qt.DisplayRole) for row in range(model.rowCount())
+    ]
+
+    assert texts, "the search should have matched something"
+    assert any("(" in text and ")" in text for text in texts), texts
+
+
+def test_the_table_offers_a_contact_for_a_known_recordkeeper(qt_app, window):
+    from PySide6.QtCore import Qt
+
+    window.search_panel.query_input.setText("acme")
+    window.search_panel._emit_search()
+    settle(qt_app, window)
+
+    model = window.plan_table.model()
+    headers = [model.COLUMNS[i][0] for i in range(model.columnCount())]
+    column = headers.index("Contact")
+
+    contacts = [
+        model.data(model.index(row, column), Qt.DisplayRole) for row in range(model.rowCount())
+    ]
+
+    assert any("http" in (text or "") for text in contacts), contacts
+
+
+def test_the_provider_tooltip_carries_the_disclaimer(qt_app, window):
+    """Contact details the application added must never look like filed data."""
+
+    from PySide6.QtCore import Qt
+
+    from app.providers.directory import DISCLAIMER
+
+    window.search_panel.query_input.setText("acme")
+    window.search_panel._emit_search()
+    settle(qt_app, window)
+
+    model = window.plan_table.model()
+    tooltip = model.data(model.index(0, 7), Qt.ToolTipRole)
+
+    assert DISCLAIMER in tooltip
+    assert "holds or administers the money" in tooltip
+
+
+def test_the_detail_panel_lists_the_years_each_firm_covered(qt_app, window):
+    window.search_panel.query_input.setText("acme")
+    window.search_panel._emit_search()
+    settle(qt_app, window)
+    window.plan_table.selectRow(0)
+    settle(qt_app, window)
+
+    text = window.detail_panel.providers.toPlainText()
+
+    assert "Filed for:" in text
+    assert "Telephone:" in text
+    assert "Website:" in text
+
+
+def test_selecting_a_provider_lists_every_company_using_it(qt_app, window):
+    """The Providers tab answers this without leaving the tab."""
+
+    window.provider_panel.search_input.setText("reliance")
+    window.provider_panel._emit_search()
+    settle(qt_app, window)
+
+    assert window.provider_panel.table.model().rowCount() > 0
+
+    window.provider_panel.table.selectRow(0)
+    settle(qt_app, window)
+
+    table = window.provider_panel.companies_table
+    assert table.rowCount() > 0, window.provider_panel.companies_note.text()
+
+    headers = [table.horizontalHeaderItem(i).text() for i in range(table.columnCount())]
+    assert headers[:2] == ["Company", "Plan"]
+    assert "Years" in headers
+
+    companies = {table.item(row, 0).text() for row in range(table.rowCount())}
+    assert len(companies) >= 1
+    assert all(table.item(row, 4).text() for row in range(table.rowCount()))
+
+
+def test_clearing_the_provider_search_clears_the_companies(qt_app, window):
+    """A stale company list under a new search would be read as a result."""
+
+    window.provider_panel.search_input.setText("reliance")
+    window.provider_panel._emit_search()
+    settle(qt_app, window)
+    window.provider_panel.table.selectRow(0)
+    settle(qt_app, window)
+
+    assert window.provider_panel.companies_table.rowCount() > 0
+
+    window.provider_panel.search_input.setText("nothing matches this")
+    window.provider_panel._emit_search()
+    settle(qt_app, window)
+
+    assert window.provider_panel.companies_table.rowCount() == 0
+
+
+def test_a_late_reply_for_another_provider_is_ignored(qt_app, window):
+    """Selecting quickly must not leave one provider's plans under another's name."""
+
+    from app.search.engine import PlanResult
+
+    window.provider_panel.selected_provider = "Empower"
+    stale = [
+        PlanResult(
+            plan_id=1, plan_name="STALE PLAN", sponsor_name="STALE CO", ein="1", plan_number="1",
+            city=None, state=None, plan_category=None, features=(), benefit_codes=(),
+            first_year=2020, last_year=2020, participants=1, total_assets=1.0,
+        )
+    ]
+
+    window.provider_panel.set_companies("Fidelity Investments", stale)
+
+    assert window.provider_panel.companies_table.rowCount() == 0
+
+
+def test_every_background_runner_is_shut_down_on_close(qt_app, window):
+    """Two hand-written copies of this list had drifted, leaking two threads."""
+
+    from app.ui.workers import TaskRunner
+
+    declared = {name for name, value in vars(window).items() if isinstance(value, TaskRunner)}
+    covered = {
+        name
+        for name, value in vars(window).items()
+        if isinstance(value, TaskRunner) and value in window._runners()
+    }
+
+    assert declared == covered
+    assert len(declared) >= 8

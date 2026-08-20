@@ -15,7 +15,7 @@ from app.core.logging import get_logger
 from app.database.session import create_session
 from app.evidence.trail import PlanEvidence, build_plan_evidence
 from app.search.engine import PlanResult, ProviderResult, SearchEngine
-from app.search.query import PlanQuery, ProviderQuery, QueryOptions
+from app.search.query import PlanQuery, ProviderQuery, QueryOptions, SortOrder
 
 logger = get_logger(__name__)
 
@@ -166,6 +166,22 @@ def search_plans_task(query: PlanQuery, options: QueryOptions) -> WorkFunction:
 def search_providers_task(query: ProviderQuery) -> WorkFunction:
     def work(session, _worker) -> list[ProviderResult]:  # noqa: ANN001
         return SearchEngine(session).search_providers(query)
+
+    return work
+
+
+def plans_for_provider_task(provider_name: str) -> WorkFunction:
+    """Every plan naming this firm, across each spelling it was filed under."""
+
+    def work(session, _worker) -> tuple[str, list[PlanResult]]:  # noqa: ANN001
+        query = PlanQuery(
+            provider_name=provider_name,
+            retirement_only=False,
+            limit=1000,
+            sort=SortOrder.PARTICIPANTS,
+        )
+        options = QueryOptions(include_parties=True, max_parties=80)
+        return provider_name, SearchEngine(session).search_plans(query, options)
 
     return work
 

@@ -26,6 +26,8 @@ ICON_PATH = str(ICON) if ICON.exists() else None
 # and then fails on the first search.
 datas = [
     (str(PROJECT_ROOT / "app" / "dol" / "layouts" / "data"), "app/dol/layouts/data"),
+    # Help -> User guide reads this at runtime, so it has to travel with the build.
+    (str(PROJECT_ROOT / "docs" / "USER_GUIDE.md"), "docs"),
 ]
 
 # Branding assets are loaded by path at runtime, not imported, so they need the

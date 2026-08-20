@@ -295,6 +295,11 @@ rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
 
 ## Finding your own old 401(k)
 
+> **If you are looking for your own money rather than researching plans, read
+> [docs/USER_GUIDE.md](docs/USER_GUIDE.md).** It is written for someone who has
+> never heard of Form 5500, and the same guide is in the application under
+> **Help → User guide**.
+
 If you are trying to recover a retirement account from a previous employer,
 the **Find my accounts** tab (or `401k-finder trace`) works from your work
 history:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that the registry links still work. **Run before every release.**"""
+"""Check that every link the application shows still works. Run before every release."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app.core.constants import USER_AGENT  # noqa: E402
+from app.providers.directory import CONTACTS  # noqa: E402
 from app.trace.resources import RESOURCES  # noqa: E402
 
 TIMEOUT = 20.0
@@ -22,45 +23,55 @@ def main() -> int:
     except ImportError:
         raise SystemExit("httpx is required: pip install -r requirements.txt") from None
 
-    failures = 0
+    targets = [(resource.name, resource.url, "app/trace/resources.py") for resource in RESOURCES]
+    targets += [
+        (contact.canonical_name, contact.website, "app/providers/directory.py")
+        for contact in CONTACTS
+        if contact.website
+    ]
 
-    print(f"Checking {len(RESOURCES)} links.\n")
+    failures: list[str] = []
+
+    print(f"Checking {len(targets)} links.\n")
 
     with httpx.Client(
         timeout=TIMEOUT,
         follow_redirects=True,
         headers={"User-Agent": USER_AGENT},
     ) as client:
-        for resource in RESOURCES:
+        for name, url, origin in targets:
             try:
-                response = client.head(resource.url)
+                response = client.head(url)
                 if response.status_code >= 400:
-                    response = client.get(resource.url)
+                    response = client.get(url)
             except httpx.HTTPError as exc:
-                print(f"  FAIL  {resource.url}\n        {type(exc).__name__}: {exc}")
-                failures += 1
+                print(f"  FAIL  {url}\n        {type(exc).__name__}: {exc}")
+                failures.append(f"{name} ({origin})")
                 continue
 
             landed = str(response.url)
-            moved = "" if landed.rstrip("/") == resource.url.rstrip("/") else f" -> {landed}"
+            moved = "" if landed.rstrip("/") == url.rstrip("/") else f" -> {landed}"
 
             if response.status_code in {401, 403, 405, 429}:
                 print(
-                    f"  ?     {resource.url}  HTTP {response.status_code}{moved}"
+                    f"  ?     {url}  HTTP {response.status_code}{moved}"
                     f"\n        blocks automated requests -- open it in a browser to confirm"
                 )
             elif response.status_code >= 400:
-                print(f"  FAIL  {resource.url}  HTTP {response.status_code}{moved}")
-                failures += 1
+                print(f"  FAIL  {url}  HTTP {response.status_code}{moved}")
+                failures.append(f"{name} ({origin})")
             else:
-                print(f"  ok    {resource.url}  HTTP {response.status_code}{moved}")
+                print(f"  ok    {url}  HTTP {response.status_code}{moved}")
 
     print()
 
     if failures:
+        print(f"{len(failures)} link(s) are broken:")
+        for item in failures:
+            print(f"  {item}")
         print(
-            f"{failures} link(s) are broken. Fix them in app/trace/resources.py before\n"
-            f"releasing. These are what someone follows to find their money."
+            "\nFix them before releasing. These are what someone follows to find\n"
+            "their money, and a wrong number is worse than none."
         )
         return 1
 
