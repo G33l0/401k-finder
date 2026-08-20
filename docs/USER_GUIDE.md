@@ -75,6 +75,10 @@ The application arrives empty. Open the **Data** tab.
 
 **If you are only looking for your own accounts, press "Index every year".**
 
+If you already have data loaded from an earlier version, note that the
+telephone numbers filed on the forms are only picked up on import. Existing
+data keeps working; re-import a year to fill them in.
+
 This downloads just the two filing forms for every published year, 2009 to
 2025. It is enough to match an employer to a plan across a whole career, and it
 is a fraction of the size of the full data. Expect a substantial download the
@@ -144,7 +148,7 @@ The roles, in the order they are useful to you:
 | **Trustee** / **Custodian** | Holds the assets. Can usually redirect you. |
 | **Insurer** | The plan is an annuity contract. Common in 403(b) plans. Call them. |
 | **Third-party administrator** | Runs the plan for the employer. A good second call. |
-| **Plan administrator** | Legally obliged to answer a written request from a participant. |
+| **Plan administrator** | Legally obliged to answer a written request from a participant. Often the only telephone number a small plan files. |
 | Accountant, actuary, preparer, attorney | Advisers. They cannot help you find your money. |
 
 Every line says which schedule and field it came from and for which year, so
@@ -176,6 +180,11 @@ Click a plan to open it below, then choose the **Providers** tab for the
 complete picture: every firm, the years, what it was paid, the service codes it
 reported, and its contact details.
 
+Underneath the firms, **Also filed for this plan** lists telephone numbers the
+employer filed for people who are not service providers. The plan
+administrator is the one that matters: they must answer a written request from
+a participant.
+
 The **Evidence** tab shows the exact filing behind every statement, down to the
 file and row.
 
@@ -195,10 +204,18 @@ asked, and having them is what separates a five-minute call from a dead end:
 - The **years you worked there**.
 - Your Social Security number, to give **on the call**, never in an email.
 
-**About the telephone numbers and websites.** These are added by this
-application. They are not part of the Department of Labor filings, because no
-DOL dataset holds a website and the only filed telephone numbers belong to the
-plan administrator, the employer and a few others.
+**About the telephone numbers.** Some are filed and some are not, and the
+application always says which.
+
+A number labelled **(filed)** came from the filing itself, and cites the exact
+field it was read from. Employers file the plan administrator's number, their
+own, and for a small plan the trustee or custodian's. These are the best
+numbers you can have: the employer filed them under penalty, and they reach
+that plan's own office rather than a national queue.
+
+Every other number, and every website, is **added by this application**. No DOL
+dataset holds a website at all, so those come from a list of the larger
+providers that ships with the software.
 
 **Check the number on the firm's own website before you call.** Type the
 website address into your browser yourself. Numbers change, and calling a
@@ -351,8 +368,11 @@ schedules. Every line names its schedule and field, so you can tell which is
 which. Contact the more recent one first.
 
 **The telephone number did not work.**
-Use the website instead, and find the number there. The contact details are
-added by this application rather than filed, and firms change their numbers.
+If it was not marked *(filed)*, it came from the list that ships with the
+software rather than from the filing, and firms change their numbers. Use the
+website instead and find the current number there. If a *(filed)* number is
+dead, the filing is simply old: try a more recent form year, or the plan
+administrator.
 
 **Can it find my IRA?**
 No. IRAs file nothing with the Department of Labor. Section 10 is the route.

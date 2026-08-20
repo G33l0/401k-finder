@@ -85,6 +85,28 @@ Every one of these writes an evidence record naming the dataset, file, row,
 field and acknowledgement ID it came from. `401k-finder plan <ein> --evidence`
 prints the whole trail.
 
+### Contacting them
+
+The **Find plans** results carry a *Service providers by year* column and a
+*Contact* column, and the plan's **Providers** tab lists each firm with the
+years it covered, what it was paid, and how to reach it.
+
+Telephone numbers come from two places and the application always says which.
+A number marked **(filed)** was read out of the filing and cites its field:
+employers file the plan administrator's number, their own, and for a small
+plan the trustee or custodian's. Everything else, and every website, comes
+from [`app/providers/directory.py`](app/providers/directory.py), a curated
+list of the larger providers. That list exists because **no DOL dataset holds
+a website**: 448 layouts, 1,278 distinct field names, not one URL. A test
+asserts that, and will fail if DOL ever adds one.
+
+The directory also records who took a business over, so a 2012 filing naming
+Prudential Retirement points at Empower rather than reading as a dead end.
+
+In the **Providers** tab, selecting a firm lists every company and plan that
+names it, with the role and the years. It matches on the consolidated name, so
+one selection covers every spelling the firm was filed under.
+
 ---
 
 ## Installing

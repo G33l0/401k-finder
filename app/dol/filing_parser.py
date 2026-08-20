@@ -79,6 +79,8 @@ class ParsedFiling:
 
     admin_name: str | None = None
     admin_ein: str | None = None
+    admin_phone: str | None = None
+    trustee_custodian_phone: str | None = None
     preparer_firm_name: str | None = None
     trust_name: str | None = None
     trustee_custodian_name: str | None = None
@@ -144,6 +146,8 @@ class FieldMap:
     participant_contributions: tuple[str, ...] = ()
     admin_name: tuple[str, ...] = ()
     admin_ein: tuple[str, ...] = ()
+    admin_phone: tuple[str, ...] = ()
+    trustee_custodian_phone: tuple[str, ...] = ()
     preparer_firm_name: tuple[str, ...] = ()
     trust_name: tuple[str, ...] = ()
     trustee_custodian_name: tuple[str, ...] = ()
@@ -180,6 +184,7 @@ FORM_5500_MAP = FieldMap(
     participants_with_balances=("PARTCP_ACCOUNT_BAL_CNT",),
     admin_name=("ADMIN_NAME",),
     admin_ein=("ADMIN_EIN",),
+    admin_phone=("ADMIN_PHONE_NUM",),
     preparer_firm_name=("PREPARER_FIRM_NAME",),
 )
 
@@ -217,9 +222,11 @@ FORM_5500_SF_MAP = FieldMap(
     participant_contributions=("SF_PARTICIP_CONTRIB_INCOME_AMT",),
     admin_name=("SF_ADMIN_NAME",),
     admin_ein=("SF_ADMIN_EIN",),
+    admin_phone=("SF_ADMIN_PHONE_NUM",),
     preparer_firm_name=("SF_PREPARER_FIRM_NAME",),
     trust_name=("SF_FDCRY_TRUST_NAME",),
     trustee_custodian_name=("SF_FDCRY_TRUSTE_CUST_NAME",),
+    trustee_custodian_phone=("SF_FDCRY_TRUSTE_CUST_PHONE_NUM",),
 )
 
 SCH_DCG_MAP = FieldMap(
@@ -250,6 +257,7 @@ SCH_DCG_MAP = FieldMap(
     net_assets_eoy=("DCG_NET_ASSETS_EOY_AMT",),
     admin_name=("DCG_ADMIN_NAME",),
     admin_ein=("DCG_ADMIN_EIN",),
+    admin_phone=("DCG_ADMIN_PHONE_NUM",),
     accountant_firm_name=("DCG_ACCOUNTANT_FIRM_NAME",),
 )
 
@@ -427,6 +435,8 @@ def parse_filing_row(
 
     parsed.admin_name = _text(row, mapping.admin_name)
     parsed.admin_ein = normalize_ein(first_value(row, *mapping.admin_ein))
+    parsed.admin_phone = _text(row, mapping.admin_phone)
+    parsed.trustee_custodian_phone = _text(row, mapping.trustee_custodian_phone)
     parsed.preparer_firm_name = _text(row, mapping.preparer_firm_name)
     parsed.trust_name = _text(row, mapping.trust_name)
     parsed.trustee_custodian_name = _text(row, mapping.trustee_custodian_name)

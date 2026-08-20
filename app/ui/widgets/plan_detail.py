@@ -59,6 +59,8 @@ class PlanDetailPanel(QWidget):
         super().__init__(parent)
 
         self._plan: PlanResult | None = None
+        self._filed: dict = {}
+        self._filed_all: list = []
         self._evidence: PlanEvidence | None = None
 
         layout = QVBoxLayout(self)
@@ -125,13 +127,20 @@ class PlanDetailPanel(QWidget):
     def set_summary(self, plan: PlanResult | None) -> None:
         """Render what is already known, before the full detail loads."""
 
-        self.set_detail(plan, None)
+        self.set_detail(plan, None, ())
 
-    def set_detail(self, plan: PlanResult | None, evidence: PlanEvidence | None) -> None:
+    def set_detail(
+        self,
+        plan: PlanResult | None,
+        evidence: PlanEvidence | None,
+        filed=(),  # noqa: ANN001 - providers.filed_contacts.FiledContact
+    ) -> None:
         """Render the full detail once the background load finishes."""
 
         self._plan = plan
         self._evidence = evidence
+        self._filed = {contact.name.upper(): contact for contact in filed or ()}
+        self._filed_all = list(filed or ())
 
         if plan is None:
             self.clear()
@@ -290,18 +299,68 @@ class PlanDetailPanel(QWidget):
             "<p class='sub'>Every firm named in the filings held for this plan, with the "
             "years each one covered. Click a name to find every other plan it serves.</p>"
             + "".join(cards)
-            + f"<p class='sub'>{escape(DIRECTORY_DISCLAIMER)}</p>"
+            + self._filed_only_html(history)
+            + f"<p class='sub'>A telephone number marked <b>(filed)</b> is from the "
+            f"filings themselves. {escape(DIRECTORY_DISCLAIMER)}</p>"
+        )
+
+    def _filed_only_html(self, history) -> str:  # noqa: ANN001 - ServicingHistory
+        """
+        Numbers the employer filed for people who are not service providers.
+
+        The plan administrator is the important one: they are obliged to answer
+        a participant's written request, and they are often the only contact a
+        small plan gives at all.
+        """
+
+        named = {item.name.upper() for item in history}
+        extra = [
+            contact
+            for contact in getattr(self, "_filed_all", [])
+            if contact.name.upper() not in named
+        ]
+
+        if not extra:
+            return ""
+
+        rows = []
+        for contact in extra:
+            rows.append(
+                f"<table class='card'><tr><td>"
+                f"<span class='role'>{escape(contact.role_label)}</span> &nbsp;"
+                f"{escape(contact.name)}"
+                f"<div class='src'>Telephone (filed): <b>{escape(contact.phone)}</b></div>"
+                f"<div class='src'>Source: {escape(contact.citation())}</div>"
+                f"</td></tr></table>"
+            )
+
+        return (
+            "<h3>Also filed for this plan</h3>"
+            "<p class='sub'>Telephone numbers the employer filed. The plan "
+            "administrator has to answer a written request from a participant.</p>"
+            + "".join(rows)
         )
 
     def _contact_html(self, item) -> str:  # noqa: ANN001 - providers.ServiceProvider
         """Website and telephone, where the application knows them."""
 
+        filed = getattr(self, "_filed", {}).get(item.name.upper())
         contact = item.contact
-        if contact is None or not contact.has_details:
-            return ""
 
         rows = []
-        if contact.phone:
+
+        # A number the employer filed beats anything curated: it names this
+        # plan's own office rather than a national queue.
+        if filed is not None:
+            rows.append(
+                f"<div class='src'>Telephone (filed): <b>{escape(filed.phone)}</b> "
+                f"<span class='sub'>{escape(filed.citation())}</span></div>"
+            )
+
+        if contact is None or not contact.has_details:
+            return "".join(rows)
+
+        if contact.phone and filed is None:
             rows.append(
                 f"<div class='src'>Telephone: <b>{escape(contact.phone)}</b></div>"
             )

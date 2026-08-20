@@ -346,6 +346,8 @@ class DOLImporter:
             "participant_contributions": parsed.participant_contributions,
             "admin_name": parsed.admin_name,
             "admin_ein": parsed.admin_ein,
+            "admin_phone": parsed.admin_phone,
+            "trustee_custodian_phone": parsed.trustee_custodian_phone,
             "source_dataset": dataset,
             "source_release": release,
             "source_file": source_file,

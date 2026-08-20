@@ -84,6 +84,26 @@ missing drive at start-up gets a dialog, never a silently recreated empty
 database, because an empty search result is indistinguishable from having lost
 everything.
 
+### 1.5 Who serviced the plan, when, and how to reach them ✅
+
+The filings hold one row per firm per role per year. `app/providers/servicing.py`
+folds those into one line per firm carrying the years it covered, ordered so
+whoever holds the money comes first. Find plans gained a providers-by-year
+column and a contact column; the Providers tab lists every company using a
+selected firm without leaving the tab.
+
+Telephone numbers come from the filings where they exist (`ADMIN_PHONE_NUM`,
+`SF_ADMIN_PHONE_NUM`, `SF_FDCRY_TRUSTE_CUST_PHONE_NUM`,
+`FDCRY_TRUST_CUST_PHONE_NUM`, `PROVIDER_TERM_PHONE_NUM`) and are labelled
+*(filed)* with their field. Schema 6 added the two on the filing forms; they
+fill in on the next import and an old database keeps working meanwhile.
+
+**Limits.** No DOL dataset holds a website, so those come from a curated list
+of 49 firms in `app/providers/directory.py`, which the UI always marks as the
+application's own addition. That list covers the national providers and will
+never cover a small local trustee. It needs reviewing as firms are bought and
+numbers change; `scripts/check_resources.py` checks the links.
+
 ---
 
 ## 2. For individuals

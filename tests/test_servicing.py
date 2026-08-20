@@ -316,3 +316,152 @@ def test_firms_that_were_taken_over_say_so():
 
     wells = contact_for("Wells Fargo")
     assert "Principal" in wells.successor
+
+
+# ----------------------------------------------------------------------
+# Telephone numbers that are actually in the filings
+# ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("8005551234", "800-555-1234"),
+        ("18005551234", "1-800-555-1234"),
+        ("800-555-1234", "800-555-1234"),
+        ("  800 555 1234  ", "800-555-1234"),
+        ("(800) 555-1234", "800-555-1234"),
+        ("", ""),
+        (None, ""),
+        ("555", "555"),
+        ("see plan document", "see plan document"),
+    ],
+)
+def test_a_filed_number_is_grouped_so_it_can_be_read_aloud(raw, expected):
+    from app.providers.filed_contacts import format_phone
+
+    assert format_phone(raw) == expected
+
+
+def test_filed_numbers_come_back_for_a_real_plan(session, imported):
+    from app.database.models import Plan
+    from app.providers.filed_contacts import for_plan
+
+    found = []
+    for plan in session.query(Plan).all():
+        found.extend(for_plan(session, plan.id))
+
+    assert found, "the fixture files telephone numbers, so some should be read back"
+
+    for contact in found:
+        assert contact.phone
+        assert contact.name
+        assert contact.form_year
+        assert "field" in contact.citation()
+
+
+def test_a_placeholder_name_never_becomes_a_contact(session, imported):
+    """Filings are full of "N/A" and "SAME AS SPONSOR". Neither is a firm."""
+
+    from app.database.models import Plan
+    from app.dol.provider_extractor import is_placeholder_name
+    from app.providers.filed_contacts import for_plan
+
+    for plan in session.query(Plan).all():
+        for contact in for_plan(session, plan.id):
+            assert not is_placeholder_name(contact.name), contact.name
+
+
+def test_one_line_per_firm_however_many_years_it_filed(session, imported):
+    from app.database.models import Plan
+    from app.providers.filed_contacts import for_plan
+
+    for plan in session.query(Plan).all():
+        contacts = for_plan(session, plan.id)
+        keys = [(contact.name.upper(), contact.role) for contact in contacts]
+        assert len(keys) == len(set(keys)), keys
+
+
+def test_a_plan_with_nothing_filed_returns_nothing(session):
+    from app.providers.filed_contacts import for_plan
+
+    assert for_plan(session, 999_999) == []
+
+
+def test_looking_up_a_firm_by_name_is_forgiving(session, imported):
+    from app.database.models import Plan
+    from app.providers.filed_contacts import for_plan, phone_for
+
+    for plan in session.query(Plan).all():
+        contacts = for_plan(session, plan.id)
+        if not contacts:
+            continue
+
+        wanted = contacts[0]
+        assert phone_for(session, plan.id, wanted.name) is not None
+        assert phone_for(session, plan.id, wanted.name.lower()) is not None
+        assert phone_for(session, plan.id, f"  {wanted.name}  ") is not None
+        assert phone_for(session, plan.id, "no such firm") is None
+        assert phone_for(session, plan.id, "") is None
+        return
+
+    pytest.skip("no filed contacts in the fixture")
+
+
+def test_the_schema_carries_the_filed_phone_columns(engine):
+    """Schema 6 added these. They stay empty until the year is imported again."""
+
+    from app.database.schema import SCHEMA_VERSION, current_version
+
+    assert SCHEMA_VERSION >= 6
+    assert current_version(engine) == SCHEMA_VERSION
+
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(filings)").fetchall()
+        }
+
+    assert {"admin_phone", "trustee_custodian_phone"} <= columns
+
+
+def test_the_phone_fields_are_real_layout_columns():
+    """A typo here would read as "not filed" for ever, silently."""
+
+    from app.dol.layouts import get_layout
+
+    expected = (
+        ("F_5500", "ADMIN_PHONE_NUM"),
+        ("F_5500_SF", "SF_ADMIN_PHONE_NUM"),
+        ("F_5500_SF", "SF_FDCRY_TRUSTE_CUST_PHONE_NUM"),
+        ("F_SCH_I", "FDCRY_TRUST_CUST_PHONE_NUM"),
+        ("F_SCH_C_PART3", "PROVIDER_TERM_PHONE_NUM"),
+    )
+
+    for dataset, field in expected:
+        layout = get_layout(2023, dataset)
+        assert layout is not None, dataset
+        assert layout.has(field), f"{dataset} has no {field}"
+
+
+def test_no_dol_dataset_carries_a_website():
+    """
+    The reason the directory exists. If DOL ever adds one, this fails and the
+    curated list should give way to the filed value.
+    """
+
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "app" / "dol" / "layouts" / "data"
+    found = set()
+
+    for path in root.glob("*.json"):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for fields in data["datasets"].values():
+            for field in fields:
+                name = field["n"].upper()
+                if any(token in name for token in ("WEB", "URL", "HTTP", "INTERNET")):
+                    found.add(name)
+
+    assert not found, f"DOL now files a website field: {sorted(found)}"

@@ -312,8 +312,8 @@ class MainWindow(QMainWindow):
         )
 
     def _on_detail_finished(self, payload: object) -> None:
-        plan, evidence = payload  # type: ignore[misc]
-        self.detail_panel.set_detail(plan, evidence)
+        plan, evidence, filed = payload  # type: ignore[misc]
+        self.detail_panel.set_detail(plan, evidence, filed)
 
     def search_by_provider(self, provider_name: str) -> None:
         self.tabs.setCurrentIndex(0)
