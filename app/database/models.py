@@ -145,6 +145,8 @@ class Filing(Base):
 
     admin_name: Mapped[str | None] = mapped_column(String(200))
     admin_ein: Mapped[str | None] = mapped_column(String(9))
+    admin_phone: Mapped[str | None] = mapped_column(String(30))
+    trustee_custodian_phone: Mapped[str | None] = mapped_column(String(30))
 
     source_dataset: Mapped[str | None] = mapped_column(String(60))
     source_release: Mapped[str | None] = mapped_column(String(20))

@@ -9,6 +9,7 @@ from pathlib import Path
 ICON_FILE = "app.ico"
 LOGO_FILE = "logo.png"
 STYLESHEET_FILE = "app.qss"
+USER_GUIDE_FILE = "USER_GUIDE.md"
 
 ICON_FALLBACKS = ("app.png", "logo.png")
 
@@ -42,6 +43,19 @@ def icon_path() -> Path | None:
             return found
 
     return None
+
+
+def user_guide_path() -> Path | None:
+    """The user manual, whether running from source or from a build."""
+
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        packaged = Path(bundle) / "docs" / USER_GUIDE_FILE
+        if packaged.is_file():
+            return packaged
+
+    from_source = Path(__file__).resolve().parents[3] / "docs" / USER_GUIDE_FILE
+    return from_source if from_source.is_file() else None
 
 
 def logo_path() -> Path | None:

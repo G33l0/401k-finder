@@ -17,6 +17,8 @@ from PySide6.QtWidgets import (
 from app.core.codes import describe_characteristic, describe_service_code
 from app.core.constants import NOT_REPORTED, SOURCE_LABEL, year_span
 from app.evidence.trail import PlanEvidence
+from app.providers.directory import DISCLAIMER as DIRECTORY_DISCLAIMER
+from app.providers.servicing import servicing_history
 from app.search.engine import PlanResult
 from app.ui import theme
 from app.ui.widgets.results_table import format_count, format_money
@@ -36,6 +38,17 @@ def _title(value: str) -> str:
     return value.replace("_", " ").title()
 
 
+def _years_text(item) -> str:  # noqa: ANN001 - providers.ServiceProvider
+    """Every year listed when there are a few, a span when there are many."""
+
+    if not item.years:
+        return "not recorded"
+    if len(item.years) <= 6:
+        return ", ".join(str(year) for year in item.years)
+
+    return f"{item.span} ({len(item.years)} years)"
+
+
 class PlanDetailPanel(QWidget):
     """Shows everything known about one plan, with its sources."""
 
@@ -46,6 +59,8 @@ class PlanDetailPanel(QWidget):
         super().__init__(parent)
 
         self._plan: PlanResult | None = None
+        self._filed: dict = {}
+        self._filed_all: list = []
         self._evidence: PlanEvidence | None = None
 
         layout = QVBoxLayout(self)
@@ -112,13 +127,20 @@ class PlanDetailPanel(QWidget):
     def set_summary(self, plan: PlanResult | None) -> None:
         """Render what is already known, before the full detail loads."""
 
-        self.set_detail(plan, None)
+        self.set_detail(plan, None, ())
 
-    def set_detail(self, plan: PlanResult | None, evidence: PlanEvidence | None) -> None:
+    def set_detail(
+        self,
+        plan: PlanResult | None,
+        evidence: PlanEvidence | None,
+        filed=(),  # noqa: ANN001 - providers.filed_contacts.FiledContact
+    ) -> None:
         """Render the full detail once the background load finishes."""
 
         self._plan = plan
         self._evidence = evidence
+        self._filed = {contact.name.upper(): contact for contact in filed or ()}
+        self._filed_all = list(filed or ())
 
         if plan is None:
             self.clear()
@@ -222,40 +244,138 @@ class PlanDetailPanel(QWidget):
                 "been imported for these years.</p>"
             )
 
+        history = servicing_history(plan.parties)
+        by_key = {(party.provider_id, party.role): party for party in plan.parties}
+
         cards = []
-        for party in plan.primary_providers():
+        for item in history:
+            party = by_key.get((item.provider_id, item.role))
+
             services = "".join(
                 f"<div class='src'>· {escape(describe_service_code(code))}</div>"
-                for code in party.service_codes
+                for code in item.service_codes
             )
 
             compensation = ""
-            if party.direct_compensation:
-                compensation += f"<div class='src'>Direct compensation: {format_money(party.direct_compensation)}</div>"
-            if party.indirect_compensation:
-                compensation += f"<div class='src'>Indirect compensation: {format_money(party.indirect_compensation)}</div>"
+            if party is not None and party.direct_compensation:
+                compensation += (
+                    f"<div class='src'>Direct compensation: "
+                    f"{format_money(party.direct_compensation)}</div>"
+                )
+            if party is not None and party.indirect_compensation:
+                compensation += (
+                    f"<div class='src'>Indirect compensation: "
+                    f"{format_money(party.indirect_compensation)}</div>"
+                )
 
             reported = ""
-            if party.reported_name and party.reported_name != party.display_name:
+            if party is not None and party.reported_name and party.reported_name != item.name:
                 reported = f"<div class='src'>Filed as: {escape(party.reported_name)}</div>"
+
+            held = (
+                "<div class='src'><b>Holds or administers the money.</b> "
+                "This is who can look you up.</div>"
+                if item.holds_money
+                else ""
+            )
 
             cards.append(
                 f"<table class='card'><tr><td>"
-                f"<span class='role'>{escape(_title(party.role))}</span> &nbsp;"
-                f"<a href='provider:{escape(party.display_name)}'>{escape(party.display_name)}</a>"
-                f"<span class='{self._confidence_class(party.confidence)}'> "
-                f"&nbsp;{escape(party.confidence or '')}</span>"
-                f"{reported}{services}{compensation}"
-                f"<div class='src'>Source: schedule {escape(party.schedule_code or '?')}, "
-                f"field {escape(party.source_field or '?')}, form year {party.form_year}</div>"
+                f"<span class='role'>{escape(item.role_label)}</span> &nbsp;"
+                f"<a href='provider:{escape(item.name)}'>{escape(item.name)}</a>"
+                f"<span class='{self._confidence_class(item.confidence)}'> "
+                f"&nbsp;{escape(item.confidence or '')}</span>"
+                f"<div class='src'>Filed for: <b>{escape(_years_text(item))}</b></div>"
+                f"{held}{reported}{services}{compensation}"
+                f"{self._contact_html(item)}"
+                f"<div class='src'>Source: schedule "
+                f"{escape(', '.join(item.schedule_codes) or '?')}, "
+                f"form year {escape(_years_text(item))}</div>"
                 f"</td></tr></table>"
             )
 
         return (
             f"{self._style()}<h2>Providers</h2>"
-            "<p class='sub'>Click a provider name to find every other plan it serves.</p>"
+            "<p class='sub'>Every firm named in the filings held for this plan, with the "
+            "years each one covered. Click a name to find every other plan it serves.</p>"
             + "".join(cards)
+            + self._filed_only_html(history)
+            + f"<p class='sub'>A telephone number marked <b>(filed)</b> is from the "
+            f"filings themselves. {escape(DIRECTORY_DISCLAIMER)}</p>"
         )
+
+    def _filed_only_html(self, history) -> str:  # noqa: ANN001 - ServicingHistory
+        """
+        Numbers the employer filed for people who are not service providers.
+
+        The plan administrator is the important one: they are obliged to answer
+        a participant's written request, and they are often the only contact a
+        small plan gives at all.
+        """
+
+        named = {item.name.upper() for item in history}
+        extra = [
+            contact
+            for contact in getattr(self, "_filed_all", [])
+            if contact.name.upper() not in named
+        ]
+
+        if not extra:
+            return ""
+
+        rows = []
+        for contact in extra:
+            rows.append(
+                f"<table class='card'><tr><td>"
+                f"<span class='role'>{escape(contact.role_label)}</span> &nbsp;"
+                f"{escape(contact.name)}"
+                f"<div class='src'>Telephone (filed): <b>{escape(contact.phone)}</b></div>"
+                f"<div class='src'>Source: {escape(contact.citation())}</div>"
+                f"</td></tr></table>"
+            )
+
+        return (
+            "<h3>Also filed for this plan</h3>"
+            "<p class='sub'>Telephone numbers the employer filed. The plan "
+            "administrator has to answer a written request from a participant.</p>"
+            + "".join(rows)
+        )
+
+    def _contact_html(self, item) -> str:  # noqa: ANN001 - providers.ServiceProvider
+        """Website and telephone, where the application knows them."""
+
+        filed = getattr(self, "_filed", {}).get(item.name.upper())
+        contact = item.contact
+
+        rows = []
+
+        # A number the employer filed beats anything curated: it names this
+        # plan's own office rather than a national queue.
+        if filed is not None:
+            rows.append(
+                f"<div class='src'>Telephone (filed): <b>{escape(filed.phone)}</b> "
+                f"<span class='sub'>{escape(filed.citation())}</span></div>"
+            )
+
+        if contact is None or not contact.has_details:
+            return "".join(rows)
+
+        if contact.phone and filed is None:
+            rows.append(
+                f"<div class='src'>Telephone: <b>{escape(contact.phone)}</b></div>"
+            )
+        if contact.website:
+            rows.append(
+                f"<div class='src'>Website: "
+                f"<a href='copy:{escape(contact.website)}'>{escape(contact.website)}</a>"
+                f" (click to copy)</div>"
+            )
+        if contact.note:
+            rows.append(f"<div class='src'>{escape(contact.note)}</div>")
+        if contact.successor:
+            rows.append(f"<div class='src'><b>{escape(contact.successor)}</b></div>")
+
+        return "".join(rows)
 
     def _evidence_html(self, evidence: PlanEvidence) -> str:
         blocks = []

@@ -14,6 +14,8 @@ requires you to understand Python.
 - [`SELLING.md`](SELLING.md), on putting the installer online, taking payment, and
   licence keys issued by email and tied to the buyer's computer.
 - [`../README.md`](../README.md), on what the application does and how to use it.
+- [`USER_GUIDE.md`](USER_GUIDE.md), the manual your customers read. It also
+  ships inside the application, under **Help → User guide**.
 
 ---
 

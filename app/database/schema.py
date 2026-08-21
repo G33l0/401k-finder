@@ -15,7 +15,7 @@ from app.database.base import Base
 
 logger = get_logger(__name__)
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 FTS_TABLE = "plan_fts"
 
@@ -138,12 +138,48 @@ def _step_plan_transfers(connection: Connection) -> None:
     Base.metadata.tables["plan_transfers"].create(bind=connection, checkfirst=True)
 
 
+def _add_column(connection: Connection, table: str, column: str, kind: str) -> None:
+    """
+    Add a column, tolerating a database that already has it or lacks the table.
+
+    A step that adds a column must not abort the whole upgrade over a table it
+    did not create. PRAGMA table_info returns nothing for a table that is not
+    there, which is the signal to leave it alone.
+    """
+
+    existing = {
+        row[1]
+        for row in connection.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+    }
+
+    if not existing:
+        logger.warning("Skipping %s.%s: the table is not in this database.", table, column)
+        return
+
+    if column not in existing:
+        connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+
+
+def _step_filed_phones(connection: Connection) -> None:
+    """
+    Add the plan administrator's and the trustee's telephone, from the forms.
+
+    Both are filed. Existing rows stay empty until the year is imported again;
+    everything that reads them treats a blank as "not filed", so an old
+    database keeps working untouched.
+    """
+
+    for column in ("admin_phone", "trustee_custodian_phone"):
+        _add_column(connection, "filings", column, "VARCHAR(30)")
+
+
 MIGRATIONS: tuple[MigrationStep, ...] = (
     MigrationStep(1, "Create base tables", _step_initial),
     MigrationStep(2, "Create full-text search indexes", _step_fts),
     MigrationStep(3, "Create search support indexes", _step_indexes),
     MigrationStep(4, "Deduplicate evidence and enforce uniqueness", _step_evidence_uniqueness),
     MigrationStep(5, "Record plan-to-plan asset transfers", _step_plan_transfers),
+    MigrationStep(6, "Keep the telephone numbers filed on the forms", _step_filed_phones),
 )
 
 

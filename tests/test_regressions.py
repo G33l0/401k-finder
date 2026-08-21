@@ -314,6 +314,7 @@ def test_an_existing_v4_database_gains_the_transfers_table(tmp_path):
 
     from app.database.engine import create_database_engine
     from app.database.init_db import initialize_database
+    from app.database.schema import SCHEMA_VERSION
 
     path = tmp_path / "v4.sqlite3"
     initialize_database(create_database_engine(path))
@@ -325,7 +326,9 @@ def test_an_existing_v4_database_gains_the_transfers_table(tmp_path):
     assert raw.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 4
     raw.close()
 
-    assert initialize_database(create_database_engine(path)) == 5
+    # Asserted against the constant, not a number: every schema bump ran an
+    # upgrade past this point and the test should not need touching for it.
+    assert initialize_database(create_database_engine(path)) == SCHEMA_VERSION
 
     check = sqlite3.connect(path)
     present = check.execute(

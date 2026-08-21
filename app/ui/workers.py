@@ -13,9 +13,9 @@ from app.core.config import Settings
 from app.core.exceptions import ImportCancelled
 from app.core.logging import get_logger
 from app.database.session import create_session
-from app.evidence.trail import PlanEvidence, build_plan_evidence
+from app.evidence.trail import build_plan_evidence
 from app.search.engine import PlanResult, ProviderResult, SearchEngine
-from app.search.query import PlanQuery, ProviderQuery, QueryOptions
+from app.search.query import PlanQuery, ProviderQuery, QueryOptions, SortOrder
 
 logger = get_logger(__name__)
 
@@ -170,10 +170,32 @@ def search_providers_task(query: ProviderQuery) -> WorkFunction:
     return work
 
 
+def plans_for_provider_task(provider_name: str) -> WorkFunction:
+    """Every plan naming this firm, across each spelling it was filed under."""
+
+    def work(session, _worker) -> tuple[str, list[PlanResult]]:  # noqa: ANN001
+        query = PlanQuery(
+            provider_name=provider_name,
+            retirement_only=False,
+            limit=1000,
+            sort=SortOrder.PARTICIPANTS,
+        )
+        options = QueryOptions(include_parties=True, max_parties=80)
+        return provider_name, SearchEngine(session).search_plans(query, options)
+
+    return work
+
+
 def plan_detail_task(plan_id: int) -> WorkFunction:
-    def work(session, _worker) -> tuple[PlanResult | None, PlanEvidence | None]:  # noqa: ANN001
+    def work(session, _worker) -> tuple:  # noqa: ANN001
+        from app.providers.filed_contacts import for_plan
+
         engine = SearchEngine(session)
-        return engine.get_plan(plan_id), build_plan_evidence(session, plan_id)
+        return (
+            engine.get_plan(plan_id),
+            build_plan_evidence(session, plan_id),
+            for_plan(session, plan_id),
+        )
 
     return work
 
