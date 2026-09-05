@@ -37,7 +37,18 @@ PLAN_SUFFIXES = [
     "EMPLOYEE STOCK OWNERSHIP PLAN",
 ]
 
-PENSION_CODE_SETS = ["2E2G2J", "2J2K2S", "2E2F2G", "1A1I", "2L2M", "2N", "2O2P", "2C", "2G2J2W"]
+#: The characteristics codes that go with each plan name, so a plan called a
+#: 403(b) is filed as one. Real filings agree far more often than not, and a
+#: fixture where the name and the codes disagree makes the classifier look
+#: broken when it is correctly trusting the codes.
+CODES_BY_SUFFIX: dict[str, str] = {
+    "401(K) PROFIT SHARING PLAN": "2E2G2J",
+    "RETIREMENT SAVINGS PLAN": "2G2J2K",
+    "EMPLOYEES PENSION PLAN": "1A1I",
+    "403(B) RETIREMENT PLAN": "2L2M",
+    "457(B) DEFERRED COMPENSATION PLAN": "2G2J2W",
+    "EMPLOYEE STOCK OWNERSHIP PLAN": "2O2P",
+}
 
 RECORDKEEPERS = [
     "FIDELITY INVESTMENTS INSTITUTIONAL OPERAT",
@@ -73,6 +84,35 @@ ACCOUNTANTS = [
 ]
 
 PLACEHOLDERS = ["N/A", "NONE", "SAME AS ABOVE", "-", "0"]
+
+# One scripted employer, so the historical report has a known answer to prove
+# itself against: a recordkeeper switch in 2021, a corporate rename in 2022 and
+# the plan renamed with it. Plan index 0 (ACME) carries it.
+SCENARIO_INDEX = 0
+SCENARIO_RENAME_YEAR = 2022
+SCENARIO_SWITCH_YEAR = 2021
+
+SCENARIO_OLD_SPONSOR = "ACME MANUFACTURING INC"
+SCENARIO_NEW_SPONSOR = "ACME INDUSTRIES INC"
+SCENARIO_OLD_PLAN = "ACME 401(K) PROFIT SHARING PLAN"
+SCENARIO_NEW_PLAN = "ACME INDUSTRIES 401(K) PLAN"
+SCENARIO_OLD_RECORDKEEPER = "VANGUARD FIDUCIARY TRUST COMPANY"
+SCENARIO_NEW_RECORDKEEPER = "FIDELITY INVESTMENTS INSTITUTIONAL OPERAT"
+SCENARIO_TRUSTEE = "MATRIX TRUST COMPANY"
+
+
+def scenario_sponsor(year: int) -> str:
+    return SCENARIO_NEW_SPONSOR if year >= SCENARIO_RENAME_YEAR else SCENARIO_OLD_SPONSOR
+
+
+def scenario_plan_name(year: int) -> str:
+    return SCENARIO_NEW_PLAN if year >= SCENARIO_RENAME_YEAR else SCENARIO_OLD_PLAN
+
+
+def scenario_recordkeeper(year: int) -> str:
+    if year >= SCENARIO_SWITCH_YEAR:
+        return SCENARIO_NEW_RECORDKEEPER
+    return SCENARIO_OLD_RECORDKEEPER
 
 
 def _write(path: Path, columns: tuple[str, ...], rows: list[dict[str, str]]) -> None:
@@ -117,7 +157,12 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
         ein = f"{10_000_000 + index * 137:09d}"
         plan_number = f"{(index % 3) + 1:03d}"
         plan_name = f"{sponsor.split()[0]} {PLAN_SUFFIXES[index % len(PLAN_SUFFIXES)]}"
-        codes = PENSION_CODE_SETS[index % len(PENSION_CODE_SETS)]
+
+        scripted = index == SCENARIO_INDEX
+        if scripted:
+            sponsor = scenario_sponsor(year)
+            plan_name = scenario_plan_name(year)
+        codes = CODES_BY_SUFFIX[PLAN_SUFFIXES[index % len(PLAN_SUFFIXES)]]
         large_plan = index % 3 == 0
         ack = f"{year}{index:08d}NAL{index:07d}001"
 
@@ -188,8 +233,18 @@ def generate(year: int, plan_count: int, output: Path, seed: int = 7) -> dict[st
 
             for order, (name, service_codes) in enumerate(
                 (
-                    (RECORDKEEPERS[(index + _churn(index)) % len(RECORDKEEPERS)], "1537645038"),
-                    (TRUSTEES[(index + _churn(index)) % len(TRUSTEES)], "2119"),
+                    (
+                        scenario_recordkeeper(year)
+                        if scripted
+                        else RECORDKEEPERS[(index + _churn(index)) % len(RECORDKEEPERS)],
+                        "1537645038",
+                    ),
+                    (
+                        SCENARIO_TRUSTEE
+                        if scripted
+                        else TRUSTEES[(index + _churn(index)) % len(TRUSTEES)],
+                        "2119",
+                    ),
                 ),
                 start=1,
             ):

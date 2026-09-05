@@ -291,6 +291,57 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_report(args: argparse.Namespace) -> int:
+    """A historical retirement-plan report for one employer."""
+
+    from app.reports import EmployerQuery, build_report, find_employers, render_report
+
+    if not _needs_data():
+        return 1
+
+    name = " ".join(args.company).strip()
+    if not name:
+        print("Give a company name, for example: 401k-finder report \"Acme Inc\"",
+              file=sys.stderr)
+        return 2
+
+    query = EmployerQuery(
+        name=name,
+        city=args.city,
+        state=args.state,
+        plan_type=args.type,
+        form_year=args.year,
+        annual_detail=args.annual,
+        include_investments=args.investments,
+    )
+
+    with read_session() as session:
+        report = build_report(session, query)
+        text = render_report(report)
+
+        if not report.found:
+            matches = find_employers(session, name, city=args.city, state=args.state)
+
+    print(text)
+
+    if report.found:
+        if args.output:
+            target = Path(args.output).expanduser()
+            if not target.suffix:
+                target = target.with_suffix(".txt")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text + "\n", encoding="utf-8")
+            print(f"\nWritten to {target}")
+        return 0
+
+    if matches:
+        print("Employers whose name is close:\n", file=sys.stderr)
+        for sponsor, ein, count in matches[:10]:
+            print(f"  {sponsor}  (EIN {ein or '?'}, {count} plan(s))", file=sys.stderr)
+
+    return 1
+
+
 def cmd_providers(args: argparse.Namespace) -> int:
     if not _needs_data():
         return 1
@@ -911,6 +962,43 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--year", type=int)
     validate.add_argument("--verbose", action="store_true")
     validate.set_defaults(func=cmd_validate)
+
+    report_parser = sub.add_parser(
+        "report",
+        help="A historical plan and provider report for one employer.",
+        description=(
+            "Search by company name alone. Every form year held locally is "
+            "searched, the plans are grouped by type, and each one gets a "
+            "recordkeeper timeline with the changes between periods."
+        ),
+    )
+    report_parser.add_argument("company", nargs="+", help="The employer's name.")
+    report_parser.add_argument("--city", help="Narrow by the sponsor's city.")
+    report_parser.add_argument("--state", help="Narrow by two-letter state code.")
+    report_parser.add_argument(
+        "--type",
+        help=(
+            "Only this plan type: 401k, 403b, 457b, profit-sharing, esop, "
+            "money-purchase, cash-balance, pension, sep-simple, other-dc."
+        ),
+    )
+    report_parser.add_argument(
+        "--year",
+        type=int,
+        help="Focus on one form year. Optional; every year is searched without it.",
+    )
+    report_parser.add_argument(
+        "--annual",
+        action="store_true",
+        help="List every year rather than folding them into periods.",
+    )
+    report_parser.add_argument(
+        "--investments",
+        action="store_true",
+        help="Also list investment managers, funds and vehicles.",
+    )
+    report_parser.add_argument("--output", help="Also write the report to a file.")
+    report_parser.set_defaults(func=cmd_report)
 
     storage_parser = sub.add_parser(
         "storage",

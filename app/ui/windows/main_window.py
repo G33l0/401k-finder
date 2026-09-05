@@ -32,12 +32,14 @@ from app.ui.widgets.changes_panel import ChangesPanel
 from app.ui.widgets.data_manager import DataManagerPanel
 from app.ui.widgets.plan_detail import PlanDetailPanel
 from app.ui.widgets.provider_panel import ProviderPanel
+from app.ui.widgets.report_panel import ReportPanel
 from app.ui.widgets.results_table import PlanTable
 from app.ui.widgets.search_panel import SearchPanel
 from app.ui.widgets.trace_panel import TracePanel
 from app.ui.workers import (
     TaskRunner,
     changes_task,
+    employer_report_task,
     import_task,
     index_task,
     plan_detail_task,
@@ -68,6 +70,7 @@ class MainWindow(QMainWindow):
         self.trace_runner = TaskRunner(self)
         self.changes_runner = TaskRunner(self)
         self.companies_runner = TaskRunner(self)
+        self.report_runner = TaskRunner(self)
 
         application = QApplication.instance()
         if application is not None:
@@ -121,10 +124,16 @@ class MainWindow(QMainWindow):
         self.trace_panel.export_requested.connect(self.export_trace)
         self.tabs.addTab(self.trace_panel, "Find my accounts")
 
+        self.report_panel = ReportPanel()
+        self.report_panel.report_requested.connect(self.run_employer_report)
+        self.report_panel.export_requested.connect(self.export_employer_report)
+        self.tabs.addTab(self.report_panel, "Company report")
+
         self.provider_panel = ProviderPanel()
         self.provider_panel.search_requested.connect(self.run_provider_search)
         self.provider_panel.plans_requested.connect(self.search_by_provider)
         self.provider_panel.companies_requested.connect(self.run_companies_for_provider)
+
         self.provider_panel.export_requested.connect(self.export_providers)
         self.tabs.addTab(self.provider_panel, "Providers")
 
@@ -332,6 +341,51 @@ class MainWindow(QMainWindow):
             for name, value in vars(self).items()
             if name.endswith("_runner") and isinstance(value, TaskRunner)
         )
+
+    def run_employer_report(self, query) -> None:  # noqa: ANN001 - EmployerQuery
+        """Build the whole history for one employer, off the UI thread."""
+
+        self.status_message.setText(f"Building the report for {query.name}…")
+
+        self.report_runner.start(
+            employer_report_task(query),
+            on_finished=self._on_report_finished,
+            on_failed=self._on_report_failed,
+        )
+
+    def _on_report_finished(self, payload: object) -> None:
+        report, text = payload  # type: ignore[misc]
+        self.report_panel.show_report(report, text)
+        self.status_message.setText(
+            f"{len(report.plans)} plan(s) reported." if report.found else "No plan matched."
+        )
+
+    def _on_report_failed(self, message: str) -> None:
+        self.report_panel.set_failed(message)
+        self.status_message.setText("The report could not be built.")
+
+    def export_employer_report(self) -> None:
+        text = self.report_panel.report_text()
+        if not text:
+            return
+
+        report = self.report_panel.report()
+        stem = (report.current_name if report is not None else "report") or "report"
+        safe = "".join(character if character.isalnum() else "-" for character in stem).strip("-")
+
+        path = self._ask_where_to_save(
+            "Save report", f"{safe.lower() or 'retirement-plan'}-report.txt", "Text files (*.txt)"
+        )
+        if path is None:
+            return
+
+        try:
+            path.write_text(text + "\n", encoding="utf-8")
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+
+        self.status_message.setText(f"Wrote {path}")
 
     def run_companies_for_provider(self, provider_name: str) -> None:
         """Fill the Providers tab's lower pane with every company using this firm."""
@@ -746,6 +800,7 @@ class MainWindow(QMainWindow):
 
         self.detail_panel.retheme()
         self.trace_panel.retheme()
+        self.report_panel.retheme()
 
     def show_user_guide(self) -> None:
         from app.ui.windows.guide_dialog import show_guide

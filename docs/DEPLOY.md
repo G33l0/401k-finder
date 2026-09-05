@@ -479,9 +479,45 @@ Users run the new installer over the old one. Because the installer keeps a
 fixed application ID, it upgrades in place: same folder, same shortcuts, one
 entry in Apps & features. **Their downloaded data and database are untouched.**
 
-If a release changes the database structure, the application migrates it on
-first launch. Opening a database written by a *newer* build than the one
-installed shows a clear message naming both versions rather than damaging it.
+### What survives an upgrade
+
+Nothing the customer owns lives in the installation folder. The installer only
+ever writes to `%ProgramFiles%\401K Finder Pro` or the per-user equivalent, and
+everything below is somewhere else:
+
+| Kept | Where |
+|---|---|
+| Plan database | `%LOCALAPPDATA%\401K Finder Pro\database`, or the external drive |
+| Downloaded DOL archives and extracted CSVs | same, or the external drive |
+| Licence key | `%LOCALAPPDATA%\401K Finder Pro\license.json` |
+| Settings and theme | `%LOCALAPPDATA%\401K Finder Pro\settings.json` |
+| Which drive the data was moved to | `%LOCALAPPDATA%\401K Finder Pro\storage.json` |
+
+So an upgrade needs no re-activation, no re-download and no re-import, and a
+customer with 400 GB on an external drive keeps pointing at it.
+
+Two practical notes. Tell people to close the application before running the
+installer: Windows will not replace an executable that is running, and Setup
+otherwise has to ask them to close it mid-way. And if a customer originally
+installed for all users, Setup keeps that choice on the next run rather than
+putting a second per-user copy alongside it.
+
+### What the database does on first launch
+
+The schema is versioned and migrated forward one step at a time, so a database
+from any earlier release opens and upgrades itself in place. There is no export
+and reimport, and no separate migration tool to run.
+
+Migrations only add. Version 6, for example, added the two telephone columns on
+the filing forms: an existing database gains the columns immediately and fills
+them on the next import, so it keeps working in the meantime with those fields
+empty rather than forcing a rebuild.
+
+The one direction that does not work is backwards. A database already migrated
+by a newer build refuses to open in an older one, with a message naming both
+versions rather than damaging the file. If you ever need a customer to go back
+a version, they have to delete the database and re-import, so it is worth
+avoiding.
 
 ---
 
