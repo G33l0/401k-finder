@@ -210,6 +210,24 @@ def test_uninstaller_says_the_licence_key_goes_too():
     assert script.count("licence key") >= 2
 
 
+def test_the_two_version_declarations_agree():
+    """
+    build.ps1 reads the version from app/__init__.py and hands it to Inno
+    Setup, so that one governs what ships. pyproject.toml carries its own copy
+    for pip, and nothing forces the two to move together.
+    """
+
+    import tomllib
+
+    from app import __version__
+
+    pyproject = tomllib.loads(
+        Path("pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert pyproject["project"]["version"] == __version__
+
+
 def test_uninstaller_checks_for_relocated_storage():
     """
     With the data moved to an external drive, the folder being deleted holds

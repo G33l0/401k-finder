@@ -42,7 +42,7 @@ Output:
 ```
 dist\401K Finder Pro\401KFinderPro.exe     the desktop application
 dist\401K Finder Pro\401k-finder.exe       the command line
-dist\installer\401KFinderPro-Setup-2.0.0.exe
+dist\installer\401KFinderPro-Setup-2.1.0.exe
 ```
 
 Both executables share the one folder and the one bundled runtime, so shipping
@@ -276,7 +276,7 @@ $timestamp = "http://timestamp.digicert.com"
 
 & $signtool sign /fd SHA256 /td SHA256 /tr $timestamp `
     /n "Your Company Name" `
-    "dist\installer\401KFinderPro-Setup-2.0.0.exe"
+    "dist\installer\401KFinderPro-Setup-2.1.0.exe"
 ```
 
 Always timestamp (`/tr`). Without it, the signature stops validating the day the
