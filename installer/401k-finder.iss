@@ -82,12 +82,12 @@ Filename: "{app}\{#AppExeName}"; Description: "Start {#AppName}"; Flags: nowait 
 
 [UninstallDelete]
 ; The build's own leftovers only. The user's downloaded DOL data and database
-; live in %LOCALAPPDATA% and are deliberately left in place — re-downloading
+; live in %LOCALAPPDATA% and are deliberately left in place. Re-downloading
 ; them takes hours, and an uninstall should not silently discard that work.
 Type: filesandordirs; Name: "{app}\_internal\__pycache__"
 
 [Messages]
-BeveledLabel={#AppName} — U.S. Department of Labor Form 5500 research
+BeveledLabel={#AppName}: U.S. Department of Labor Form 5500 research
 
 [Code]
 function InitializeSetup(): Boolean;
@@ -95,24 +95,85 @@ begin
   Result := True;
 end;
 
+// The bulk data can be moved to an external drive, in which case the pointer
+// in {localappdata} names where it went. Read it so the uninstaller can say
+// what it is about to remove and what it is going to leave behind.
+function RelocatedStorage(PointerFile: String): String;
+var
+  Raw: AnsiString;
+  Text: String;
+  Marker, Colon, Opening, Closing: Integer;
+begin
+  Result := '';
+
+  if not LoadStringFromFile(PointerFile, Raw) then
+    Exit;
+
+  Text := String(Raw);
+  Marker := Pos('"path"', Text);
+  if Marker = 0 then
+    Exit;
+
+  Colon := Marker + Length('"path"');
+  Opening := Colon;
+  while (Opening <= Length(Text)) and (Text[Opening] <> '"') do
+    Opening := Opening + 1;
+  if Opening > Length(Text) then
+    Exit;
+
+  Closing := Opening + 1;
+  while (Closing <= Length(Text)) and (Text[Closing] <> '"') do
+  begin
+    // The pointer is written by json.dumps, so a Windows path arrives with
+    // its backslashes doubled.
+    if (Text[Closing] = '\') and (Closing < Length(Text)) then
+      Closing := Closing + 1;
+    Closing := Closing + 1;
+  end;
+  if Closing > Length(Text) then
+    Exit;
+
+  Result := Copy(Text, Opening + 1, Closing - Opening - 1);
+  StringChange(Result, '\\', '\');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  DataDir: String;
+  DataDir, Elsewhere, Question: String;
 begin
-  if CurUninstallStep = usPostUninstall then
+  if CurUninstallStep <> usPostUninstall then
+    Exit;
+
+  DataDir := ExpandConstant('{localappdata}\401K Finder Pro');
+  if not DirExists(DataDir) then
+    Exit;
+
+  Elsewhere := RelocatedStorage(DataDir + '\storage.json');
+
+  if Elsewhere <> '' then
   begin
-    DataDir := ExpandConstant('{localappdata}\401K Finder Pro');
-    if DirExists(DataDir) then
-    begin
-      if MsgBox('Also delete the downloaded Department of Labor data and the '
-        + 'local plan database?' + #13#10 + #13#10
-        + DataDir + #13#10 + #13#10
-        + 'This data is public and can be downloaded again, but re-importing '
-        + 'it can take several hours. Choose No to keep it.',
-        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
-      begin
-        DelTree(DataDir, True, True, True);
-      end;
-    end;
+    Question :=
+      'Delete the settings, logs and licence key kept on this machine?' + #13#10 + #13#10
+      + DataDir + #13#10 + #13#10
+      + 'The plan database and downloaded Department of Labor data are not in '
+      + 'that folder. They were moved to:' + #13#10 + #13#10
+      + '    ' + Elsewhere + #13#10 + #13#10
+      + 'That location is left untouched. Removing the folder above also '
+      + 'removes the licence key and the record of where the data was moved, '
+      + 'so a future installation has to be activated again and pointed back '
+      + 'at that drive. Choose No to keep it.';
+  end
+  else
+  begin
+    Question :=
+      'Also delete the downloaded Department of Labor data, the plan database '
+      + 'and the licence key?' + #13#10 + #13#10
+      + DataDir + #13#10 + #13#10
+      + 'The data is public and can be downloaded again, but re-importing it '
+      + 'can take several hours, and the licence key would have to be entered '
+      + 'again. Choose No to keep it.';
   end;
+
+  if MsgBox(Question, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+    DelTree(DataDir, True, True, True);
 end;

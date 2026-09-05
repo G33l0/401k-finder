@@ -61,6 +61,23 @@ def test_docs_are_free_of_em_dashes() -> None:
     assert not offenders, f"em dashes in {', '.join(offenders)}"
 
 
+def test_packaging_scripts_are_free_of_em_dashes() -> None:
+    """
+    The installer wizard and the build script are read by customers too, and
+    neither is a .py or a .md, so they slipped past the checks above.
+    """
+
+    offenders = []
+    for path in sorted((ROOT / "installer").glob("*.iss")) + [
+        ROOT / "build.ps1",
+        ROOT / "build.cmd",
+    ]:
+        if path.is_file() and "—" in path.read_text(encoding="utf-8"):
+            offenders.append(str(path.relative_to(ROOT)))
+
+    assert not offenders, f"em dashes in {', '.join(offenders)}"
+
+
 def _strings(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
     found = []

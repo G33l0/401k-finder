@@ -184,6 +184,44 @@ def test_installer_ships_both_executables():
     assert "{#CliExeName}" in script
 
 
+def test_installer_upgrades_in_place_rather_than_installing_twice():
+    """
+    Inno Setup recognises a previous installation by AppId alone. Letting the
+    version anywhere near it would make every release a separate product, so
+    the user would end up with several copies and several uninstall entries.
+    """
+
+    script = Path("installer/401k-finder.iss").read_text(encoding="utf-8")
+
+    appid = next(
+        line for line in script.splitlines() if line.startswith("#define AppId")
+    )
+    assert "AppVersion" not in appid
+    assert "9F1C2A64-7B3D-4E58-9C21-5D0A6E4F7B12" in appid
+
+
+def test_uninstaller_says_the_licence_key_goes_too():
+    """
+    The prompt used to offer to delete "the data", then took the licence key
+    with it, so a reinstall silently demanded activation again.
+    """
+
+    script = Path("installer/401k-finder.iss").read_text(encoding="utf-8")
+    assert script.count("licence key") >= 2
+
+
+def test_uninstaller_checks_for_relocated_storage():
+    """
+    With the data moved to an external drive, the folder being deleted holds
+    the pointer and the licence but none of the bulk data. Offering to delete
+    "the downloaded data" there would be untrue in both directions.
+    """
+
+    script = Path("installer/401k-finder.iss").read_text(encoding="utf-8")
+    assert "storage.json" in script
+    assert "left untouched" in script
+
+
 def test_reimport_does_not_duplicate_evidence(session, dol_files, imported):
     """
     Only engagements had a unique constraint, so a second import appended a

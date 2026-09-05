@@ -277,7 +277,7 @@ Write-Step 'Verifying the vendored DOL layouts in the source tree'
 # them starts fine and then fails on the first search. Check before packaging.
 #
 # The project is not pip-installed into the venv, only its dependencies are, so
-# `import app` resolves via the current directory — which is not necessarily
+# `import app` resolves via the current directory, which is not necessarily
 # where this script lives when it is invoked by absolute path.
 Push-Location $ProjectRoot
 try {
