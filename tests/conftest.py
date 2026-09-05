@@ -79,3 +79,35 @@ def imported(session, dol_files):
     rebuild_fts(session.get_bind())
 
     return stats
+
+
+#: The scripted employer's years. 2019-2020 one recordkeeper, 2021 onward
+#: another, renamed in 2022. See scripts/make_test_data.SCENARIO_INDEX.
+HISTORY_YEARS: tuple[int, ...] = (2019, 2020, 2021, 2022, 2023)
+
+
+@pytest.fixture(scope="session")
+def dol_history(tmp_path_factory, isolated_data_dir) -> Path:
+    """Synthetic filings across several form years, in one folder."""
+
+    from scripts.make_test_data import generate
+
+    directory = tmp_path_factory.mktemp("dol-history")
+    for year in HISTORY_YEARS:
+        generate(year=year, plan_count=12, output=directory, seed=11)
+
+    return directory
+
+
+@pytest.fixture()
+def history(session, dol_history):
+    """A database holding every year in HISTORY_YEARS."""
+
+    from app.database.schema import rebuild_fts
+    from app.dol.importer import import_directory
+
+    for year in HISTORY_YEARS:
+        import_directory(session, dol_history, form_year=year)
+
+    rebuild_fts(session.get_bind())
+    return session

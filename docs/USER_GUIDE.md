@@ -14,14 +14,15 @@ employers you worked for.
 2. [Before you start: load some data](#2-before-you-start-load-some-data)
 3. [The quickest route: Find my accounts](#3-the-quickest-route-find-my-accounts)
 4. [Reading the result](#4-reading-the-result)
-5. [Finding the plan yourself: Find plans](#5-finding-the-plan-yourself-find-plans)
-6. [Who to call, and what to say](#6-who-to-call-and-what-to-say)
-7. [When the firm has changed hands](#7-when-the-firm-has-changed-hands)
-8. [Looking a provider up directly](#8-looking-a-provider-up-directly)
-9. [When nothing is found](#9-when-nothing-is-found)
-10. [Places that search by Social Security number](#10-places-that-search-by-social-security-number)
-11. [Keeping your data safe](#11-keeping-your-data-safe)
-12. [Common questions](#12-common-questions)
+5. [The whole history of one company](#5-the-whole-history-of-one-company)
+6. [Finding the plan yourself: Find plans](#6-finding-the-plan-yourself-find-plans)
+7. [Who to call, and what to say](#7-who-to-call-and-what-to-say)
+8. [When the firm has changed hands](#8-when-the-firm-has-changed-hands)
+9. [Looking a provider up directly](#9-looking-a-provider-up-directly)
+10. [When nothing is found](#10-when-nothing-is-found)
+11. [Places that search by Social Security number](#11-places-that-search-by-social-security-number)
+12. [Keeping your data safe](#12-keeping-your-data-safe)
+13. [Common questions](#13-common-questions)
 
 ---
 
@@ -65,7 +66,7 @@ dataset no matter how well the search works:
 - **IRAs**, including SEP and SIMPLE plans funded through individual IRAs.
 
 If your old job was with a state, a city, a school district or a church, go
-straight to section 10.
+straight to section 11.
 
 ---
 
@@ -155,11 +156,62 @@ Every line says which schedule and field it came from and for which year, so
 you can check any of it against the original filing.
 
 Underneath each firm you may see a **telephone number and website**. Read
-section 6 before using them.
+section 7 before using them.
 
 ---
 
-## 5. Finding the plan yourself: Find plans
+## 5. The whole history of one company
+
+Open the **Company report** tab when you want everything one employer ever
+filed, rather than one plan in one year.
+
+Type the company name. Nothing else is required: no year, no EIN, no plan
+number. City, state and plan type are there to narrow a common name, and can be
+left alone.
+
+The report searches every form year held on this computer and comes back with:
+
+- **The employer**, including any earlier names. A company that renamed itself
+  is still the same employer, so searching the old name finds the plan now
+  filed under the new one.
+- **Each plan, grouped by type.** A 401(k), a pension and an ESOP get their own
+  sections. They are never folded into one timeline.
+- **A recordkeeper timeline** for each plan. Five filings naming the same firm
+  become one line, so you read `2018-2020 Vanguard` and `2021-present Fidelity`
+  rather than five near-identical rows. Tick **Every year, not periods** when
+  you want the workings.
+- **The changes**, with the form year each was first filed.
+- **Plan and company name changes**, with the year the new name appears.
+- **The other service providers**, listed apart from the recordkeeper.
+- **Source records**, one line per filing, so any of it can be checked.
+
+**Only the recordkeeper is reported as the plan's provider.** A plan's filings
+name everything the money touches, including every fund and collective trust it
+holds. A firm managing a fund inside your plan is not the firm holding your
+account, so investment managers, funds, collective trusts and separate accounts
+are kept out of the provider timeline. Tick **Include investments** to see
+them; they are still never offered as the recordkeeper.
+
+Where no recordkeeper was filed, the report says **Not conclusively
+identified** rather than offering the next-largest name on the schedule. That
+is the honest answer, and the largest name is very often a fund manager who has
+never heard of you.
+
+One limit worth knowing: Form 5500 records no date for a provider change. The
+report gives the form year the change was first filed, not the day it took
+effect. The real changeover is usually a few months either side.
+
+The same report is on the command line:
+
+```bash
+401k-finder report "Acme Manufacturing Inc"
+401k-finder report "Acme Manufacturing" --state IL --type 401k
+401k-finder report "Acme Manufacturing" --annual --output acme.txt
+```
+
+---
+
+## 6. Finding the plan yourself: Find plans
 
 Use this tab when you know the employer and want to look at the plan directly,
 or when **Find my accounts** returned several possibilities.
@@ -190,7 +242,7 @@ file and row.
 
 ---
 
-## 6. Who to call, and what to say
+## 7. Who to call, and what to say
 
 **Start with the recordkeeper.** If there is no recordkeeper, call the trustee,
 the custodian or the insurer. If none of those is named, call the plan
@@ -231,7 +283,7 @@ they prefer.
 
 ---
 
-## 7. When the firm has changed hands
+## 8. When the firm has changed hands
 
 This is the most common reason a trail goes cold, and it is not a dead end.
 
@@ -257,7 +309,7 @@ administers it now.
 
 ---
 
-## 8. Looking a provider up directly
+## 9. Looking a provider up directly
 
 Open the **Providers** tab.
 
@@ -281,7 +333,7 @@ filter already applied.
 
 ---
 
-## 9. When nothing is found
+## 10. When nothing is found
 
 A blank result is not proof that there was no plan. In order of likelihood:
 
@@ -301,7 +353,7 @@ A blank result is not proof that there was no plan. In order of likelihood:
 
 ---
 
-## 10. Places that search by Social Security number
+## 11. Places that search by Social Security number
 
 This application cannot confirm an account exists in your name. These can. They
 hold participant-level records and are the only places your Social Security
@@ -331,7 +383,7 @@ typing their address into your browser yourself.
 
 ---
 
-## 11. Keeping your data safe
+## 12. Keeping your data safe
 
 Everything runs on your computer. No search, no employer name and no report is
 sent anywhere. The only network traffic is downloading the public filings from
@@ -345,7 +397,7 @@ for one would make this look like the scams that operate in this area.
 
 ---
 
-## 12. Common questions
+## 13. Common questions
 
 **How far back does this go?**
 Form years 2009 to 2025. For a job before 2009, the plan usually still exists
@@ -356,7 +408,7 @@ is the same plan you paid into in 2003.
 No. When a plan winds up the money goes somewhere, and the filings usually say
 where. If assets were transferred, the report names the receiving plan. If they
 were not, the balance was most likely paid out or rolled into an IRA in your
-name, which is exactly what the registries in section 10 are for.
+name, which is exactly what the registries in section 11 are for.
 
 **I found the plan but no provider is named.**
 Either that year is indexed rather than fully loaded, or the plan filed the
@@ -375,7 +427,7 @@ dead, the filing is simply old: try a more recent form year, or the plan
 administrator.
 
 **Can it find my IRA?**
-No. IRAs file nothing with the Department of Labor. Section 10 is the route.
+No. IRAs file nothing with the Department of Labor. Section 11 is the route.
 
 **Does an employer have to talk to me?**
 The plan administrator must respond to a written request from a participant for

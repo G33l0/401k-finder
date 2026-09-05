@@ -104,6 +104,27 @@ application's own addition. That list covers the national providers and will
 never cover a small local trustee. It needs reviewing as firms are bought and
 numbers change; `scripts/check_resources.py` checks the links.
 
+### 1.6 A company's whole plan history, from a name ✅
+
+`401k-finder report "Acme Inc"` and the **Company report** tab. No year, no
+EIN, no plan number. `app/reports` finds the employer including under names it
+no longer uses, groups its plans by type, and folds each plan's per-year
+provider rows into periods with the transitions between them.
+
+The classification rules are the point. Only a filed recordkeeper is reported
+as the plan's provider; investment managers, vehicles, collective trusts and
+separate accounts are excluded by name as well as by role, because filers do
+put a fund in the trustee box. Where nothing was filed the report says "Not
+conclusively identified" rather than promoting the largest name present.
+
+**Limits.** Form 5500 records no date for a provider change, so the report
+gives the form year it was first filed rather than an effective date. Only DOL
+data is available offline, so the source-priority list beyond Form 5500 (SEC
+filings, summary plan descriptions) is not implemented and the report does not
+pretend otherwise. A filed year that names nobody between two years that agree
+is carried across and marked MEDIUM; a genuine gap between two different
+providers is left unknown rather than bridged.
+
 ---
 
 ## 2. For individuals

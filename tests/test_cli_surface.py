@@ -169,3 +169,49 @@ def test_status_reports_a_fresh_install_rather_than_failing(tmp_path):
     assert_no_traceback(result)
     assert result.returncode == 0
     assert "Not created yet" in result.stdout
+
+
+# ----------------------------------------------------------------------
+# The company report
+# ----------------------------------------------------------------------
+
+
+def test_report_needs_a_company_name(tmp_path):
+    result = run("init", data_dir=tmp_path)
+    assert result.returncode == 0
+
+    result = run("report", data_dir=tmp_path)
+
+    assert_no_traceback(result)
+    assert result.returncode == 2
+
+
+def test_report_on_a_fresh_install_explains_itself(tmp_path):
+    result = run("report", "Acme Inc", data_dir=tmp_path)
+
+    assert_no_traceback(result)
+    assert result.returncode == 1
+    assert "No data yet" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("report", "Acme Inc"),
+        ("report", "Acme Inc", "--type", "401k"),
+        ("report", "Acme Inc", "--type", "nonsense"),
+        ("report", "Acme Inc", "--state", "IL"),
+        ("report", "Acme Inc", "--state", "notastate"),
+        ("report", "Acme Inc", "--city", "Springfield"),
+        ("report", "Acme Inc", "--year", "2023"),
+        ("report", "Acme Inc", "--annual"),
+        ("report", "Acme Inc", "--investments"),
+        ("report", "'; DROP TABLE plans; --"),
+        ("report", "*"),
+        ("report", ""),
+    ],
+)
+def test_the_report_command_never_ends_in_a_traceback(args, tmp_path):
+    run("init", data_dir=tmp_path)
+
+    assert_no_traceback(run(*args, data_dir=tmp_path))

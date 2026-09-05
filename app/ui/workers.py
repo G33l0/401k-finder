@@ -170,6 +170,18 @@ def search_providers_task(query: ProviderQuery) -> WorkFunction:
     return work
 
 
+def employer_report_task(query) -> WorkFunction:  # noqa: ANN001 - reports.EmployerQuery
+    """The whole plan history for one employer, rendered ready to read."""
+
+    def work(session, _worker) -> tuple:  # noqa: ANN001
+        from app.reports import build_report, render_report
+
+        report = build_report(session, query)
+        return report, render_report(report)
+
+    return work
+
+
 def plans_for_provider_task(provider_name: str) -> WorkFunction:
     """Every plan naming this firm, across each spelling it was filed under."""
 

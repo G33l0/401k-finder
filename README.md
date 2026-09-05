@@ -315,6 +315,66 @@ rules win. See [`app/ui/resources/README.md`](app/ui/resources/README.md).
 
 ---
 
+## A company's whole plan history
+
+`401k-finder report` answers the question the product exists for: **where was
+this company's 401(k) held, over time?** A company name is the only required
+input.
+
+```bash
+401k-finder report "Acme Manufacturing Inc"
+401k-finder report "Acme Manufacturing" --state IL --type 401k
+401k-finder report "Acme Manufacturing" --annual --investments
+```
+
+The desktop application has the same thing under **Company report**.
+
+Every form year held locally is searched, plans are grouped by type, and each
+gets a recordkeeper timeline with consecutive identical years folded into one
+period:
+
+```
+HISTORICAL RECORDKEEPER TIMELINE
+
+2019-2020
+  Recordkeeper: Vanguard
+  Confidence:   HIGH
+  Source:       Schedule C-1-2, field PROVIDER_OTHER_NAME
+
+2021-present
+  Recordkeeper: Fidelity Investments
+  Confidence:   HIGH
+```
+
+Four rules shape it:
+
+- **Only the recordkeeper is the plan's provider.** A plan's filings name every
+  fund and collective trust it holds. Investment managers, vehicles, separate
+  accounts and funds are filtered out of the timeline by name as well as by
+  role, because filers do put a collective trust in the trustee box. Pass
+  `--investments` to see them; they are still never offered as the recordkeeper.
+- **Where none was filed, it says so.** `Not conclusively identified`, never the
+  next-largest name on the schedule.
+- **A renamed company is the same employer.** A plan carries only its most
+  recent sponsor name, so the report also matches every name the plan ever filed
+  under. Searching the old name finds the plan filed under the new one, and
+  both the company and plan renames are reported with the year.
+- **A plan is tracked by EIN and plan number**, not by name, so a rename does
+  not split one history in two. Two plans that merely share a similar company
+  name stay separate.
+
+Plans are grouped under the type a person would name: 401(k), 403(b), 457(b),
+profit sharing, ESOP, money purchase, cash balance, pension, SEP/SIMPLE. Where
+a plan matches more than one, the most specific wins: a plan whose own name
+says 457(b) is a 457(b) even when it also filed code 2J, because 457 plans have
+no characteristics code of their own.
+
+One limit stated plainly in the output: Form 5500 records no date for a provider
+change, so the report gives the form year the change was first filed rather than
+an effective date it does not have.
+
+---
+
 ## Finding your own old 401(k)
 
 > **If you are looking for your own money rather than researching plans, read

@@ -442,3 +442,76 @@ def test_every_background_runner_is_shut_down_on_close(qt_app, window):
 
     assert declared == covered
     assert len(declared) >= 8
+
+
+# ----------------------------------------------------------------------
+# The Company report tab
+# ----------------------------------------------------------------------
+
+
+def test_the_company_report_tab_exists(qt_app, window):
+    labels = [window.tabs.tabText(index) for index in range(window.tabs.count())]
+
+    assert "Company report" in labels
+
+
+def test_a_company_name_alone_builds_a_report(qt_app, window):
+    """No year, no EIN. The tab's whole reason for existing."""
+
+    window.report_panel.company_input.setText("ACME MANUFACTURING")
+    window.report_panel._emit()
+    settle(qt_app, window)
+
+    text = window.report_panel.report_text()
+
+    assert "RETIREMENT PLAN REPORT" in text
+    assert "HISTORICAL RECORDKEEPER TIMELINE" in text
+    assert window.report_panel.export_button.isEnabled()
+
+
+def test_an_empty_company_name_asks_rather_than_searching(qt_app, window):
+    window.report_panel.company_input.setText("   ")
+    window.report_panel._emit()
+    settle(qt_app, window)
+
+    assert "company name" in window.report_panel.status.text().lower()
+    assert window.report_panel.report_text() == ""
+
+
+def test_a_company_that_matched_nothing_says_so(qt_app, window):
+    window.report_panel.company_input.setText("NO SUCH EMPLOYER ANYWHERE AT ALL")
+    window.report_panel._emit()
+    settle(qt_app, window)
+
+    assert "No plan was found" in window.report_panel.report_text()
+    assert not window.report_panel.export_button.isEnabled()
+
+
+def test_the_plan_type_filter_is_offered(qt_app, window):
+    from app.reports import PLAN_TYPES
+
+    combo = window.report_panel.type_combo
+    offered = {combo.itemData(index) for index in range(combo.count())}
+
+    assert "" in offered, "there must be an all-types option"
+    for plan_type in PLAN_TYPES:
+        assert plan_type.key in offered
+
+
+def test_the_report_saves_with_its_extension(qt_app, window, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+
+    window.report_panel.company_input.setText("ACME MANUFACTURING")
+    window.report_panel._emit()
+    settle(qt_app, window)
+
+    target = tmp_path / "acme report"
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(target), ""))
+    )
+
+    window.export_employer_report()
+
+    written = target.with_suffix(".txt")
+    assert written.is_file()
+    assert "RETIREMENT PLAN REPORT" in written.read_text(encoding="utf-8")
