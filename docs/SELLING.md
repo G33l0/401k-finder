@@ -197,7 +197,7 @@ If you host it yourself:
 Publish a SHA-256 checksum beside the download so buyers can verify it:
 
 ```powershell
-Get-FileHash "dist\installer\401KFinderPro-Setup-2.0.0.exe" -Algorithm SHA256
+Get-FileHash "dist\installer\401KFinderPro-Setup-2.1.0.exe" -Algorithm SHA256
 ```
 
 **Code signing is no longer optional once you charge.** A paid product that
@@ -214,7 +214,7 @@ message with the Machine ID already in it.
 
 **2. They email you.** You will get something like:
 
-> 401K Finder Pro 2.0.0
+> 401K Finder Pro 2.1.0
 > Machine ID: 2580db0d3f7e83ff3759d14a76731aa2
 
 **3. You agree a price and take payment.** See the next section.

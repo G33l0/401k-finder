@@ -45,7 +45,7 @@ dist\401K Finder Pro\          the application, ~200 MB
     _internal\                 Python, Qt and the DOL layouts
 
 dist\installer\
-    401KFinderPro-Setup-2.0.0.exe
+    401KFinderPro-Setup-2.1.0.exe
 ```
 
 The person you give this to needs **nothing installed**: no Python, no Qt, no
@@ -424,7 +424,7 @@ $timestamp = "http://timestamp.digicert.com"
     "dist\401K Finder Pro\401k-finder.exe"
 
 & $signtool sign /fd SHA256 /td SHA256 /tr $timestamp /n "Your Company Name" `
-    "dist\installer\401KFinderPro-Setup-2.0.0.exe"
+    "dist\installer\401KFinderPro-Setup-2.1.0.exe"
 ```
 
 Always include `/tr` to timestamp the signature. Without it the signature stops
@@ -435,12 +435,12 @@ whatever was signed while it was live.
 
 ## 8. Distribute it
 
-Ship **`dist\installer\401KFinderPro-Setup-2.0.0.exe`**, one file.
+Ship **`dist\installer\401KFinderPro-Setup-2.1.0.exe`**, one file.
 
 Publish a checksum next to it so people can verify the download:
 
 ```powershell
-Get-FileHash "dist\installer\401KFinderPro-Setup-2.0.0.exe" -Algorithm SHA256
+Get-FileHash "dist\installer\401KFinderPro-Setup-2.1.0.exe" -Algorithm SHA256
 ```
 
 ### What to tell your users
@@ -469,8 +469,8 @@ certificate in the Windows trust store.
 
 ## 9. Ship an update
 
-1. Open `app\__init__.py` and raise `__version__`, for example from `"2.0.0"` to
-   `"2.0.1"`. The build reads it from there and passes it to the installer, so
+1. Open `app\__init__.py` and raise `__version__`, for example from `"2.1.0"` to
+   `"2.1.1"`. The build reads it from there and passes it to the installer, so
    they can never disagree.
 2. Rebuild: `.\build.cmd -Clean -Installer`
 3. Sign, and distribute the new setup file.
